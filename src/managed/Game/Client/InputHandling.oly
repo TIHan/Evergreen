@@ -1,0 +1,152 @@
+module Game.Client.InputHandling
+
+open System
+open Evergreen.Utilities
+open Evergreen.Window
+open static Game.Shared.Types
+
+private field mutable gamepadYawIncrement: float32 = 0
+private field mutable gamepadPitchIncrement: float32 = 0
+// TODO: This really isn't Render-related, put this in an input related module.
+UpdateCharacterInput(deltaTime: float32, inputSnapshot: InputSnapshot, input: byref<CharacterInput>): () =
+
+    let keyEvents = inputSnapshot.KeyEvents
+    let mouseButtonEvents = inputSnapshot.MouseButtonEvents
+    let mouseWheelEvents = inputSnapshot.MouseWheelEvents
+    let mouseInfo = inputSnapshot.MouseInfo
+
+    let mutable i = 0
+    while (i < keyEvents.Length)
+        let keyEvent = keyEvents[i]
+        match (keyEvent.key)
+        | Key.EgWindowKey_w =>
+            input.SetForward(keyEvent.IsDown)
+            if (keyEvent.IsDown || keyEvent.IsPressed)
+                input.ForwardMovementFactor <- 1
+            else
+                input.ForwardMovementFactor <- 0
+
+        | Key.EgWindowKey_s =>
+            input.SetBackward(keyEvent.IsDown)
+            if (keyEvent.IsDown || keyEvent.IsPressed)
+                input.BackwardMovementFactor <- 1
+            else
+                input.BackwardMovementFactor <- 0
+
+        | Key.EgWindowKey_a =>
+            input.SetLeft(keyEvent.IsDown)
+            if (keyEvent.IsDown || keyEvent.IsPressed)
+                input.LeftMovementFactor <- 1
+            else
+                input.LeftMovementFactor <- 0
+
+        | Key.EgWindowKey_d =>
+            input.SetRight(keyEvent.IsDown)
+            if (keyEvent.IsDown || keyEvent.IsPressed)
+                input.RightMovementFactor <- 1
+            else
+                input.RightMovementFactor <- 0
+
+        | Key.EgWindowKey_SPACE =>
+            input.SetJump(keyEvent.IsDown)
+        | Key.EgWindowKey_q =>
+            input.SetSpecial(keyEvent.IsDown)
+        | _ =>
+            ()
+        i <- i + 1
+
+    let mutable i = 0
+    while (i < mouseButtonEvents.Length)
+        let mouseButtonEvent = mouseButtonEvents[i]
+        if (mouseButtonEvent.buttonIndex == 1)
+            input.SetPrimaryUse(mouseButtonEvent.IsDown)
+        i <- i + 1
+
+    let mutable i = 0
+    while (i < mouseWheelEvents.Length)
+        let mouseWheelEvent = mouseWheelEvents[i]
+        i <- i + 1
+
+    ForEach(inputSnapshot.GamepadButtonEvents,
+        event ->
+            if (event.buttonIndex == 0)
+                input.SetJump(event.IsDown)
+    )
+
+    let deltaPosition = inputSnapshot.MouseInfo.DeltaPosition
+    let yawAcc = deltaPosition.X * 0.001 * 2
+    let pitchAcc = deltaPosition.Y * 0.001 * 2
+
+    input.Yaw <- input.Yaw - yawAcc
+    input.Pitch <- Math.Clamp(input.Pitch - pitchAcc, radians(-85), radians(85))
+
+    let gamepadAxisMotionEvents = inputSnapshot.GamepadAxisMotionEvents
+    ForEach(gamepadAxisMotionEvents,
+        event ->
+            match (event.axisId)
+            // Left analog
+            | 0 =>
+                if (event.value > 5000)
+                    input.SetLeft(false)
+                    input.SetRight(true)
+                    input.LeftMovementFactor <- 0
+                    if (event.value > 25000)
+                        input.RightMovementFactor <- 1
+                    else
+                        input.RightMovementFactor <- MathF.Abs(float32(int32(event.value - 5000)) / float32(int32(int16.MaxValue - 5000)))
+                else if (event.value < -5000)
+                    input.SetRight(false)
+                    input.SetLeft(true)
+                    input.RightMovementFactor <- 0
+                    if (event.value < -25000)
+                        input.LeftMovementFactor <- 1
+                    else
+                        input.LeftMovementFactor <- MathF.Abs(float32(int32(event.value + 5000)) / float32(int32(int16.MinValue + 5000)))
+                else
+                    input.SetLeft(false)
+                    input.SetRight(false)
+                    input.LeftMovementFactor <- 0
+                    input.RightMovementFactor <- 0
+            | 1 =>
+                if (event.value > 5000)
+                    input.SetForward(false)
+                    input.SetBackward(true)
+                    input.ForwardMovementFactor <- 0
+                    if (event.value > 25000)
+                        input.BackwardMovementFactor <- 1
+                    else
+                        input.BackwardMovementFactor <- MathF.Abs(float32(int32(event.value - 5000)) / float32(int32(int16.MaxValue - 5000)))
+                else if (event.value < -5000)
+                    input.SetBackward(false)
+                    input.SetForward(true)
+                    input.BackwardMovementFactor <- 0
+                    if (event.value < -25000)
+                        input.ForwardMovementFactor <- 1
+                    else
+                        input.ForwardMovementFactor <- MathF.Abs(float32(int32(event.value + 5000)) / float32(int32(int16.MinValue + 5000)))
+                else
+                    input.SetForward(false)
+                    input.SetBackward(false)
+                    input.ForwardMovementFactor <- 0
+                    input.BackwardMovementFactor <- 0
+            // Right analog
+            | 2 =>
+                if (event.value > 5000)
+                    gamepadYawIncrement <- (float32(int32(event.value - 5000)) / float32(int32(int16.MaxValue - 5000))) * 0.001 * 5
+                else if (event.value < -5000)
+                    gamepadYawIncrement <- (float32(int32(event.value + 5000)) / float32(int32(int16.MinValue + 5000))) * -0.001 * 5
+                else
+                    gamepadYawIncrement <- 0
+            | 3 =>
+                if (event.value > 5000)
+                    gamepadPitchIncrement <- (float32(int32(event.value - 5000)) / float32(int32(int16.MaxValue - 5000))) * 0.001 * 5
+                else if (event.value < -5000)
+                    gamepadPitchIncrement <- (float32(int32(event.value + 5000)) / float32(int32(int16.MinValue + 5000))) * -0.001 * 5
+                else
+                    gamepadPitchIncrement <- 0
+
+            | _ =>
+                ()
+    )
+    input.Yaw <- input.Yaw + gamepadYawIncrement
+    input.Pitch <- Math.Clamp(input.Pitch + gamepadPitchIncrement, radians(-85), radians(85))

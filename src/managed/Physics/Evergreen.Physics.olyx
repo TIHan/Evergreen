@@ -1,0 +1,682 @@
+#target "dotnet: net8"
+#library
+
+#load "*.oly"
+
+#reference "../Utilities/Evergreen.Utilities.olyx"
+#reference "Backend/Jolt/Interop/Evergreen.Physics.Backend.Jolt.Interop.csproj"
+
+#if DEBUG
+#copy "C:/work/Evergreen/src/native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.dll"
+#copy "C:/work/Evergreen/src/native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.pdb"
+#end
+
+#if RELEASE
+#copy "C:/work/Evergreen/src/native/libs/Evergreen.Physics/x64/Release/Evergreen.Physics.Backend.Jolt.Native.dll"
+#end
+
+namespace Evergreen.Physics
+
+open System
+open System.Numerics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Runtime.CompilerServices
+
+open Evergreen.Utilities
+open Evergreen.Physics.Backend.Jolt.Interop
+open static Evergreen.Physics.Backend.Jolt.Interop.Methods
+
+private alias Unsafe = OlyPrelude.Unsafe
+
+newtype StaticObjectId =
+    public field Value: uint32
+
+newtype DynamicObjectId =
+    public field Value: uint32
+
+newtype CharacterId =
+    public field Value: uint32
+
+newtype VirtualCharacterId =
+    public field Value: uint32
+    
+#[open]
+struct PhysicsObject =
+    field mutable tag: int32
+    field mutable objId: uint32
+
+    internal HasInvalidTag: bool get() = this.tag == -1
+
+    internal new (tag: int32, objId: uint32) =
+        {
+            tag = tag
+            objId = objId
+        }
+
+    pattern DynamicObject(obj: PhysicsObject): DynamicObjectId when (obj.tag == 0) =>
+        DynamicObjectId(obj.objId)
+
+    pattern StaticObject(obj: PhysicsObject): StaticObjectId when (obj.tag == 1) =>
+        StaticObjectId(obj.objId)
+
+struct PhysicsMesh =
+    public field mutable Vertices: ReadOnlyMemory<Vector3>
+    public field mutable Indices: ReadOnlyMemory<uint32>
+    new(vertices: ReadOnlyMemory<Vector3>, indices: ReadOnlyMemory<uint32>) =
+        {
+            Vertices = vertices
+            Indices = indices
+        }
+
+class Physics =
+    implements IDisposable
+
+    static field InitCountLockObj: object = Object()
+    static field mutable InitCount: int32 = 0
+
+    static IsNearZero(v: Vector3): bool =
+        egJolt_Vector3_IsNearZero(v) != 0
+
+    static Normalize(q: Quaternion): Quaternion =
+        egJolt_Quaternion_Normalize(q)
+
+    static IsNormalized(q: Quaternion): bool =
+        egJolt_Quaternion_IsNormalized(q) != 0
+
+    internal static CreateDefaultEgJoltCharacterVirtualUpdateSettings(): EgJoltCharacterVirtualUpdateSettings =
+        let mutable settings = default: EgJoltCharacterVirtualUpdateSettings
+        // See StickToFloor inStepDown parameter. Can be zero to turn off.
+        settings.stickToFloorStepDown <- Vector3(0, 0, -0.5)
+        // See WalkStairs inStepUp parameter. Can be zero to turn off.
+        settings.walkStairsStepUp <- Vector3(0, 0, 0.4)
+        // See WalkStairs inStepForward parameter. Note that the parameter only indicates a magnitude, direction is taken from current velocity.
+        settings.walkStairsMinStepForward <- 0.02
+        // See WalkStairs inStepForwardTest parameter. Note that the parameter only indicates a magnitude, direction is taken from current velocity.
+        settings.walkStairsStepForwardTest <- 0.15
+        // Cos(angle) where angle is the maximum angle between the ground normal in the horizontal plane and the character forward vector where we're willing to adjust the step forward test towards the contact normal.
+        settings.walkStairsCosAngleForwardContact <- MathF.Cos(radians(75))
+        // See WalkStairs inStepDownExtra
+        settings.walkStairsStepDownExtra <- Vector3.Zero
+        settings
+
+    internal struct CharacterInfo =
+        public field mutable Id: CharacterId = default
+        public field mutable UserData: uint64 = default
+
+    internal struct CharacterInstance =
+        public field mutable Id: CharacterId = default
+        public field mutable Jolt: EgJoltCharacter = default
+
+    internal struct VirtualCharacterInfo =
+        public field mutable Id: VirtualCharacterId = default
+        public field mutable UserData: uint64 = default
+
+    internal struct VirtualCharacterInstance =
+        public field mutable Id: VirtualCharacterId = default
+        public field mutable Jolt: EgJoltCharacterVirtual = default
+
+    internal class Callbacks =
+
+        field contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> ()
+        field contactPersisted: (bodyId1: uint32, userData1: uint64, bodyId2: uint32, userData2: uint64) -> ()
+
+        public field ContactAddedDelegate: Delegate
+        public field ContactPersistedDelegate: Delegate
+
+        new(
+                contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> (), 
+                contactPersisted: (bodyId1: uint32, userData1: uint64, bodyId2: uint32, userData2: uint64) -> ()
+            ) =
+            {
+                contactAdded = contactAdded
+                ContactAddedDelegate = DotNet.CreateDelegate(this, &&this.ContactAdded)
+
+                contactPersisted = contactPersisted
+                ContactPersistedDelegate = DotNet.CreateDelegate(this, &&this.ContactPersisted)
+            }
+    
+        //#[blittable] // TODO: need a new lang feature - #[blittable(cdecl)]
+        ContactAdded(args: EgJoltContactArgs): () =
+            this.contactAdded(args.bodyId1, args.userData1, args.point1, args.bodyId2, args.userData2, args.point2)
+
+        //#[blittable] // TODO: need a new lang feature - #[blittable(cdecl)]
+        ContactPersisted(args: EgJoltContactArgs): () =
+            this.contactPersisted(args.bodyId1, args.userData1, args.bodyId2, args.userData2)
+
+    /// Earth's standard gravity
+    /// m/s^2
+    public static field StandardGravity: Vector3 = Vector3(0, 0, -9.80665)
+
+    field Instance: EgJoltInstance
+    field MaxBodyCount: int32
+    field mutable dynamicCount: int32
+    field mutable staticCount: int32
+    field mutable bodyCount: int32
+    field mutable gravity: Vector3
+    field Bodies: ConcurrentDictionary<uint32, ()>
+
+    field mutable NextCharacterIdValue: uint32
+    field Characters: ConcurrentDictionary<uint32, CharacterInstance>
+    field CharacterIdLookup: ConcurrentDictionary<void*, CharacterInfo>
+
+    field mutable NextVirtualCharacterIdValue: uint32
+    field VirtualCharacters: ConcurrentDictionary<uint32, VirtualCharacterInstance>
+    field VirtualCharacterIdLookup: ConcurrentDictionary<void*, VirtualCharacterInfo>
+
+    field callbacks: Callbacks
+
+    internal new(callbacks: Callbacks, instance: EgJoltInstance, characterIdLookup: ConcurrentDictionary<void*, CharacterInfo>, virtualCharacterIdLookup: ConcurrentDictionary<void*, VirtualCharacterInfo>) =
+        // Earth gravity by default
+        egJoltSetGravity(instance, StandardGravity)
+        {
+            callbacks = callbacks
+            Bodies = ConcurrentDictionary()
+            dynamicCount = 0
+            staticCount = 0
+            bodyCount = 0
+            MaxBodyCount = int32(egJoltGetMaxBodies())
+            Instance = instance
+            gravity = StandardGravity
+
+            NextCharacterIdValue = 1
+            Characters = ConcurrentDictionary()
+            CharacterIdLookup = characterIdLookup
+
+            NextVirtualCharacterIdValue = 1
+            VirtualCharacters = ConcurrentDictionary()
+            VirtualCharacterIdLookup = virtualCharacterIdLookup
+        }
+
+    private GetNextCharacterIdValue(): uint32 =
+        let idValue = this.NextCharacterIdValue
+        this.NextCharacterIdValue <- idValue + 1
+        idValue
+
+    private GetCharacter(idValue: uint32): CharacterInstance =
+        this.Characters[idValue]
+
+    private GetNextVirtualCharacterIdValue(): uint32 =
+        let idValue = this.NextVirtualCharacterIdValue
+        this.NextVirtualCharacterIdValue <- idValue + 1
+        idValue
+
+    private GetVirtualCharacter(idValue: uint32): VirtualCharacterInstance =
+        this.VirtualCharacters[idValue]
+
+    DynamicCount: int32 get() = this.dynamicCount
+    StaticCount: int32 get() = this.staticCount
+
+    Gravity: Vector3
+        get() = this.gravity
+        set(value) =
+            egJoltSetGravity(this.Instance, value)
+            this.gravity <- value
+
+    AddBox(scale: Vector3, 
+           mass: float32, 
+           userData: uint64, 
+           mutable deterministicId: uint32, 
+           position: Vector3, 
+           rotation: Quaternion, 
+           linearVelocity: Vector3, 
+           angularVelocity: Vector3,
+           gravityFactor: float32,
+           isActive: bool): DynamicObjectId =
+        if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
+           fail("Invalid scale")
+        if (this.bodyCount >= this.MaxBodyCount)
+            fail("Too many bodies")
+        if (mass <= 0)
+            fail("Mass cannot be less than or equal to zero.")
+
+        let mutable state = default: EgJoltBodyState
+        state.position <- position
+        state.rotation <- rotation
+        state.linearVelocity <- linearVelocity
+        state.angularVelocity <- angularVelocity
+        state.gravityFactor <- gravityFactor
+        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+
+        let bodyId = egJoltAddBodyDynamicBox(this.Instance, scale, 1, mass, userData, &&deterministicId, &&state)
+        if (this.Bodies.TryAdd(bodyId, ()))
+            this.dynamicCount <- this.dynamicCount + 1
+            this.bodyCount <- this.bodyCount + 1
+            DynamicObjectId(bodyId)
+        else
+            fail("Body already exists.")
+        
+    AddSphere(radius: float32, mass: float32, userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, linearVelocity: Vector3, angularVelocity: Vector3, isActive: bool): DynamicObjectId =
+        if (this.bodyCount >= this.MaxBodyCount)
+            fail("Too many bodies")
+        if (mass <= 0)
+            fail("Mass cannot be less than or equal to zero.")
+
+        let mutable state = default: EgJoltBodyState
+        state.position <- position
+        state.rotation <- rotation
+        state.linearVelocity <- linearVelocity
+        state.angularVelocity <- angularVelocity
+        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+
+        let bodyId = egJoltAddBodyDynamicSphere(this.Instance, radius, 1, mass, userData, &&deterministicId, &&state)
+        if (this.Bodies.TryAdd(bodyId, ()))
+            this.dynamicCount <- this.dynamicCount + 1
+            this.bodyCount <- this.bodyCount + 1
+            DynamicObjectId(bodyId)
+        else
+            fail("Body already exists.")
+
+    AddStaticBox(scale: Vector3, 
+                 userData: uint64, 
+                 mutable deterministicId: uint32, 
+                 position: Vector3, 
+                 rotation: Quaternion,
+                 isSensor: bool, 
+                 isActive: bool): StaticObjectId =
+        if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
+            fail("Invalid scale")
+        if (this.bodyCount >= this.MaxBodyCount)
+            fail("Too many bodies")
+
+        let mutable state = default: EgJoltBodyState
+        state.position <- position
+        state.rotation <- rotation
+        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+
+        if (isSensor)
+            state.flags <- state.flags | EgJolt_BodyFlags.EgJolt_BodyFlags_IsSensor
+
+        let bodyId = egJoltAddBodyStaticBox(this.Instance, scale, userData, &&deterministicId, &&state)
+        if (this.Bodies.TryAdd(bodyId, ()))
+            this.staticCount <- this.staticCount + 1
+            this.bodyCount <- this.bodyCount + 1
+            StaticObjectId(bodyId)
+        else
+            fail("Body already exists.")
+
+    AddStaticMesh(mutable vertices: ReadOnlySpan<Vector3>, mutable indices: ReadOnlySpan<uint32>, userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, isActive: bool): StaticObjectId =
+        let mutable state = default: EgJoltBodyState
+        state.position <- position
+        state.rotation <- rotation
+        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+
+        let verticesRef = &vertices.GetPinnableReference()
+        let indicesRef = &indices.GetPinnableReference()
+        let bodyId = egJoltAddBodyStaticMesh(this.Instance, &&verticesRef, vertices.Length, &&indicesRef, indices.Length, userData, &&deterministicId, &&state)
+        if (this.Bodies.TryAdd(bodyId, ()))
+            this.staticCount <- this.staticCount + 1
+            this.bodyCount <- this.bodyCount + 1
+            StaticObjectId(bodyId)
+        else
+            fail("Body already exists.")
+
+    AddStaticCompoundMesh(meshes: PhysicsMesh[], userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, isActive: bool): StaticObjectId =
+        let mutable state = default: EgJoltBodyState
+        state.position <- position
+        state.rotation <- rotation
+        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+
+        let pinnedHandles = List()
+
+        let mutable jMeshes = 
+            initArray(meshes.Length,
+                i ->
+                    let mutable mesh = meshes[i]
+                    let mutable verticesHandle = mesh.Vertices.Pin()
+                    let mutable indicesHandle = mesh.Indices.Pin()
+                    pinnedHandles.Add(verticesHandle)
+                    pinnedHandles.Add(indicesHandle)
+
+                    let mutable jMesh = default: EgJoltMesh
+                    jMesh.vertexCount <- uint32(mesh.Vertices.Length)
+                    jMesh.vertices <- Unsafe.AsPointer(verticesHandle.Pointer)
+                    jMesh.indexCount <- uint32(mesh.Indices.Length)
+                    jMesh.indices <- Unsafe.AsPointer(indicesHandle.Pointer)
+                    jMesh.userData <- userData
+                    jMesh
+            )
+
+        let mutable jMeshesHandle = GCHandle.Alloc(jMeshes, GCHandleType.Pinned)
+
+        let mutable compoundMesh = default: EgJoltCompoundMesh
+        compoundMesh.meshCount <- uint32(meshes.Length)
+        compoundMesh.meshes <- Unsafe.AsPointer(jMeshesHandle.AddrOfPinnedObject())
+
+        let bodyId = egJoltAddBodyStaticCompoundMesh(this.Instance, compoundMesh, userData, &&deterministicId, &&state)
+
+        let result =
+            if (this.Bodies.TryAdd(bodyId, ()))
+                this.staticCount <- this.staticCount + 1
+                this.bodyCount <- this.bodyCount + 1
+                StaticObjectId(bodyId)
+            else
+                fail("Body already exists.")
+
+        ForEach(pinnedHandles,
+            (mutable handle) -> handle.Dispose()
+        )
+
+        jMeshesHandle.Free()
+
+        result
+
+    Remove(objId: DynamicObjectId): () =
+        let mutable result = unchecked default
+        if (this.Bodies.TryRemove(objId.Value, &result))
+            egJoltRemoveBody(this.Instance, objId.Value)
+            this.dynamicCount <- this.dynamicCount - 1
+            this.bodyCount <- this.bodyCount - 1
+        else
+            fail("Body does not exist.")
+
+    Remove(objId: StaticObjectId): () =
+        let mutable result = unchecked default
+        if (this.Bodies.TryRemove(objId.Value, &result))
+            egJoltRemoveBody(this.Instance, objId.Value)
+            this.staticCount <- this.staticCount - 1
+            this.bodyCount <- this.bodyCount - 1
+        else
+            fail("Body does not exist.")
+
+    GetUserData(objId: DynamicObjectId): uint64 =
+        egJoltGetBodyUserData(this.Instance, objId.Value)
+
+    SetUserData(objId: DynamicObjectId, userData: uint64): () =
+        egJoltSetBodyUserData(this.Instance, objId.Value, userData)
+
+    GetUserData(objId: StaticObjectId): uint64 =
+        egJoltGetBodyUserData(this.Instance, objId.Value)
+
+    SetUserData(objId: StaticObjectId, userData: uint64): () =
+        egJoltSetBodyUserData(this.Instance, objId.Value, userData)
+
+    Activate(objId: DynamicObjectId): () =
+        if (!this.Bodies.ContainsKey(objId.Value))
+            fail("Body does not exist.")
+
+        egJoltActivateBody(this.Instance, objId.Value)
+
+    Deactivate(objId: DynamicObjectId): () =
+        if (!this.Bodies.ContainsKey(objId.Value))
+            fail("Body does not exist.")
+
+        egJoltDeactivateBody(this.Instance, objId.Value)
+
+    GetState(objId          : DynamicObjectId,
+             position       : byref<Vector3>,
+             rotation       : byref<Quaternion>,
+             linearVelocity : byref<Vector3>,
+             angularVelocity: byref<Vector3>,
+             isActive       : byref<bool>): () =
+        let mutable state = default: EgJoltBodyState
+        egJolt_Body_GetState(this.Instance, objId.Value, &&state)
+        position        <- state.position
+        rotation        <- state.rotation
+        linearVelocity  <- state.linearVelocity
+        angularVelocity <- state.angularVelocity
+        isActive        <- state.flags.HasFlag(EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive)  
+
+    SetState(objId          : DynamicObjectId,
+             position       : Vector3,
+             rotation       : Quaternion,
+             linearVelocity : Vector3,
+             angularVelocity: Vector3,
+             isActive       : bool): () =
+        let mutable state = default: EgJoltBodyState
+        state.position        <- position
+        state.rotation        <- rotation
+        state.linearVelocity  <- linearVelocity
+        state.angularVelocity <- angularVelocity
+        state.flags           <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        egJolt_Body_SetState(this.Instance, objId.Value, &&state)
+
+    GetState(objId          : StaticObjectId,
+             position       : byref<Vector3>,
+             rotation       : byref<Quaternion>,
+             isActive       : byref<bool>): () =
+        let mutable state = default: EgJoltBodyState
+        egJolt_Body_GetState(this.Instance, objId.Value, &&state)
+        position <- state.position
+        rotation <- state.rotation
+        isActive <- state.flags.HasFlag(EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive) 
+
+    SetState(objId          : StaticObjectId,
+             position       : Vector3,
+             rotation       : Quaternion,
+             isActive       : bool): () =
+        let mutable state = default: EgJoltBodyState
+        state.position <- position
+        state.rotation <- rotation
+        state.flags    <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        egJolt_Body_SetState(this.Instance, objId.Value, &&state)
+
+    GetCenterOfMassPosition(dynamicId: DynamicObjectId): Vector3 =
+        let mutable position = Vector3.Zero
+        let mutable rotation = default
+        egJoltGetBodyCenterOfMassPositionAndRotation(this.Instance, dynamicId.Value, &&position, &&rotation)
+        position
+
+    GetCenterOfMassPosition(staticId: StaticObjectId): Vector3 =
+        let mutable position = Vector3.Zero
+        let mutable rotation = default
+        egJoltGetBodyCenterOfMassPositionAndRotation(this.Instance, staticId.Value, &&position, &&rotation)
+        position
+
+    IsActive(dynamicId: DynamicObjectId): bool =
+        egJoltIsBodyActive(this.Instance, dynamicId.Value) != 0
+
+    IsValid(objId: DynamicObjectId): bool =
+        this.Bodies.ContainsKey(objId.Value)
+
+    IsValid(objId: StaticObjectId): bool =
+        this.Bodies.ContainsKey(objId.Value)
+
+    IsValid(charId: CharacterId): bool =
+        this.Characters.ContainsKey(charId.Value): bool
+
+    IsValid(charId: VirtualCharacterId): bool =
+        this.VirtualCharacters.ContainsKey(charId.Value)
+
+    // Begin Character
+
+    AddCharacter(position: Vector3, userData: uint64): CharacterId =
+        let mutable settings = default: EgJoltCharacterSettings
+        settings.standingHeight <- 1.8
+        settings.standingRadius <- 0.3
+        settings.crouchingHeight <- 1.5
+        settings.crouchingRadius <- 0.3
+        settings.maxStrength <- 25
+        settings.padding <- 0.02
+        settings.penetrationRecoverySpeed <- 1
+        settings.predictiveContactDistance <- 0.1
+        settings.mass <- 1
+        settings.maxSlopeAngle <- radians(45)
+
+        let joltCharacter = egJoltCreateCharacter(this.Instance, &&settings, position, userData)
+        let characterId = CharacterId(this.GetNextCharacterIdValue())
+        let mutable characterInstance = CharacterInstance()
+        characterInstance.Id <- characterId
+        characterInstance.Jolt <- joltCharacter
+        this.Characters[characterId.Value] <- characterInstance
+        characterId
+
+    Remove(characterId: CharacterId): () =
+        let mutable joltCharacter = default
+        if (this.Characters.TryRemove(characterId.Value, &joltCharacter))
+            egJoltDestroyCharacter(this.Instance, joltCharacter.Jolt)
+        else
+            fail("Character does not exist.")
+
+    GetPosition(characterId: CharacterId): Vector3 =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltGetCharacterPosition(this.Instance, joltCharacter.Jolt)
+
+    SetPosition(characterId: CharacterId, position: Vector3): () =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltSetCharacterPosition(this.Instance, joltCharacter.Jolt, position)
+
+    GetGroundVelocity(characterId: CharacterId): Vector3 =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltGetCharacterGroundVelocity(this.Instance, joltCharacter.Jolt)
+
+    GetLinearVelocity(characterId: CharacterId): Vector3 =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltGetCharacterLinearVelocity(this.Instance, joltCharacter.Jolt)
+
+    SetLinearVelocity(characterId: CharacterId, linearVelocity: Vector3): () =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltSetCharacterLinearVelocity(this.Instance, joltCharacter.Jolt, linearVelocity)
+
+    IsOnGround(characterId: CharacterId): bool =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltIsCharacterOnGround(this.Instance, joltCharacter.Jolt) != 0
+
+    GetCenterOfMassPosition(characterId: CharacterId): Vector3 =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        egJoltGetCharacterCenterOfMassPosition(this.Instance, joltCharacter.Jolt)
+
+    // End Character
+
+    // Begin Virtual Character
+
+    AddVirtualCharacter(position: Vector3, userData: uint64): VirtualCharacterId =
+        let mutable settings = default: EgJoltCharacterSettings
+        settings.standingHeight <- 1.8
+        settings.standingRadius <- 0.3
+        settings.crouchingHeight <- 1.5
+        settings.crouchingRadius <- 0.3
+        settings.maxStrength <- 50
+        settings.padding <- 0.02
+        settings.penetrationRecoverySpeed <- 1
+        settings.predictiveContactDistance <- 0.1
+        settings.mass <- 70
+        settings.maxSlopeAngle <- radians(45)
+        let joltCharacterVirtual = egJoltCreateCharacterVirtual(this.Instance, &&settings, position)
+
+        let virtualCharacterId = VirtualCharacterId(this.GetNextVirtualCharacterIdValue())
+        let mutable virtualCharacterInstance = VirtualCharacterInstance()
+        virtualCharacterInstance.Id <- virtualCharacterId
+        virtualCharacterInstance.Jolt <- joltCharacterVirtual
+        this.VirtualCharacters[virtualCharacterId.Value] <- virtualCharacterInstance
+        virtualCharacterId
+
+    Remove(virtualCharacterId: VirtualCharacterId): () =
+        let mutable instance = default
+        if (this.VirtualCharacters.TryRemove(virtualCharacterId.Value, &instance))
+            egJoltDestroyCharacterVirtual(this.Instance, instance.Jolt)
+        else
+            fail("Character does not exist.")
+
+    Update(virtualCharacterId: VirtualCharacterId, deltaTime: float32): () =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        let mutable settings = CreateDefaultEgJoltCharacterVirtualUpdateSettings()
+        egJoltUpdateCharacterVirtual(this.Instance, instance.Jolt, deltaTime, &&settings)
+
+    GetPosition(virtualCharacterId: VirtualCharacterId): Vector3 =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJoltGetCharacterVirtualPosition(this.Instance, instance.Jolt)
+
+    SetPosition(virtualCharacterId: VirtualCharacterId, position: Vector3): () =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJolt_CharacterVirtual_SetPosition(this.Instance, instance.Jolt, position)
+
+    Refresh(virtualCharacterId: VirtualCharacterId): () =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJolt_CharacterVirtual_RefreshContacts(this.Instance, instance.Jolt)
+
+    GetGroundVelocity(virtualCharacterId: VirtualCharacterId): Vector3 =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJoltGetCharacterVirtualGroundVelocity(this.Instance, instance.Jolt)
+
+    UpdateGroundVelocity(virtualCharacterId: VirtualCharacterId): () =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJolt_CharacterVirtual_RefreshContacts(this.Instance, instance.Jolt)
+        egJoltUpdateCharacterVirtualGroundVelocity(this.Instance, instance.Jolt)
+
+    GetLinearVelocity(virtualCharacterId: VirtualCharacterId): Vector3 =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJoltGetCharacterVirtualLinearVelocity(this.Instance, instance.Jolt)
+
+    SetLinearVelocity(virtualCharacterId: VirtualCharacterId, linearVelocity: Vector3): () =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJoltSetCharacterVirtualLinearVelocity(this.Instance, instance.Jolt, linearVelocity)
+
+    IsOnGround(virtualCharacterId: VirtualCharacterId): bool =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJolt_CharacterVirtual_GetGroundState(this.Instance, instance.Jolt) == EgJolt_GroundState.OnGround
+
+    IsInAir(virtualCharacterId: VirtualCharacterId): bool =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJolt_CharacterVirtual_GetGroundState(this.Instance, instance.Jolt) == EgJolt_GroundState.InAir
+
+    IsOnSteepGround(virtualCharacterId: VirtualCharacterId): bool =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJolt_CharacterVirtual_GetGroundState(this.Instance, instance.Jolt) == EgJolt_GroundState.OnSteepGround
+
+    GetCenterOfMassPosition(virtualCharacterId: VirtualCharacterId): Vector3 =
+        let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
+        egJoltGetCharacterVirtualCenterOfMassPosition(this.Instance, instance.Jolt)
+
+    // End Character
+
+    AreColliding(characterId: CharacterId, objId: StaticObjectId): bool =
+        let joltCharacter = this.GetCharacter(characterId.Value)
+        let joltBodyId = egJoltGetCharacterBodyId(this.Instance, joltCharacter.Jolt)
+        egJoltAreBodiesColliding(this.Instance, joltBodyId, objId.Value) != 0
+
+    AreColliding(objId1: DynamicObjectId, objId2: StaticObjectId): bool =
+        egJoltAreBodiesColliding(this.Instance, objId1.Value, objId2.Value) != 0
+
+    SetGravityFactor(objId: DynamicObjectId, gravityFactor: float32): () =
+        egJoltBodySetGravityFactor(this.Instance, objId.Value, gravityFactor)
+
+    OptimizeBroadPhase(): () =
+        egJoltOptimizeBroadPhase(this.Instance)
+
+    Update(deltaTime: float32, collisionSteps: int32): () =
+        egJoltUpdate(this.Instance, deltaTime, collisionSteps)
+        ForEach(this.Characters,
+            (mutable pair) ->
+                egJoltPostUpdateCharacter(this.Instance, pair.Value.Jolt, 0.01)
+        )
+
+    Dispose(): () =
+        ForEach(this.Characters.Values,
+            joltCharacter ->
+                egJoltDestroyCharacter(this.Instance, joltCharacter.Jolt)
+        )
+        this.Characters.Clear()
+        ForEach(this.VirtualCharacters.Values,
+            joltCharacter ->
+                egJoltDestroyCharacterVirtual(this.Instance, joltCharacter.Jolt)
+        )
+        this.VirtualCharacters.Clear()
+        egJoltDestroyInstance(this.Instance)
+
+        lock(InitCountLockObj,
+            () ->
+                InitCount <- InitCount - 1
+                if (InitCount == 0)
+                    egJoltSharedDestroy()
+        )
+
+    static Create(
+            contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> (), 
+            contactPersisted: (bodyId1: uint32, userData1:uint64, bodyId2: uint32, userData2: uint64) -> ()
+        ): Physics =
+        let characterIdLookup = ConcurrentDictionary()
+        let virtualCharacterIdLookup = ConcurrentDictionary()
+        let callbacks = Callbacks(contactAdded, contactPersisted)
+        let callbackContactAddedPtr = Marshal.GetFunctionPointerForDelegate(callbacks.ContactAddedDelegate)
+        let callbackContactPersistedPtr = Marshal.GetFunctionPointerForDelegate(callbacks.ContactPersistedDelegate)
+
+        lock(InitCountLockObj,
+            () ->
+                if (InitCount == 0)
+                    egJoltSharedInit()
+                InitCount <- InitCount + 1
+        )
+
+        Physics(callbacks, egJoltCreateInstance(Unsafe.Cast(callbackContactAddedPtr), Unsafe.Cast(callbackContactPersistedPtr)), characterIdLookup, virtualCharacterIdLookup)

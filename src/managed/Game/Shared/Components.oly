@@ -1,0 +1,235 @@
+module Game.Shared.Components
+
+open System
+open System.Runtime.InteropServices
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Physics
+open static Game.Shared.Types
+
+#[open]
+extension CameraComponent =
+    inherits Camera
+    implements IComponent<16, Camera>
+
+#[open]
+extension SpriteComponent =
+    inherits Sprite
+    implements IComponent<17, Sprite>
+
+#[open]
+extension TransformComponent =
+    inherits Transform
+    implements IComponent<18, Transform>
+
+    static overrides SerializeDeltaForNetwork(prevSrc: ReadOnlySpan<byte>, src: ReadOnlySpan<byte>, bstream: ByteStream): () =
+        let prevSrc = &MemoryMarshal.Cast<byte, Transform>(prevSrc)[0]
+        let src = &MemoryMarshal.Cast<byte, Transform>(src)[0]
+
+        if (prevSrc.Position == src.Position)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.Position)
+
+        if (prevSrc.Rotation == src.Rotation)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.Rotation)
+
+        // These are less likely to frequently change.
+        if (prevSrc.Scale == src.Scale && prevSrc.Sequence == src.Sequence)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.Scale)
+            bstream.WriteByte(ByteSequence.GetByte(src.Sequence)) 
+
+    static overrides DeserializeDeltaForNetwork(bstream: ByteStream, dst: Span<byte>): () =
+        let dst = &MemoryMarshal.Cast<byte, Transform>(dst)[0]
+
+        if (bstream.ReadBit())
+            dst.Position <- bstream.Read()
+
+        if (bstream.ReadBit())
+            dst.Rotation <- bstream.Read()
+
+        if (bstream.ReadBit())
+            dst.Scale <- bstream.Read()
+            dst.Sequence <- ByteSequence(bstream.ReadByte())
+
+#[open]
+extension MaterialComponent =
+    inherits Material
+    implements IComponent<19, Material>
+
+#[open]
+extension CharacterInputComponent =
+    inherits CharacterInput
+    implements IComponent<20, CharacterInput>
+
+#[open]
+extension StaticRigidBodyComponent =
+    inherits StaticRigidBody
+    implements IComponent<21, StaticRigidBody>
+
+#[open]
+extension CharacterComponent =
+    inherits Character
+    implements IComponent<22, Character>
+
+#[open]
+extension DynamicObjectIdComponent =
+    inherits DynamicObjectId
+    implements IComponent<23, DynamicObjectId>
+
+    static overrides GetName(): string = "DynamicObjectId"
+
+#[open]
+extension StaticObjectIdComponent =
+    inherits StaticObjectId
+    implements IComponent<24, StaticObjectId>
+
+    static overrides GetName(): string = "StaticObjectId"
+
+#[open]
+extension MeshReferenceComponent =
+    inherits MeshReference
+    implements IComponent<25, MeshReference>
+
+#[open]
+extension PlayerComponent =
+    inherits Player
+    implements IComponent<26, Player>
+
+#[open]
+extension CharacterIdComponent =
+    inherits CharacterId
+    implements IComponent<27, CharacterId>
+
+    static overrides GetName(): string = "CharacterId"
+
+#[open]
+extension RigidBodyComponent =
+    inherits RigidBody
+    implements IComponent<28, RigidBody>
+
+    static overrides SerializeDeltaForNetwork(prevSrc: ReadOnlySpan<byte>, src: ReadOnlySpan<byte>, bstream: ByteStream): () =
+        let prevSrc = &MemoryMarshal.Cast<byte, RigidBody>(prevSrc)[0]
+        let src = &MemoryMarshal.Cast<byte, RigidBody>(src)[0]
+
+        if (prevSrc.LinearVelocity == src.LinearVelocity)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.LinearVelocity)
+
+        if (prevSrc.AngularVelocity == src.AngularVelocity)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.AngularVelocity)
+
+        if (prevSrc.Mass == src.Mass)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.Mass)
+
+        if (prevSrc.Flags == src.Flags)
+            bstream.WriteBit(false)
+        else
+            bstream.WriteBit(true)
+            bstream.Write(src.Flags)       
+
+    static overrides DeserializeDeltaForNetwork(bstream: ByteStream, dst: Span<byte>): () =
+        let dst = &MemoryMarshal.Cast<byte, RigidBody>(dst)[0]
+
+        if (bstream.ReadBit())
+            dst.LinearVelocity <- bstream.Read()
+
+        if (bstream.ReadBit())
+            dst.AngularVelocity <- bstream.Read()
+
+        if (bstream.ReadBit())
+            dst.Mass <- bstream.Read()
+
+        if (bstream.ReadBit())
+            dst.Flags <- bstream.Read()
+
+// AVAILABLE: 29
+
+#[open]
+extension HealthComponent =
+    inherits Health
+    implements IComponent<30, Health>
+
+// AVAILABLE: 31
+
+#[open]
+extension OutlineComponent =
+    inherits Outline
+    implements IComponent<32, Outline>
+
+#[open]
+extension VirtualCharacterComponent =
+    inherits VirtualCharacter
+    implements IComponent<33, VirtualCharacter>
+
+#[open]
+extension VirtualCharacterIdComponent =
+    inherits VirtualCharacterId
+    implements IComponent<34, VirtualCharacterId>
+
+    static overrides GetName(): string = "VirtualCharacterId"
+
+#[open]
+extension LightComponent =
+    inherits Light
+    implements IComponent<35, Light>
+
+#[open]
+extension OwnershipComponent =
+    inherits Ownership
+    implements IComponent<36, Ownership>
+
+#[open]
+extension EntityList8Component =
+    inherits EntityList8
+    implements IComponent<37, EntityList8>
+
+#[open]
+extension OrbitComponent =
+    inherits Orbit
+    implements IComponent<38, Orbit>
+
+#[open]
+extension LogicOutputComponent =
+    inherits LogicOutput
+    implements IComponent<39, LogicOutput>
+
+#[open]
+extension LogicInputComponent =
+    inherits LogicInput
+    implements IComponent<40, LogicInput>
+
+#[open]
+extension BoxColliderComponent =
+    inherits BoxCollider
+    implements IComponent<41, BoxCollider>
+
+#[open]
+extension MeshColliderComponent =
+    inherits MeshCollider
+    implements IComponent<42, MeshCollider>
+
+#[open]
+extension PickupableComponent =
+    inherits Pickupable
+    implements IComponent<43, Pickupable>
+
+#[open]
+extension PlayerSpawnPointComponent =
+    inherits PlayerSpawnPoint
+    implements IComponent<44, PlayerSpawnPoint>

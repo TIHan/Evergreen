@@ -1,0 +1,357 @@
+#target "dotnet: net8"
+
+#load "*.oly"
+
+#package "NAudio,2.2.1"
+#package "NAudio.Vorbis,1.5.0"
+
+#reference "../Utilities/Evergreen.Utilities.olyx"
+
+namespace Evergreen.Audio
+
+open System
+open System.IO
+open System.Threading
+open System.Collections.Generic
+
+open NAudio
+open NAudio.Wave
+open NAudio.Wave.SampleProviders
+open NAudio.Vorbis
+
+open Evergreen.Utilities
+
+internal class LoopStream =
+    inherits WaveChannel32
+
+    field sourceStream: WaveStream
+
+    EnableLooping: bool get, set
+
+    new(sourceStream: WaveStream) =
+        base(sourceStream) with {
+            sourceStream = sourceStream
+            EnableLooping = true
+        }
+
+    WaveFormat: WaveFormat
+        overrides get() = this.sourceStream.WaveFormat
+
+    Length: int64
+        overrides get() = this.sourceStream.Length
+
+    Position: int64
+        overrides get() = this.sourceStream.Position
+        overrides set(value) = this.sourceStream.Position <- value
+
+    overrides Read(buffer: mutable byte[], offset: int32, count: int32): int32 =
+        let mutable totalBytesRead = 0
+        
+        let mutable stop = false
+        while (!stop && totalBytesRead < count)
+            let bytesRead = this.sourceStream.Read(buffer, offset + totalBytesRead, count - totalBytesRead)
+            if (bytesRead == 0)
+                if (this.sourceStream.Position == 0 || !this.EnableLooping)
+                    stop <- true
+                else
+                    // loop
+                    this.sourceStream.Position <- 0
+            if (!stop)
+                totalBytesRead <- totalBytesRead + bytesRead
+
+        totalBytesRead
+
+internal class NAudioPlaybackEngine =
+    implements IDisposable
+
+    field outputDevice: IWavePlayer
+    field mixer: MixingSampleProvider
+
+    new(latency: int32) =
+        let sampleRate = 44100
+        let channelCount = 2
+
+        let outputDevice = WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, latency)
+        let mixer = MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channelCount))
+        mixer.ReadFully <- true
+        outputDevice.Init(SampleToWaveProvider(mixer))
+        outputDevice.Play()
+        {
+            outputDevice = outputDevice
+            mixer = mixer
+        }
+
+    PlaySound(sound: Sound, volume: float32, pitch: float32, pan: float32, loopingEnabled: bool): SoundPlayback =
+        let provider = sound.CreateProvider(volume, pitch, pan, loopingEnabled)
+        this.mixer.AddMixerInput(provider)
+        SoundPlayback(provider)
+
+    StopSound(soundPlayback: SoundPlayback): () =
+        if (soundPlayback.IsDefault)
+            throw NullReferenceException()
+        this.mixer.RemoveMixerInput(soundPlayback.Provider)
+
+    internal MixerWaveFormat: WaveFormat get() = this.mixer.WaveFormat
+
+    Dispose(): () =
+        this.outputDevice.Dispose()
+
+internal class SoundToSampleProvider =
+    implements ISampleProvider
+
+    field floatData: mutable float32[]
+
+    field mutable volume: float32
+    Volume: float32
+        get() = this.volume
+        set(value) = this.volume <- clamp(0, 1, value)
+
+    Radians: float32 get, set
+
+    internal Position: int64 get, set
+
+    new(floatData: mutable float32[], waveFormat: WaveFormat) =
+        {
+            floatData = floatData
+            Position = 0
+            volume = 1
+            Radians = 0
+            WaveFormat = waveFormat
+        }
+
+    Read(buffer: mutable float32[], offset: int32, count: int32): int32 =
+        let availableSamples = int64(this.floatData.Length) - this.Position
+        let samplesToCopy = Math.Min(availableSamples, int64(count))
+        System.Array.Copy(Unsafe.Cast(this.floatData), this.Position, Unsafe.Cast(buffer), int64(offset), samplesToCopy)
+        this.Position <- this.Position + samplesToCopy
+
+        let volume = this.Volume
+        let radians = float64(this.Radians)
+
+        let mutable i = offset
+        let end = i + count
+        while (i < end)
+            buffer[i] <- buffer[i] * volume
+            i <- i + 1
+
+        int32(samplesToCopy)
+
+    WaveFormat: WaveFormat get
+
+enum SoundEncoding =
+    | Wave
+    | Vorbis
+
+internal class SoundToSampleExtendedProvider =
+    implements ISampleProvider
+
+    private OutputProvider: ISampleProvider get
+    SoundToSampleProvider: SoundToSampleProvider get
+    PitchShiftingProvider: SmbPitchShiftingSampleProvider get
+    Category: byte get
+
+    LoopingEnabled: bool get, set
+
+    new(floatData: mutable float32[], waveFormat: WaveFormat, category: byte, mixerWaveFormat: WaveFormat) =
+        let soundToSamplerProvider = SoundToSampleProvider(floatData, waveFormat)
+        let pitchShiftingProvider = SmbPitchShiftingSampleProvider(soundToSamplerProvider)
+            
+        let outputProvider =
+            if (waveFormat.Channels == mixerWaveFormat.Channels)
+                pitchShiftingProvider: ISampleProvider
+            else if (waveFormat.Channels == 1 && mixerWaveFormat.Channels == 2)
+                MonoToStereoSampleProvider(pitchShiftingProvider)
+            else
+                throw NotImplementedException("Not yet implemented this channel count conversion")
+        
+        {
+            SoundToSampleProvider = soundToSamplerProvider
+            PitchShiftingProvider = pitchShiftingProvider
+            OutputProvider = outputProvider
+            Category = category
+            LoopingEnabled = false
+        }
+
+    WaveFormat: WaveFormat get() = this.OutputProvider.WaveFormat
+
+    Read(buffer: mutable float32[], offset: int32, count: int32): int32 =
+        let mutable isLooping = true
+        let mutable totalBytesRead = 0
+        while (isLooping && totalBytesRead < count)
+            let bytesRead = this.OutputProvider.Read(buffer, offset + totalBytesRead, count - totalBytesRead)
+            if (bytesRead == 0)
+                if (this.SoundToSampleProvider.Position == 0 || !this.LoopingEnabled)
+                    isLooping <- false
+                else
+                    this.SoundToSampleProvider.Position <- 0
+                    totalBytesRead <- totalBytesRead + bytesRead
+            else
+                totalBytesRead <- totalBytesRead + bytesRead
+        totalBytesRead
+
+    // 0.0 - 1.0
+    Volume: float32
+        get() = this.SoundToSampleProvider.Volume
+        set(value) = this.SoundToSampleProvider.Volume <- value
+
+    Radians: float32
+        get() = this.SoundToSampleProvider.Radians
+        set(value) = this.SoundToSampleProvider.Radians <- value
+
+    // 0.5 - 1.5
+    Pitch: float32
+        get() = this.PitchShiftingProvider.PitchFactor
+        set(value) = this.PitchShiftingProvider.PitchFactor <- clamp(0.5, 1.5, value)
+
+struct SoundPlayback =
+    internal Provider: SoundToSampleExtendedProvider get
+    internal new(provider: SoundToSampleExtendedProvider) =
+        {
+            Provider = provider
+        }
+
+    private CheckAssertions(): () =
+        if (this.Provider === unchecked default)
+            throw NullReferenceException()
+
+    Volume: float32
+        get() = 
+            this.CheckAssertions()
+            this.Provider.Volume
+        set(value) =
+            this.CheckAssertions()
+            this.Provider.Volume <- value
+
+    Radians: float32
+        get() = 
+            this.CheckAssertions()
+            this.Provider.Radians
+        set(value) =
+            this.CheckAssertions()
+            this.Provider.Radians <- value
+
+    Pitch: float32
+        get() = 
+            this.CheckAssertions()
+            this.Provider.Pitch
+        set(value) =
+            this.CheckAssertions()
+            this.Provider.Pitch <- value
+
+    Category: byte
+        get() =
+            this.CheckAssertions()
+            this.Provider.Category
+
+    LoopingEnabled: bool
+        get() =
+            this.CheckAssertions()
+            this.Provider.LoopingEnabled
+        set(value) =
+            this.CheckAssertions()
+            this.Provider.LoopingEnabled <- value
+
+    IsDefault: bool get() = this.Provider === unchecked default
+
+class Sound =
+    private FloatData: mutable float32[] get
+    private WaveFormat: WaveFormat get
+    private Audio: Audio get
+    Category: byte get
+
+    internal CreateProvider(volume: float32, pitch: float32, pan: float32, loopingEnabled: bool): SoundToSampleExtendedProvider =
+        let provider = SoundToSampleExtendedProvider(this.FloatData, this.WaveFormat, this.Category, this.Audio.Engine.MixerWaveFormat)
+        provider.Volume <- volume
+        provider.Pitch <- pitch
+        provider.Radians <- pan
+        provider.LoopingEnabled <- loopingEnabled
+        provider
+
+    internal new(stream: Stream, encoding: SoundEncoding, closeOnDispose: bool, audio: Audio, category: byte) =
+        match (encoding)
+        | SoundEncoding.Vorbis =>
+            let reader: WaveStream = VorbisWaveReader(stream, closeOnDispose)
+            // TODO: could add resampling in here if required
+            let waveFormat = reader.WaveFormat
+            let wholeFile = List<float32>(int32(reader.Length / 4))
+
+            let readBuffer = zeroArray<float32>(waveFormat.SampleRate * waveFormat.Channels)
+            let mutable samplesRead = 0
+            while (
+                samplesRead <- reader.Read(readBuffer.AsSpan<byte>(0, readBuffer.Length * 4))
+                samplesRead > 0
+            )
+                wholeFile.AddRange(System.Linq.Enumerable.Take(Cast(readBuffer), samplesRead))
+
+            let floatData = wholeFile.ToArray()   
+            
+            {
+                FloatData = floatData
+                WaveFormat = waveFormat
+                Audio = audio
+                Category = category
+            }
+
+        | _ =>
+            let reader: WaveStream = WaveFileReader(stream)
+            let targetFormat = WaveFormat(44100, 16, reader.WaveFormat.Channels)
+            let reader = WaveFormatConversionStream(targetFormat, reader)
+            let provider = Pcm16BitToSampleProvider(reader)
+
+            // TODO: could add resampling in here if required
+            let waveFormat = reader.WaveFormat
+            let wholeFile = List<float32>(int32(reader.Length / 4))
+
+            let readBuffer = zeroArray<float32>(targetFormat.SampleRate * targetFormat.Channels)
+            let mutable samplesRead = 0
+            while (
+                samplesRead <- provider.Read(readBuffer, 0, readBuffer.Length)
+                samplesRead > 0
+            )
+                wholeFile.AddRange(System.Linq.Enumerable.Take(Cast(readBuffer), samplesRead))
+                
+            let floatData = wholeFile.ToArray()    
+            
+            {
+                FloatData = floatData
+                WaveFormat = waveFormat
+                Audio = audio
+                Category = category
+            }
+
+    Play(volume: float32, pitch: float32, pan: float32, loopingEnabled: bool): SoundPlayback =
+        this.Audio.Engine.PlaySound(this, volume, pitch, pan, loopingEnabled)
+
+    StopAndPlay(soundToStop: SoundPlayback, volume: float32, pitch: float32, pan: float32, loopingEnabled: bool): SoundPlayback =
+        if (soundToStop.IsDefault)
+            throw NullReferenceException()
+        this.Audio.Engine.StopSound(soundToStop)
+        this.Audio.Engine.PlaySound(this, volume, pitch, pan, loopingEnabled)
+
+class Audio =
+    implements IDisposable
+
+    field mutable isDisposed: int32
+
+    internal Engine: NAudioPlaybackEngine get
+
+    private CheckDisposal(): () =
+        if (this.isDisposed != 0)
+            throw ObjectDisposedException(this.GetType().Name)
+
+    new(latency: int32) =
+        {
+            isDisposed = 0
+            Engine = NAudioPlaybackEngine(latency)
+        }
+
+    CreateSound(stream: Stream, encoding: SoundEncoding, closeOnDispose: bool, category: byte): Sound =
+        this.CheckDisposal()
+        Sound(stream, encoding, closeOnDispose, this, category)
+
+    Dispose(): () =
+        if (Interlocked.CompareExchange(&this.isDisposed, 1, 0) == 0)
+            this.Engine.Dispose()
+        else
+            this.CheckDisposal()
+            

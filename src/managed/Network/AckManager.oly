@@ -1,0 +1,98 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+internal struct AckInfo =
+    TimeStamp: float32 get, set = 0
+    RetryCount: byte get, set = 0
+    Packet: Packet get, set = unchecked default
+
+internal class AckSequenceInfo =
+    Lookup: Dictionary</* fragmentIndex */uint16, AckInfo> get = Dictionary()
+
+internal class AckManager =
+    field kind: PacketKind
+    field lookup: Dictionary</* sequenceId */uint16, AckSequenceInfo> 
+
+    new(kind: PacketKind) =
+        {
+            kind = kind
+            lookup = Dictionary()
+        }
+
+    Clear(): () =
+        this.lookup.Clear()
+
+    Ack(seqId: uint16, fragIndex: uint16): () =
+        let mutable seqInfo = unchecked default
+        if (this.lookup.TryGetValue(seqId, &seqInfo))
+            let mutable ackInfo = unchecked default
+            if (seqInfo.Lookup.Remove(fragIndex, &ackInfo))
+                if (seqInfo.Lookup.Count == 0)
+                    // Message is fully ack'ed
+                    let _ = this.lookup.Remove(seqId)
+
+    IsAcked(seqId: uint16, fragIndex: uint16): bool =
+        let mutable seqInfo = unchecked default
+        if (this.lookup.TryGetValue(seqId, &seqInfo))
+            !seqInfo.Lookup.ContainsKey(fragIndex)
+        else
+            true
+
+    MarkAck(packet: Packet): () =
+        let prevPacketPos = packet.Stream.Position
+        packet.Stream.ResetPosition()
+        let header = packet.Stream.Read<PacketMessageHeader>()
+
+        let seqId = header.SequenceId
+        let fragIndex = header.FragmentIndex
+        
+        let mutable ackInfo = AckInfo()
+        ackInfo.TimeStamp <- 0
+        ackInfo.RetryCount <- 0
+        ackInfo.Packet <- packet
+
+        let mutable seqInfo = unchecked default
+        if (!this.lookup.TryGetValue(seqId, &seqInfo))
+            seqInfo <- AckSequenceInfo()
+            this.lookup.Add(seqId, seqInfo)
+
+        seqInfo.Lookup.Add(fragIndex, ackInfo)
+
+        packet.Stream.Position <- prevPacketPos
+
+    Heartbeat(deltaTime: float32, packetToResend: Packet -> (), onAckTimedOut: IPEndPoint -> ()): () =
+        let maxRetryCount: byte = 3
+        ForEach(this.lookup,
+            (mutable pair) ->
+                let seqId = pair.Key
+                let seqInfo = pair.Value
+                ForEach(seqInfo.Lookup,
+                    (mutable pair) ->
+                        let fragIndex = pair.Key
+                        let mutable ackInfo = pair.Value
+                        let retryCount = ackInfo.RetryCount
+                        if (retryCount >= maxRetryCount)
+                            onAckTimedOut(ackInfo.Packet.IPEndPoint)
+                        else         
+                            let r = ackInfo.TimeStamp
+                            ackInfo.TimeStamp <- r + deltaTime
+                            // backoff strategy
+                            if (r >= float32(TimeSpan.FromSeconds(1 * float64(retryCount + 1)).TotalSeconds))
+                                ackInfo.TimeStamp <- 0
+                                ackInfo.RetryCount <- retryCount + 1
+                                packetToResend(ackInfo.Packet)
+                            seqInfo.Lookup[fragIndex] <- ackInfo // Update ack info
+                )
+        )

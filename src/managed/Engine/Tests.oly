@@ -1,0 +1,294 @@
+module Tests
+
+open System
+open System.IO
+open Game.Resources // Resources
+open Game.Shared // GameEnv
+open Evergreen.Graphics.Rendering // RenderingOptions/Rendering
+open static Game.Client.Rendering.Module // RenderEnv
+
+open System.Numerics
+open Game.Client
+open Game.Server
+open Evergreen.Utilities
+open static Game.Shared.Types
+open static Game.Client.Types
+open static Game.Shared.Components
+open static Game.Client.Components
+
+open Evergreen.Collections
+open Evergreen.Physics
+
+ASSERT(cond: bool): () =
+    if (!cond)
+      fail("assertion failed")
+
+SerializeDeserializePlayer(genv: GameEnv): () =
+    let serverWorld = ServerWorld(genv)
+    let serverSnapshotWorld = World(EntityDatabaseKind.Server)
+
+    let clientWorld = ClientWorld(genv)
+    let clientWorldCopy = ClientStagingWorld(genv)
+    let clientSnapshotWorld = World(EntityDatabaseKind.Client)
+    let clientWorldUpdateSnapshot() =
+        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        clientWorld.CopyTo(clientWorldCopy)
+        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+        clientWorld.CopyTo(clientSnapshotWorld)
+
+    let entId = serverWorld.SpawnPlayer(1)
+
+    serverWorld.CopyTo(serverSnapshotWorld)
+
+    let bstream = ByteStream()
+    serverSnapshotWorld.SerializeForNetwork(bstream)
+
+    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot()
+    ASSERT(clientWorld.Database.IsValid(entId))
+
+    // ---------------------------------------------------------------------------------------------------
+
+    let serverWorld2 = ServerWorld(genv)
+    let serverSnapshotWorld2 = World(EntityDatabaseKind.Server)
+
+    serverWorld2.CopyTo(serverSnapshotWorld2)
+    
+    bstream.Reset()
+    serverSnapshotWorld2.SerializeForNetwork(bstream)
+
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot()
+    ASSERT(!clientWorld.Database.IsValid(entId))
+
+    serverWorld2.Dispose()
+    serverWorld.Dispose()
+    clientWorld.Dispose()
+
+SerializeDeserializePlayer2(genv: GameEnv): () =
+    let serverWorld = ServerWorld(genv)
+    let serverStagingWorld = World(EntityDatabaseKind.Server)
+    let serverSnapshotWorld = World(EntityDatabaseKind.Server)
+
+    let clientWorld = ClientWorld(genv)
+    let clientWorldCopy = ClientStagingWorld(genv)
+    let clientSnapshotWorld = World(EntityDatabaseKind.Client)
+    let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
+        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        clientWorld.CopyTo(clientWorldCopy)
+        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+
+    serverWorld.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    serverWorld.SpawnStaticBox(Vector3.Zero, Quaternion.Identity, Vector3.One, Material())
+    let entId = serverWorld.SpawnPlayer(1)
+
+    serverWorld.Database.TryAddOrUpdate(entId, Health())
+
+    serverWorld.CopyTo(serverStagingWorld)
+
+    let bstream = ByteStream()
+    serverStagingWorld.SerializeForNetwork(bstream)
+    serverStagingWorld.CopyTo(serverSnapshotWorld)
+
+    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot(clientSnapshotWorld)
+    ASSERT(clientWorld.Database.IsValid(entId))
+
+    // ---------------------------------------------------------------------------------------------------
+
+    serverSnapshotWorld.Reset()
+    let serverWorld2 = ServerWorld(genv)
+    let serverStagingWorld2 = World(EntityDatabaseKind.Server)
+
+    serverWorld2.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    let entId2 = serverWorld2.SpawnPlayer(1)
+
+    serverWorld2.CopyTo(serverStagingWorld2)
+    
+    bstream.Reset()
+    serverStagingWorld2.SerializeForNetwork(bstream)
+    serverStagingWorld2.CopyTo(serverSnapshotWorld)
+
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot(clientSnapshotWorld)
+    ASSERT(clientWorld.Database.IsValid(entId2))
+
+    serverWorld2.Dispose()
+    serverWorld.Dispose()
+    clientWorld.Dispose()
+
+SerializeDeserializePlayer3(genv: GameEnv): () =
+    let serverWorld = ServerWorld(genv)
+    let serverStagingWorld = World(EntityDatabaseKind.Server)
+    let serverSnapshotWorld = World(EntityDatabaseKind.Server)
+
+    let clientWorld = ClientWorld(genv)
+    let clientWorldCopy = ClientStagingWorld(genv)
+    let clientSnapshotWorld = World(EntityDatabaseKind.Client)
+    let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
+        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        clientWorld.CopyTo(clientWorldCopy)
+        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+
+    let entId = serverWorld.SpawnPlayer(1)
+    serverWorld.Database.TryAddOrUpdate(entId, Health())
+
+    serverWorld.CopyTo(serverStagingWorld)
+
+    let bstream = ByteStream()
+    serverStagingWorld.SerializeForNetwork(bstream)
+    serverStagingWorld.CopyTo(serverSnapshotWorld)
+
+    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot(clientSnapshotWorld)
+    ASSERT(clientWorld.Database.IsValid(entId))
+
+    clientWorld.SetPhysicsState()
+
+    // ---------------------------------------------------------------------------------------------------
+
+    serverSnapshotWorld.Reset()
+    let serverWorld2 = ServerWorld(genv)
+    let serverStagingWorld2 = World(EntityDatabaseKind.Server)
+
+    serverWorld2.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    let entId2 = serverWorld2.SpawnPlayer(1)
+
+    serverWorld2.CopyTo(serverStagingWorld2)
+    
+    bstream.Reset()
+    serverStagingWorld2.SerializeForNetwork(bstream)
+    serverStagingWorld2.CopyTo(serverSnapshotWorld)
+
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot(clientSnapshotWorld)
+    ASSERT(clientWorld.Database.IsValid(entId2))
+
+    clientWorld.SetPhysicsState()
+
+    serverWorld2.Dispose()
+    serverWorld.Dispose()
+    clientWorld.Dispose()
+
+SerializeDeserializePlayer4(genv: GameEnv): () =
+    let serverWorld = ServerWorld(genv)
+    let serverStagingWorld = World(EntityDatabaseKind.Server)
+    let serverSnapshotWorld = World(EntityDatabaseKind.Server)
+
+    let clientWorld = ClientWorld(genv)
+    let clientWorldCopy = ClientStagingWorld(genv)
+    let clientSnapshotWorld = World(EntityDatabaseKind.Client)
+    let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
+        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        clientWorld.CopyTo(clientWorldCopy)
+        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+
+    let entId = serverWorld.SpawnPlayer(1)
+    serverWorld.Database.TryAddOrUpdate(entId, Health())
+
+    serverWorld.CopyTo(serverStagingWorld)
+
+    let bstream = ByteStream()
+    serverStagingWorld.SerializeForNetwork(bstream)
+    serverStagingWorld.CopyTo(serverSnapshotWorld)
+
+    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+
+    clientWorldUpdateSnapshot(clientSnapshotWorld)
+    ASSERT(clientWorld.Database.IsValid(entId))
+
+    clientWorld.SetPhysicsState()
+
+    // ---------------------------------------------------------------------------------------------------
+
+    let serverWorld2 = ServerWorld(genv)
+    let serverStagingWorld2 = World(EntityDatabaseKind.Server)
+
+    EntityDatabase.SyncArchetypesIfNeccessary(serverSnapshotWorld.Database, serverWorld2.Database)
+    EntityDatabase.SyncArchetypesIfNeccessary(serverSnapshotWorld.Database, serverStagingWorld2.Database)
+
+    serverWorld2.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    let entId2 = serverWorld2.SpawnPlayer(1)
+
+    serverWorld2.CopyTo(serverStagingWorld2)
+    
+    bstream.Reset()
+    
+    serverStagingWorld2.SerializeDeltaForNetwork(serverSnapshotWorld, true, bstream)
+    serverStagingWorld2.CopyTo(serverSnapshotWorld)
+
+    bstream.ResetPosition()
+    clientSnapshotWorld.DeserializeDeltaForNetwork(bstream, networkAdapterState)
+
+    clientWorld.Database.ForEach<VirtualCharacter, VirtualCharacterId>(
+        (entId, _, physId) ->
+            let result = clientWorld.Physics.IsValidPhysicsId(physId)
+            if (!result)
+                fail("database integrity failed")
+    )
+    clientWorldUpdateSnapshot(clientSnapshotWorld)
+    ASSERT(clientWorld.Database.IsValid(entId2))
+    clientWorld.Database.ForEach<VirtualCharacter, VirtualCharacterId>(
+        (entId, _, physId) ->
+            let result = clientWorld.Physics.IsValidPhysicsId(physId)
+            if (!result)
+                fail("database integrity failed")
+    )
+
+    clientWorld.SetPhysicsState()
+
+    serverWorld2.Dispose()
+    serverWorld.Dispose()
+    clientWorld.Dispose()
+
+DatabaseCopyInDifferenSync(): () =
+    let registry = ComponentRegistry()
+    registry.Register<Transform>()
+    registry.Register<Health>()
+    let db1 = EntityDatabase(EntityDatabaseKind.Server, registry)
+    let db2 = EntityDatabase(EntityDatabaseKind.Server, registry)
+
+    let _ = db1.Create(Transform())
+
+    let entId = db2.Create(Health())
+    db2.Delete(entId)
+
+#if DEBUG
+    let mutable succeeded = false
+    try
+        db1.CopyTo(db2)
+    catch (ex: System.Exception) =>
+        succeeded <- true
+    if (!succeeded)
+        fail("expected exception")
+#end
+
+NetworkCompressionShouldSucceed(): () =
+    let xs = initMutableArray(100000, i -> byte(i))
+    let compressedXs = Evergreen.Network.NetworkCompression.Compress(xs, 0, xs.Length)
+    let compressedLength = compressedXs.Length
+    let stagingCompressedXs = zeroArray<byte>(compressedLength)
+    let decompressedXs = Evergreen.Network.NetworkCompression.Decompress(compressedXs, 0, compressedLength)
+
+    let mutable i = 0
+    while (i < xs.Length)
+        if (xs[i] != decompressedXs[i])
+            fail("Compression failed.")
+        i <- i + 1

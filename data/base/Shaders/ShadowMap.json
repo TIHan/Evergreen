@@ -1,0 +1,43 @@
+{
+    "Layouts": [
+        {
+            "Bindings": [
+                {
+                    "Kind": "Uniform",
+                    "Flags": "None",
+                    "StageFlags": "Vertex"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Vertex"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        }
+    ],
+    
+    "Flags": "DepthTest, DepthWrite, DepthOnly",
+    "CullMode": "Front",
+    "FrontFace": "CounterClockwise",
+
+    "DepthBias": {
+        "ConstantFactor": 4.75,
+        "SlopeFactor": 1
+    },
+
+    "Vertex": "depth.vert",
+    "Fragment": "depth.frag"
+}

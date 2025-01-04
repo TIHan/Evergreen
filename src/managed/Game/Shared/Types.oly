@@ -1,0 +1,579 @@
+module Game.Shared.Types
+
+open System
+open System.Text
+open System.Numerics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Physics
+open System.Runtime.InteropServices
+
+enum ConnectionStatus =
+    | NotConnected
+    | Connecting
+    | Connected
+
+module NetworkChannels =
+
+    public field FullSnapshotChannel: byte = 1
+    public field DeltaFromFullSnapshotChannel: byte = 2
+    public field DeltaSnapshotChannel: byte = 3
+    public field SnapshotAckChannel: byte = 4
+    public field LoadSceneChannel: byte = 5
+    public field SceneLoadedChannel: byte = 6
+    public field ClientInputChannel: byte = 100
+
+struct ClientInput =
+
+    Input0: CharacterInput get
+    Input1: CharacterInput get
+    Input2: CharacterInput get
+
+    new(input0: CharacterInput, input1: CharacterInput, input2: CharacterInput) =
+        {
+            Input0 = input0
+            Input1 = input1
+            Input2 = input2
+        }
+
+enum InterpolationBufferFrameEvent =
+    | Lerped
+    | Skipped
+    | Dropped
+    | Unavailable
+
+class InterpolationBuffer<T> =
+
+    private class RemovalEqualityComparer =
+        implements IEqualityComparer<Item>
+
+        GetHashCode(item: Item): int32 = FrameNumber.GetHashCode(item.Frame)
+        Equals(item1: Item, item2: Item): bool = item1.Frame == item2.Frame
+
+        static Default: IEqualityComparer<Item> get = RemovalEqualityComparer()
+
+    private struct Item =
+        public field Frame: FrameNumber
+        public field Value: T
+        public field IsLerped: bool
+        new(frame: FrameNumber, value: T, isLerped: bool) = 
+            { Frame = frame; Value = value; IsLerped = isLerped }
+
+    field minTicks: int32
+    field bufferTicks: int32
+    field queue: PriorityQueue<Item, FrameNumber>
+    field frames: HashSet<FrameNumber>
+    field lerp: (prev: T, next: T, alpha: float32, frame: FrameNumber) -> OptionStruct<T>
+    field mutable previousItem: OptionStruct<Item>
+    field frameEventHandler: InterpolationBufferFrameEvent -> ()
+
+    new(minTicks: int32, bufferTicks: int32, lerp: (prev: T, next: T, alpha: float32, frame: FrameNumber) -> OptionStruct<T>, frameEventHandler: InterpolationBufferFrameEvent -> ()) =
+        {
+            minTicks = minTicks
+            bufferTicks = bufferTicks
+            queue = PriorityQueue()
+            frames = HashSet()
+            lerp = lerp
+            previousItem = NoneStruct
+            frameEventHandler = frameEventHandler
+        }
+
+    private GetNextExpectedFrame(): FrameNumber =
+        match (this.previousItem)
+        | SomeStruct(prevItem) =>
+            prevItem.Frame + FrameNumber.One
+        | _ =>
+            FrameNumber(-1)
+
+    QueueCount: int32 get() = this.queue.Count
+
+    Clear(): () =
+        this.queue.Clear()
+        this.frames.Clear()
+        this.previousItem <- NoneStruct
+
+    AddItem(frame: FrameNumber, value: T): () =
+        let item = Item(frame, value, false)
+
+        // Do not enqueue old frames
+        if (frame >= this.GetNextExpectedFrame() && frame.IsValid)
+            if (this.frames.Add(frame))
+                this.queue.Enqueue(item, frame)
+
+    TryGetItem(outValue: byref<T>): bool =
+        let nextExpectedFrame = this.GetNextExpectedFrame()  
+
+        let mutable throwAwayItem = default
+        let mutable throwAwayPriority = default
+        // Remove old frames
+        while (this.queue.TryPeek(&throwAwayItem, &throwAwayPriority) && throwAwayItem.Frame < nextExpectedFrame)
+            let item = this.queue.Dequeue()
+            let _ = this.frames.Remove(item.Frame)
+
+        while (this.queue.Count > (this.minTicks + this.bufferTicks))
+            let item = this.queue.Dequeue()
+            let _ = this.frames.Remove(item.Frame)
+            this.frameEventHandler(InterpolationBufferFrameEvent.Dropped)
+
+        match (this.previousItem)
+        | SomeStruct(prevItem) when (this.queue.Count > 0) =>
+            let lerp = this.lerp
+            let queue = this.queue
+
+            let mutable hasValue = false
+            let result = this.queue.Peek()
+            if (result.Frame > nextExpectedFrame)
+                let (result, isPeeked) = 
+                    if (this.queue.Count >= this.minTicks)
+                        let item = this.queue.Dequeue()
+                        let _ = this.frames.Remove(item.Frame)
+                        (item, false)
+                    else
+                        (this.queue.Peek(), true)
+                // lerp
+                let nextActualFrame = 
+                    if (isPeeked)
+                        nextExpectedFrame
+                    else
+                        result.Frame
+                match (lerp(prevItem.Value, result.Value, 0.5, nextActualFrame))
+                | SomeStruct(v) =>
+                    outValue <- v
+                    let lerpedResult = Item(nextActualFrame, outValue, true)
+                    this.previousItem <- SomeStruct(lerpedResult)
+                    this.frameEventHandler(InterpolationBufferFrameEvent.Lerped)
+                    hasValue <- true
+                | _ =>
+                    this.previousItem <- SomeStruct(result)
+                    this.frameEventHandler(InterpolationBufferFrameEvent.Dropped)
+            else
+                let item = this.queue.Dequeue()
+                let _ = this.frames.Remove(item.Frame)
+                outValue <- item.Value
+                this.previousItem <- SomeStruct(item)
+                if (item.IsLerped)
+                    this.frameEventHandler(InterpolationBufferFrameEvent.Lerped)      
+                hasValue <- true              
+            hasValue
+        | _ =>
+            match (this.previousItem)
+            | SomeStruct(_) =>
+                this.frameEventHandler(InterpolationBufferFrameEvent.Unavailable)
+                false
+            | _ =>
+                if (this.queue.Count >= this.minTicks)
+                    let item = this.queue.Dequeue()
+                    let _ = this.frames.Remove(item.Frame)
+                    outValue <- item.Value
+                    this.previousItem <- SomeStruct(item)
+                    true
+                else
+                    false
+
+WorldToClip(viewProjection: Matrix4x4, worldPosition: Vector3): Vector3 =
+    let postProjPos = Vector4.Transform(Vector4(worldPosition, 1), viewProjection)
+    Vector3(postProjPos.X / postProjPos.W, postProjPos.Y / postProjPos.W, postProjPos.Z / postProjPos.W)
+
+ClipToScreen(screenSize: Vector2, clipPosition: Vector3): Vector2 =
+    Vector2(
+        (1 + clipPosition.X) * (screenSize.X / 2), 
+        (1 - clipPosition.Y) * (screenSize.Y / 2)
+    )
+
+enum LightKind =
+    inherits byte
+
+    | Directional
+    | Spot
+
+struct Light =
+    public field mutable Kind: LightKind = LightKind.Directional
+    public field mutable Color: vec4 = vec4.Zero
+
+enum CameraProjectionKind =
+    | Perspective
+    | Orthographic
+
+struct Camera =
+    private static DefaultRotation: quat get = quat.CreateFromAxisAngle(vec3.UnitX, radians(90))
+
+    public field mutable Offset: vec3
+
+    public field mutable Yaw: float32
+    public field mutable Pitch: float32
+
+    public field mutable FieldOfView: float32
+    public field mutable Width: int32
+    public field mutable Height: int32
+    public field mutable NearPlaneDistance: float32
+    public field mutable FarPlaneDistance: float32
+    public field mutable ProjectionKind: CameraProjectionKind
+
+    new(fov: float32, width: int32, height: int32, nearPlaneDistance: float32, farPlaneDistance: float32, projectionKind: CameraProjectionKind) =
+        {
+            Offset = vec3.Zero
+            Yaw = 0
+            Pitch = 0
+            FieldOfView = fov
+            Width = width
+            Height = height
+            NearPlaneDistance = nearPlaneDistance
+            FarPlaneDistance = farPlaneDistance
+            ProjectionKind = projectionKind
+        }
+
+    mutable SetYawPitch(yaw: float32, pitch: float32): () =
+        this.Yaw <- yaw
+        this.Pitch <- pitch
+
+    GetPosition(position: vec3): vec3 =
+        position + this.Offset
+
+    GetPosition(transform: Transform): vec3 =
+        this.GetPosition(transform.Position)
+
+    GetTransform(position: vec3): Transform =
+        Transform(this.GetPosition(position), this.Rotation, vec3.One)
+
+    Direction: vec3
+        get() =
+            this.Rotation.Direction
+
+    Rotation: quat
+        get() =
+            Camera.DefaultRotation * this.RealRotation
+
+    RealRotation: quat
+        get() =
+            quat.CreateFromYawPitchRoll(this.Yaw, this.Pitch, 0)
+
+    Projection: Matrix4x4
+        get() =
+            match (this.ProjectionKind)
+            | CameraProjectionKind.Orthographic =>
+                mat4.CreateOrthographic(float32(this.Width), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
+                //mat4.CreateOrthographicOffCenter(-100, 10, -100, 10, this.NearPlaneDistance, this.FarPlaneDistance)
+            | _ =>
+                let fov = 
+                    let fov = this.FieldOfView
+                    if (fov <= 5)
+                        5: float32
+                    else if (fov >= 175)
+                        175
+                    else
+                        fov
+                mat4.CreatePerspectiveFieldOfView(radians(fov), float32(this.Width) / float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
+
+struct Transform =
+    public field mutable Sequence: ByteSequence
+    public field mutable Position: vec3
+    public field mutable Rotation: quat
+    public field mutable Scale: vec3
+
+    new(position: vec3, rotation: quat, scale: vec3) = { Position = position; Rotation = rotation; Scale = scale; Sequence = ByteSequence.Zero }
+    new(position: vec3, rotation: quat) = Transform(position, rotation, vec3.One)
+    new(position: vec3) = Transform(position, quat.Identity)
+    new() = Transform(vec3.Zero)
+    new(rotation: quat) = Transform(vec3.Zero, rotation)
+
+    static FromMatrix(m: mat4): Transform =
+        let mutable position = default
+        let mutable rotation = default
+        let mutable scale = default
+        if (mat4.Decompose(m, &scale, &rotation, &position))
+            Transform(position, rotation, scale)
+        else
+            printLine("Warning: Failed to decompose matrix.")
+            Transform(position, rotation, scale)
+
+    Matrix: Matrix4x4
+        get() =
+            let positionMatrix = mat4.CreateTranslation(this.Position)
+            let rotationMatrix = mat4.CreateFromQuaternion(this.Rotation)
+            let scaleMatrix = mat4.CreateScale(this.Scale)
+            scaleMatrix * rotationMatrix * positionMatrix
+
+    Forward: vec3
+        get() = vec3.Transform(vec3.Forward, this.Rotation)
+
+    Backward: vec3
+        get() = vec3.Transform(vec3.Backward, this.Rotation)
+
+    Left: vec3
+        get() = vec3.Transform(vec3.Left, this.Rotation)
+
+    Right: vec3
+        get() = vec3.Transform(vec3.Right, this.Rotation)
+
+    Up: vec3
+        get() = vec3.Transform(vec3.Up, this.Rotation)
+
+    Down: vec3
+        get() = vec3.Transform(vec3.Down, this.Rotation)
+
+    WorldToLocalMatrix: mat4
+        get() =
+            let mutable inverted = default
+            if (mat4.Invert(this.Matrix, &inverted))
+                inverted
+            else
+                mat4.Identity
+
+    Direction: vec3
+        get() = 
+            this.Rotation.Direction
+
+#[Flags]
+enum MaterialFlags =
+    | None        = 0b0000
+    | Transparent = 0b0001
+    | CastShadows = 0b0010
+    | AcceptLight = 0b0100
+
+struct Material =
+    public field mutable ImageId: Int32Id = Int32Id(0)
+    public field mutable Flags: MaterialFlags = MaterialFlags.None
+
+    IsTransparent: bool get() = this.Flags & MaterialFlags.Transparent != MaterialFlags.None
+    CanCastShadows: bool get() = this.Flags & MaterialFlags.CastShadows != MaterialFlags.None
+    CanAcceptLight: bool get() = this.Flags & MaterialFlags.AcceptLight != MaterialFlags.None
+
+struct Player =
+    public field mutable ClientInputFrame: FrameNumber = FrameNumber.Zero
+    public field mutable ClientIndex: byte = 0
+
+struct PlayerSpawnPoint
+
+#[Flags]
+enum CharacterActions =
+    | None          = 0b0000000
+    | Forward       = 0b0000001
+    | Backward      = 0b0000010
+    | Left          = 0b0000100
+    | Right         = 0b0001000
+    | PrimaryUse    = 0b0010000
+    | Special       = 0b0100000
+    | Jump          = 0b1000000
+
+struct CharacterInput =
+
+    public field mutable Frame: FrameNumber = FrameNumber.Zero
+    public field mutable TimeStamp: int64 = 0
+    public field mutable Actions: CharacterActions = default
+    public field mutable ForwardMovementFactor: float32 = 0
+    public field mutable BackwardMovementFactor: float32 = 0
+    public field mutable LeftMovementFactor: float32 = 0
+    public field mutable RightMovementFactor: float32 = 0
+    public field mutable Yaw: float32 = 0
+    public field mutable Pitch: float32 = 0
+
+    mutable SetForward(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.Forward
+        else
+            this.Actions <- this.Actions & ~CharacterActions.Forward
+
+    mutable SetBackward(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.Backward
+        else
+            this.Actions <- this.Actions & ~CharacterActions.Backward
+
+    mutable SetLeft(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.Left
+        else
+            this.Actions <- this.Actions & ~CharacterActions.Left
+
+    mutable SetRight(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.Right
+        else
+            this.Actions <- this.Actions & ~CharacterActions.Right
+
+    mutable SetPrimaryUse(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.PrimaryUse
+        else
+            this.Actions <- this.Actions & ~CharacterActions.PrimaryUse
+
+    mutable SetSpecial(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.Special
+        else
+            this.Actions <- this.Actions & ~CharacterActions.Special
+
+    mutable SetJump(value: bool): () =
+        if (value)
+            this.Actions <- this.Actions | CharacterActions.Jump
+        else
+            this.Actions <- this.Actions & ~CharacterActions.Jump
+
+struct MeshReference =
+    public field mutable MeshId: Int32Id
+    new(meshId: Int32Id) = { MeshId = meshId }
+    new() = MeshReference(Int32Id(0))
+
+struct BoxCollider
+
+struct MeshCollider =
+    public field mutable MeshId: Int32Id
+    new(meshId: Int32Id) = { MeshId = meshId }
+    new() = MeshCollider(Int32Id(0))
+
+#[Flags]
+enum StaticRigidBodyFlags =
+    | None     = 0b000
+    | IsSensor = 0b001
+
+struct StaticRigidBody =
+    public field mutable Flags: StaticRigidBodyFlags = StaticRigidBodyFlags.None
+
+    IsSensor: bool get() = this.Flags.HasFlag(StaticRigidBodyFlags.IsSensor)
+
+struct Character =
+    public field mutable LinearVelocity: Vector3 = Vector3.Zero
+
+struct VirtualCharacter =
+    public field mutable LinearVelocity: Vector3 = Vector3.Zero
+    public field mutable Speed: float32 = 1
+
+    // TODO: Remove this field. It should belong elsewhere to handle an action a single time.
+    public field mutable SpecialCount: int32 = 0
+
+struct Pickupable
+
+#[Flags]
+enum RigidBodyFlags =
+    | None          = 0b000
+    | Predicted     = 0b001
+    | Active        = 0b010
+
+struct RigidBody =
+    public field mutable LinearVelocity: vec3 = vec3.Zero
+    public field mutable AngularVelocity: vec3 = vec3.Zero
+    public field mutable Mass: float32 = 1
+    public field mutable Flags: RigidBodyFlags = RigidBodyFlags.None
+
+    IsPredicted: bool get() = this.Flags.HasFlag(RigidBodyFlags.Predicted)
+    IsActive: bool get() = this.Flags.HasFlag(RigidBodyFlags.Active)
+
+struct Outline
+
+struct Ownership =
+    public field mutable Owner: EntityId = EntityId.Nil
+
+struct EntityList8 =
+    public field mutable Count: uint32      = 0
+    public field mutable Entity1: EntityId = EntityId.Nil
+    public field mutable Entity2: EntityId = EntityId.Nil
+    public field mutable Entity3: EntityId = EntityId.Nil
+    public field mutable Entity4: EntityId = EntityId.Nil
+    public field mutable Entity5: EntityId = EntityId.Nil
+    public field mutable Entity6: EntityId = EntityId.Nil
+    public field mutable Entity7: EntityId = EntityId.Nil
+    public field mutable Entity8: EntityId = EntityId.Nil
+
+    IsFull: bool get() = this.Count == 8
+
+    mutable Add(entId: EntityId): () =
+        if (!entId.IsNil)
+            match (this.Count)
+            | 0 => this.Entity1 <- entId
+            | 1 => this.Entity2 <- entId
+            | 2 => this.Entity3 <- entId
+            | 3 => this.Entity4 <- entId
+            | 4 => this.Entity5 <- entId
+            | 5 => this.Entity6 <- entId
+            | 6 => this.Entity7 <- entId
+            | 7 => this.Entity8 <- entId
+            | _ => throw InvalidOperationException("EntityList is full")
+            this.Count <- this.Count + 1
+
+    mutable RemoveAt(index: int32): () =
+        if (index < int32(this.Count))
+            match (index)
+            | 0 => this.Entity1 <- EntityId.Nil
+            | 1 => this.Entity2 <- EntityId.Nil
+            | 2 => this.Entity3 <- EntityId.Nil
+            | 3 => this.Entity4 <- EntityId.Nil
+            | 4 => this.Entity5 <- EntityId.Nil
+            | 5 => this.Entity6 <- EntityId.Nil
+            | 6 => this.Entity7 <- EntityId.Nil
+            | 7 => this.Entity8 <- EntityId.Nil
+            | _ => throw IndexOutOfRangeException()
+            let mutable i = index + 1
+            while (i < int32(this.Count))
+                match (i)
+                | 1 => this.Entity1 <- this.Entity2
+                | 2 => this.Entity2 <- this.Entity3
+                | 3 => this.Entity3 <- this.Entity4
+                | 4 => this.Entity4 <- this.Entity5
+                | 5 => this.Entity5 <- this.Entity6
+                | 6 => this.Entity6 <- this.Entity7
+                | 7 => this.Entity7 <- this.Entity8
+                | _ => throw IndexOutOfRangeException()
+                i <- i + 1
+            this.Count <- this.Count - 1
+
+    mutable Remove(entId: EntityId): () =
+        let mutable index = 0
+        while (index < int32(this.Count))
+            if (this[index] == entId)
+                this.RemoveAt(index)
+            else
+                index <- index + 1
+
+    mutable RemoveAllInvalid(db: EntityDatabase): () =
+        let mutable index = 0
+        while (index < int32(this.Count))
+            let entId = this[index]
+            if (!entId.IsNil && !db.IsValid(entId))
+                this.RemoveAt(index)
+            else
+                index <- index + 1
+
+    get_Item(index: int32): EntityId =
+        if (index < int32(this.Count))
+            match (index)
+            | 0 => this.Entity1
+            | 1 => this.Entity2
+            | 2 => this.Entity3
+            | 3 => this.Entity4
+            | 4 => this.Entity5
+            | 5 => this.Entity6
+            | 6 => this.Entity7
+            | 7 => this.Entity8
+            | _ => throw IndexOutOfRangeException()
+        else
+            throw IndexOutOfRangeException()
+
+struct Orbit =
+    public field mutable Time: float32 = 0
+
+enum Target =
+    | None
+    | Activator
+
+enum InputFunction =
+    | Ignore
+    | Destroy
+
+struct LogicOutput =
+    public field mutable Target: Target = Target.None
+    public field mutable TargetFunction: InputFunction = InputFunction.Ignore
+
+struct LogicInput =
+    public field mutable This: EntityId = EntityId.Nil
+    public field mutable Function: InputFunction = InputFunction.Ignore
+
+struct Sprite
+
+// Stats
+
+struct Health =
+    public field mutable Value: uint32 = 100
+
+        

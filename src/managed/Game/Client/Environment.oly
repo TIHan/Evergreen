@@ -1,0 +1,42 @@
+internal module Game.Client.Internal.Environment
+
+open System
+open System.IO
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering
+open Evergreen.Network
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Window
+open Game.Shared
+open Game.Client.Internal
+open static Game.AssetManager
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.ViewModels
+open static Game.Client.Views
+open static Game.Client.RenderState
+
+internal class ClientEnv =
+    implements IDisposable
+
+    GameEnv: GameEnv get
+    ClientEventPublisher: ClientEventPublisher get
+    Connection: ServerConnection get
+    new(genv: GameEnv, clientEventPublisher: ClientEventPublisher) =
+        {
+            GameEnv = genv
+            ClientEventPublisher = clientEventPublisher
+            Connection = ServerConnection(genv, clientEventPublisher)
+        }
+
+    Dispose(): () =
+        this.Connection.Dispose()

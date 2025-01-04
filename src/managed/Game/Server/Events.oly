@@ -1,0 +1,80 @@
+module Game.Server.Events
+
+open Evergreen.Utilities
+open Evergreen.Collections
+open static Game.Shared.Types
+
+internal enum Tag =
+    inherits byte
+
+    | ClientConnected
+    | ClientDisconnected
+    | ClientInputUpdated
+    | SceneLoaded
+    | SceneClosed
+
+newtype ServerEventPublisher =
+    field stream: ByteStream
+
+    ClientConnected(clientIndex: byte): () =
+        let stream = this.stream
+        stream.Write(Tag.ClientConnected)
+        stream.Write(clientIndex)
+
+    ClientDisconnected(clientIndex: byte): () =
+        let stream = this.stream
+        stream.Write(Tag.ClientDisconnected)
+        stream.Write(clientIndex)
+
+    ClientInputUpdated(clientIndex: byte, playerInput: CharacterInput): () =
+        let stream = this.stream
+        stream.Write(Tag.ClientInputUpdated)
+        stream.Write(clientIndex)
+        stream.Write(playerInput)
+
+    SceneLoaded(path: string): () =
+        let stream = this.stream
+        stream.Write(Tag.SceneLoaded)
+        stream.WriteSmallString(path)
+
+    SceneClosed(): () =
+        let stream = this.stream
+        stream.Write(Tag.SceneClosed)
+
+struct ServerEventReader =
+    internal Tag: Tag get
+    internal Stream: ByteStream get
+    new(stream: ByteStream) =
+        {
+            Tag = stream.Peek()
+            Stream = stream
+        }
+
+module ServerEvent =
+
+    private ConsumeTag(bstream: ByteStream): () =
+        let _ = bstream.ReadByte()
+
+    pattern ClientConnected(reader: ServerEventReader): byte when (reader.Tag == Tag.ClientConnected) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.Read()
+
+    pattern ClientDisconnected(reader: ServerEventReader): byte when (reader.Tag == Tag.ClientDisconnected) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.Read()
+
+    pattern ClientInputUpdated(reader: ServerEventReader): (clientIndex: byte, playerInput: CharacterInput) when (reader.Tag == Tag.ClientInputUpdated) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.Read(), stream.Read())
+
+    pattern SceneLoaded(reader: ServerEventReader): string when (reader.Tag == Tag.SceneLoaded) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern SceneClosed(reader: ServerEventReader): () when (reader.Tag == Tag.SceneClosed) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)

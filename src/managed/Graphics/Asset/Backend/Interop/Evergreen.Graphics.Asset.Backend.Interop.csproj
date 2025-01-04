@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <None Include="..\..\..\..\..\native\external\assimp\bin\Debug\assimp-vc143-mtd.dll" Link="assimp-vc143-mtd.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\external\assimp\bin\Debug\assimp-vc143-mtd.pdb" Link="assimp-vc143-mtd.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Debug\Evergreen.Graphics.Native.dll" Link="Evergreen.Graphics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Debug\Evergreen.Graphics.Native.pdb" Link="Evergreen.Graphics.Native.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+	
+  <ItemGroup Condition=" '$(Configuration)' == 'Release' ">
+    <None Include="..\..\..\..\..\native\external\assimp\bin\Release\assimp-vc143-mt.dll" Link="assimp-vc143-mt.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Release\Evergreen.Graphics.Native.dll" Link="Evergreen.Graphics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,38 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#include "core.glsl"
+    
+layout(set = 1, binding = 0) readonly buffer _PreviousInstances
+{
+    Instance[] PreviousInstances;
+};
+
+layout(set = 1, binding = 1) readonly buffer _Instances
+{
+    Instance[] Instances;
+};
+
+layout(set = 1, binding = 2) buffer _LerpedInstances
+{
+    Instance[] LerpedInstances;
+};
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+mat4 lerp(mat4 matrix1, mat4 matrix2, float t) 
+{
+    mat4 result;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            result[i][j] = mix(matrix1[i][j], matrix2[i][j], t);
+        }
+    }
+    return result;
+}
+
+void main()
+{
+   uint index = gl_GlobalInvocationID.x;
+   LerpedInstances[index] = Instances[index];
+   LerpedInstances[index].transform = lerp(PreviousInstances[index].transform, Instances[index].transform, iAlpha);
+}

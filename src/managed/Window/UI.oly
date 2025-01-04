@@ -1,0 +1,1506 @@
+namespace Evergreen.Graphics.Rendering.UI
+
+open System
+open System.Text
+open System.Numerics
+open System.Collections.Generic
+open System.Threading
+open System.Runtime.InteropServices
+open Evergreen
+open Evergreen.ImGui
+open Evergreen.Utilities
+open Evergreen.Graphics.Rendering
+
+alias Color = System.Drawing.Color
+
+private module Span =
+
+    TryFindIndex<T>(mutable span: Span<T>, predicate: T -> bool): int32 =
+        let mutable isFound = false
+        let mutable i = 0
+        while (i < span.Length && !isFound)
+            let item = span[i]
+            if (predicate(item))
+                isFound <- true
+            else
+                i <- i + 1
+        if (isFound)
+            i
+        else
+            -1
+
+class Font =
+    internal IsInitialized: bool get, set
+    internal ImFont: ImFont get, set
+
+    FilePath: string get
+    Size: float32 get
+    FilePath2: Option<string> get
+    Size2: float32 get
+
+    new(filePath: string, size: float32) =
+        {
+            FilePath = filePath
+            Size = size
+
+            IsInitialized = false
+            ImFont = default
+            FilePath2 = None
+            Size2 = 0
+        }
+
+    new(filePath: string, size: float32, filePath2: string, size2: float32) =
+        {
+            FilePath = filePath
+            Size = size
+
+            IsInitialized = false
+            ImFont = default
+            FilePath2 = Some(filePath2)
+            Size2 = size2
+        }
+
+    MergeWith(filePath: string, size: float32): Font =
+        if (this.FilePath2.IsSome)
+            fail("Font already merged with another.")
+        Font(this.FilePath, this.Size, filePath, size)
+
+internal enum ViewTag =
+    | Style
+    | Window
+    | Button
+    | TextInput
+    | Label
+    | Image
+    | Checkbox
+    | ComboBox
+    | LinePlot
+    | TabBar
+    | TabItem
+    | Text
+    | Grid
+    | StackPanel
+    | IntInput
+    | SliderFloat
+    | Scrollbar
+    | Dummy
+
+interface ISizeableView =
+
+    Size: Vector2 get, set
+
+abstract class View =
+
+    static field NextId: int32 = 0
+
+    field Tag: ViewTag
+
+    Id: int32 get
+    IsEnabled: bool get, set
+    IsVisible: bool get, set
+    Tooltip: Option<View> get, set
+    Style: Option<Style> get, set
+    OnBeforeUpdate: Option<(UIContext, deltaTime: float32) -> ()> get, set
+    OnAfterUpdate: Option<(UIContext, deltaTime: float32) -> ()> get, set
+
+    IsHovered: bool abstract default get() = false
+
+    internal WillFocus: bool get, set
+
+    internal new(tag: ViewTag) = 
+        { 
+            Tag = tag
+
+            Id = Interlocked.Increment(&NextId)
+            IsEnabled = true
+            IsVisible = true
+            Tooltip = None
+            Style = None
+            OnBeforeUpdate = None
+            OnAfterUpdate = None
+
+            WillFocus = false
+        }
+
+    Focus(): () =
+        this.WillFocus <- true
+
+    pattern Window(view: View): WindowView when (view.Tag == ViewTag.Window) =>
+        Unsafe.Cast(view)
+
+    pattern Button(view: View): ButtonView when (view.Tag == ViewTag.Button) =>
+        Unsafe.Cast(view)
+
+    pattern TextInput(view: View): TextInputView when (view.Tag == ViewTag.TextInput) =>
+        Unsafe.Cast(view)
+
+    pattern Label(view: View): LabelView when (view.Tag == ViewTag.Label) =>
+        Unsafe.Cast(view)
+
+    pattern Image(view: View): ImageView when (view.Tag == ViewTag.Image) =>
+        Unsafe.Cast(view)
+
+    pattern Checkbox(view: View): CheckboxView when (view.Tag == ViewTag.Checkbox) =>
+        Unsafe.Cast(view)
+
+    pattern ComboBox(view: View): ComboBoxView when (view.Tag == ViewTag.ComboBox) =>
+        Unsafe.Cast(view)
+
+    pattern LinePlot(view: View): LinePlotView when (view.Tag == ViewTag.LinePlot) =>
+        Unsafe.Cast(view)
+
+    pattern TabBar(view: View): TabBarView when (view.Tag == ViewTag.TabBar) =>
+        Unsafe.Cast(view)
+
+    pattern TabItem(view: View): TabItemView when (view.Tag == ViewTag.TabItem) =>
+        Unsafe.Cast(view)
+
+    pattern Text(view: View): TextView when (view.Tag == ViewTag.Text) =>
+        Unsafe.Cast(view)
+
+    pattern Grid(view: View): GridView when (view.Tag == ViewTag.Grid) =>
+        Unsafe.Cast(view)
+
+    pattern StackPanel(view: View): StackPanelView when (view.Tag == ViewTag.StackPanel) =>
+        Unsafe.Cast(view)
+
+    pattern IntInput(view: View): IntInputView when (view.Tag == ViewTag.IntInput) =>
+        Unsafe.Cast(view)
+
+    pattern SliderFloat(view: View): SliderFloatView when (view.Tag == ViewTag.SliderFloat) =>
+        Unsafe.Cast(view)
+
+    pattern Scrollbar(view: View): ScrollbarView when (view.Tag == ViewTag.Scrollbar) =>
+        Unsafe.Cast(view)
+
+    pattern Dummy(view: View): DummyView when (view.Tag == ViewTag.Dummy) =>
+        Unsafe.Cast(view)
+
+abstract class AbstractLabelView =
+    inherits View
+
+    internal new(tag: ViewTag) =
+        base(tag) with {
+            labelBuffer = zeroArray(256)
+            labelBufferLength = 0
+            label = ""
+        }
+
+    field labelBuffer: mutable byte[]
+    field mutable labelBufferLength: int32
+    field mutable label: string
+    internal LabelSpan: ReadOnlySpan<byte> 
+        get() = 
+            if (String.IsNullOrEmpty(this.label))
+                Helpers.EmptyStringSpan
+            else
+                ReadOnlySpan(this.labelBuffer, 0, this.labelBufferLength)
+    Label: string
+        get() = this.label
+        set(mutable value) =
+            this.label <- value
+            this.labelBufferLength <- System.Text.Encoding.UTF8.GetBytes(this.label, 0, this.label.Length, this.labelBuffer, 0)
+
+abstract class AbstractTextView =
+    inherits View
+
+    internal new(tag: ViewTag) =
+        base(tag) with {
+            textBuffer = zeroArray(1024)
+            textBufferLength = 0
+            text = string.Empty
+        }
+
+    field textBuffer: mutable byte[]
+    field mutable textBufferLength: int32
+    field mutable text: string
+    internal TextSpan: ReadOnlySpan<byte> 
+        get() = 
+            if (this.textBufferLength == 0)
+                Span(this.textBuffer, 0, 1).Clear()
+                ReadOnlySpan(this.textBuffer, 0, 1)
+            else
+                ReadOnlySpan(this.textBuffer, 0, this.textBufferLength)
+    Text: string
+        get() = this.text
+        set(value) = 
+            this.text <- value
+            let nullTerminatedValue = value + "\0"
+
+            let index = Math.Max(0, nullTerminatedValue.Length - this.textBuffer.Length)
+            let count = Math.Min(this.textBuffer.Length, nullTerminatedValue.Length)
+            this.textBufferLength <- System.Text.Encoding.UTF8.GetBytes(nullTerminatedValue, index, count, this.textBuffer, 0)
+
+abstract class AbstractLabelTextView =
+    inherits AbstractLabelView
+
+    internal new(tag: ViewTag) =
+        base(tag) with {
+            textBuffer = zeroArray(1024)
+            textBufferLength = 0
+            text = string.Empty
+        }
+
+    field textBuffer: mutable byte[]
+    field mutable textBufferLength: int32
+    field mutable text: string
+    internal TextSpan: ReadOnlySpan<byte> 
+        get() = 
+            if (this.textBufferLength == 0)
+                Span(this.textBuffer, 0, 1).Clear()
+                ReadOnlySpan(this.textBuffer, 0, 1)
+            else
+                ReadOnlySpan(this.textBuffer, 0, this.textBufferLength)
+    Text: string
+        get() = this.text
+        set(value) = 
+            this.text <- value
+            let nullTerminatedValue = value + "\0"
+            this.textBufferLength <- System.Text.Encoding.UTF8.GetBytes(nullTerminatedValue, 0, nullTerminatedValue.Length, this.textBuffer, 0)
+
+enum HorizontalAlignment =
+    | Left
+    | Right
+    | Center
+    | Stretch
+
+enum VerticalAlignment =
+    | Top
+    | Bottom
+    | Center
+    | Stretch
+
+class Style =
+    Font: Option<Font> get, set
+    TextColor: OptionStruct<Color> get, set
+    BackgroundColor: OptionStruct<Color> get, set
+    ModalScreenColor: OptionStruct<Color> get, set
+    ButtonColor: OptionStruct<Color> get, set
+    WindowPadding: OptionStruct<Vector2> get, set
+    WindowBorderSize: OptionStruct<Vector2> get, set
+    WindowBackgroundColor: OptionStruct<Color> get, set
+
+    new() =
+        {
+            Font = None
+            TextColor = NoneStruct
+            BackgroundColor = NoneStruct
+            ModalScreenColor = NoneStruct
+            ButtonColor = NoneStruct
+            WindowPadding = NoneStruct
+            WindowBorderSize = NoneStruct
+            WindowBackgroundColor = NoneStruct
+        }
+
+enum WindowKind =
+    | Window
+    | PopupModal
+    | Overlay
+
+class WindowView =
+    inherits View
+
+    internal isHovered: bool get, set
+    internal WillBringToFront: bool get, set
+
+    new() = 
+        base(ViewTag.Window) with {
+            isHovered = false
+            WillBringToFront = false
+            Children = List()
+
+            Kind = WindowKind.Window
+            IsBackgroundVisible = true
+            IsScrollingEnabled = true
+            IsOpen = true
+            MarginFactor = Vector2.Zero
+            CanShowTitle = true
+            Offset = Vector2.Zero
+            IsOffsetScaling = false
+            ScreenHorizontalStretchFactor = 1
+            ScreenVerticalStretchFactor = 1        
+
+            BackgroundAlpha = 1
+
+            ScreenHorizontalAlignment = HorizontalAlignment.Left
+            ScreenVerticalAlignment = VerticalAlignment.Top
+
+            titleBuffer = zeroArray(256)
+            titleBufferLength = 0
+            title = ""
+            IsTitleValid = false
+
+            OnHovered = () -> ()
+        }
+
+    IsHovered: bool overrides get() = this.isHovered
+    Children: List<View> get
+
+    Kind: WindowKind get, set
+    IsBackgroundVisible: bool get, set
+    IsScrollingEnabled: bool get, set
+    IsOpen: bool get, set
+    CanShowTitle: bool get, set
+    MarginFactor: Vector2 get, set
+    Offset: Vector2 get, set
+    IsOffsetScaling: bool get, set
+    ScreenHorizontalStretchFactor: float32 get, set
+    ScreenVerticalStretchFactor: float32 get, set
+
+    BackgroundAlpha: float32 get, set
+
+    ScreenHorizontalAlignment: HorizontalAlignment get, set
+    ScreenVerticalAlignment: VerticalAlignment get, set
+
+    OnHovered: () -> () get, set
+
+    field titleBuffer: mutable byte[]
+    field mutable titleBufferLength: int32
+    field mutable title: string
+    internal TitleSpan: ReadOnlySpan<byte> get() = ReadOnlySpan(this.titleBuffer, 0, this.titleBufferLength)
+    Title: string
+        get() = this.title
+        set(mutable value) =
+            this.IsTitleValid <- false
+            this.title <- value
+            let nullTerminatedValue = value + "\0"
+            this.titleBufferLength <- System.Text.Encoding.UTF8.GetBytes(nullTerminatedValue, 0, nullTerminatedValue.Length, this.titleBuffer, 0)
+
+    internal IsTitleValid: bool get, set
+
+    BringToFront(): () =
+        this.WillBringToFront <- true
+
+class ButtonView =
+    inherits AbstractLabelView
+
+    internal isHovered: bool get, set
+
+    new() =
+        base(ViewTag.Button) with {
+            isHovered = false
+            OnClicked = () -> ()
+            OnHovered = () -> ()
+        }
+
+    OnClicked: () -> () get, set
+    OnHovered: () -> () get, set
+
+class CompletionItem =
+    Name: string get
+    new(name: string) = { Name = name }
+
+class TextInputView =
+    inherits AbstractLabelView
+
+    private Buffer: mutable byte[] get
+
+    new(maxLength: int32) =
+        let maxHistory = 64
+        let callback =
+            ImGuiInputTextCallback(
+                x ->
+                    if (x.EventFlag == ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackHistory)
+                        let isUp = x.EventKey == 515
+
+                        let pos =
+                            if (isUp)
+                                int32(uint32((this.HistoryPosition - 1)) % uint32(this.History.Length))
+                            else
+                                (this.HistoryPosition + 1) % this.History.Length
+
+                        let str = this.History[pos]
+                        if (str !== unchecked default)
+                            this.HistoryPosition <- pos
+                            let span = Span<byte>(Unsafe.Cast(x.Buf), x.BufSize)
+                            let mutable bytes = Span(UTF8Encoding.UTF8.GetBytes(str))
+                            bytes.CopyTo(span)
+                            x.BufTextLen <- bytes.Length
+                            x.BufDirty <- 1
+                            x.CursorPos <- bytes.Length
+
+                        0
+                    else if (x.EventFlag == ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackCompletion)
+                        let size = Math.Min(x.BufTextLen, this.Buffer.Length)
+                        let mutable span = Span<byte>(Unsafe.Cast(x.Buf), size)
+                        let mutable spanBuffer = Span(this.Buffer, 0, size)
+                        span.CopyTo(spanBuffer)
+                        let completionText = UTF8Encoding.UTF8.GetString(Span<_>.op_Implicit(spanBuffer))
+
+                        let strBuilder = StringBuilder()
+                        let completionItems = System.Linq.Enumerable.OrderBy(this.CompletionItems, x -> x.Name)
+                        ForEach(completionItems,
+                            completionItem ->
+                                if (completionItem.Name.StartsWith(completionText, StringComparison.OrdinalIgnoreCase))
+                                    let _ = strBuilder.AppendLine("[command_info]- " + completionItem.Name)
+                        )
+
+                        Log(strBuilder.ToString())
+
+                        0
+                    else if (x.EventChar == Convert.ToUInt32('`'))
+                        1 // discard
+                    else
+                        0
+            )
+        base(ViewTag.TextInput) with {
+            Buffer = zeroArray(maxLength + 1)
+
+            HistoryPosition = 0
+            HistoryRecordPosition = 0
+            History = zeroArray(maxHistory)
+            Callback = callback
+
+            textBuffer = zeroArray(maxLength + 1)
+            textBufferLength = 0
+            text = string.Empty
+
+            CompletionItems = List()
+
+            OnTextChanged = (x, y) -> ()
+            FlipLabel = false
+            CanUseWindowWidth = false
+            IsHistoryEnabled = false
+            IsCompletionEnabled = false
+            MaxLength = maxLength
+            IsPassword = false
+            WillUpdateOnReturn = false
+        }
+
+    internal HistoryPosition: int32 get, set
+    internal HistoryRecordPosition: int32 get, set
+    internal History: mutable string[] get
+    internal Callback: ImGuiInputTextCallback get
+
+    internal RecordHistory(str: string): () =
+        if (!string.IsNullOrWhiteSpace(str))
+            let i = this.HistoryRecordPosition
+            let iprev = int32(uint32(i - 1) % uint32(this.History.Length))
+            // If the previous entry is the same, then do not record it.
+            if (this.History[iprev] != str)
+                this.History[i] <- str
+                this.HistoryRecordPosition <- (i + 1) % this.History.Length
+                this.HistoryPosition <- this.HistoryRecordPosition
+                this.History[this.HistoryRecordPosition] <- unchecked default
+            else
+                this.HistoryPosition <- (iprev + 1) % this.History.Length
+
+    CompletionItems: List<CompletionItem> get
+
+    FlipLabel: bool get, set
+    CanUseWindowWidth: bool get, set
+    IsHistoryEnabled: bool get, set
+    IsCompletionEnabled: bool get, set
+    MaxLength: int32 get
+    IsPassword: bool get, set
+    WillUpdateOnReturn: bool get, set
+
+    field textBuffer: mutable byte[]
+    field mutable textBufferLength: int32
+    field mutable text: string
+    internal TextSpan: Span<byte> get() = Span(this.textBuffer, 0, this.textBuffer.Length)
+    Text: string
+        get() = this.text
+        set(value) = 
+            this.text <- value
+            let nullTerminatedValue = value + "\0"
+            this.textBufferLength <- System.Text.Encoding.UTF8.GetBytes(nullTerminatedValue, 0, nullTerminatedValue.Length, this.textBuffer, 0)
+
+    OnTextChanged: (previousText: string, text: string) -> () get, set
+
+class LabelView =
+    inherits AbstractLabelTextView
+
+    new() = base(ViewTag.Label)
+
+class ImageView =
+    inherits View
+
+    IsScaling: bool get, set
+    Size: Vector2 get, set
+
+    new() =
+        base(ViewTag.Image) with {
+            IsScaling = true
+            descriptorSet = Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL
+            gpuImage = unchecked default
+            isDirty = false
+            BorderColor = Vector4.Zero
+            Size = Vector2.Zero
+        }
+
+    BorderColor: Vector4 get, set
+
+    internal field mutable isDirty: bool
+    internal field mutable descriptorSet: Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet
+
+    field mutable gpuImage: IGpuImage
+    GpuImage: IGpuImage 
+        get() = this.gpuImage
+        set(value) =
+            this.gpuImage <- value 
+            this.isDirty <- true
+
+class CheckboxView =
+    inherits AbstractLabelView
+
+    internal isHovered: bool get, set
+
+    new() =
+        base(ViewTag.Checkbox) with {
+            isHovered = false
+            IsChecked = false
+            OnChecked = (x: bool) -> ()
+            OnHovered = () -> ()
+        }
+
+    IsHovered: bool overrides get() = this.isHovered
+    IsChecked: bool get, set
+    OnChecked: bool -> () get, set
+    OnHovered: () -> () get, set
+
+class ComboBoxView =
+    inherits AbstractLabelView
+
+    new() =
+        base(ViewTag.ComboBox) with {
+            SelectedItemIndex = 0
+            PopupMaxHeight = 8
+            OnSelectedItemIndexChanged = (x: int32, y: int32) -> ()
+
+            itemPtrs = mutable []
+            items = mutable []
+        }
+
+    SelectedItemIndex: int32 get, set
+    PopupMaxHeight: int32 get, set
+    OnSelectedItemIndexChanged: (previousSelectedItemIndex: int32, selectedItemIndex: int32) -> () get, set
+
+    internal field mutable itemPtrs: mutable (byte*)[]
+    field mutable items: mutable string[]
+    Items: mutable string[] 
+        get() = this.items
+        set(value) =
+            this.Free()
+
+            this.itemPtrs <- 
+                map(value,
+                    str ->
+                        let buffer = zeroArray(256)
+                        let byteCount = System.Text.Encoding.UTF8.GetBytes(str, 0, str.Length, buffer, 0)
+                        let ptr = Marshal.AllocHGlobal(byteCount + 1)
+                        let mutable span = Span<byte>(buffer, 0, byteCount)
+                        let mutable outputSpan = Span<byte>(Unsafe.Cast<void*>(ptr), byteCount + 1)
+                        span.CopyTo(outputSpan)
+                        (outputSpan[outputSpan.Length - 1]) <- 0
+                        Unsafe.AsPointer(ptr)
+                )
+
+            this.items <- value
+
+    private Free(): () =
+        let mutable i = 0
+        while (i < this.itemPtrs.Length)
+            Marshal.FreeHGlobal(nint(this.itemPtrs[i]))
+            this.itemPtrs[i] <- default
+            i <- i + 1
+
+    protected overrides Finalize(): () =
+        this.Free()
+
+class LinePlotView =
+    inherits AbstractLabelTextView
+
+    new() =
+        base(ViewTag.LinePlot) with {
+            Values = mutable []
+            Offset = 0
+            MinScale = float32.MaxValue
+            MaxScale = float32.MaxValue
+            BaseSize = Vector2(0.5 * 720: float32, 50)
+        }
+
+    Values: mutable float32[] get, set
+    Offset: int32 get, set
+    MinScale: float32 get, set
+    MaxScale: float32 get, set
+    BaseSize: Vector2 get, set
+
+class TabBarView =
+    inherits View
+
+    internal SelectedTabId: uint32 get, set
+    Children: List<View> get
+
+    new() =
+        base(ViewTag.TabBar) with {
+            SelectedTabId = 0
+            Children = List()
+        }
+
+class TabItemView =
+    inherits AbstractLabelView
+
+    internal isHovered: bool get, set
+
+    IsHovered: bool overrides get() = this.isHovered
+    Children: List<View> get
+    IsOpen: bool get, set
+    OnHovered: () -> () get, set
+    OnClicked: () -> () get, set
+
+    new() =
+        base(ViewTag.TabItem) with {
+            isHovered = false
+            Children = List()
+            IsOpen = true
+            OnHovered = () -> ()
+            OnClicked = () -> ()
+        }
+
+class TextView =
+    inherits AbstractTextView
+
+    internal isHovered: bool get, set
+
+    Experimental_IsSelectable: bool get, set
+
+    new() =
+        base(ViewTag.Text) with {
+            isHovered = false
+            Experimental_IsSelectable = false
+            OnHovered = () -> ()
+        }
+
+    IsHovered: bool overrides get() = this.isHovered
+    OnHovered: () -> () get, set
+
+class GridView =
+    inherits View
+
+    CellPadding: Vector2 get, set
+    ColumnCount: int32 get, set
+    Children: List<View> get
+
+    new() =
+        base(ViewTag.Grid) with {
+            CellPadding = Vector2.Zero
+            ColumnCount = 0
+            Children = List()
+        }
+
+class StackPanelView =
+    inherits View
+
+    Children: List<View> get
+    IsHorizontal: bool get, set
+
+    new() =
+        base(ViewTag.StackPanel) with {
+            Children = List()
+            IsHorizontal = false
+        }
+
+class IntInputView =
+    inherits AbstractLabelView
+
+    Value: int32 get, set
+    OnValueChanged: (previousInt: int32, int: int32) -> () get, set
+
+    new() =
+        base(ViewTag.IntInput) with { 
+            Value = 0
+            OnValueChanged = (previousInt, int) -> () 
+        }
+
+class SliderFloatView =
+    inherits AbstractLabelView
+
+    Value: float32 get, set
+    MaxValue: float32 get, set
+    MinValue: float32 get, set
+    OnValueChanged: (prev: float32, curr: float32) -> () get, set
+
+    new() =
+        base(ViewTag.SliderFloat) with {
+            Value = 0
+            MaxValue = float32.MaxValue
+            MinValue = float32.MinValue
+            OnValueChanged = (prev, curr) -> ()
+        }
+
+class ScrollbarView =
+    inherits View
+    implements ISizeableView
+
+    internal isHovered: bool get, set
+    internal WillScrollToBottom: bool get, set
+
+    Children: List<View> get
+    OnHovered: () -> () get, set
+
+    new() =
+        base(ViewTag.Scrollbar) with {
+            isHovered = false
+            Children = List()
+            WillScrollToBottom = false
+            OnHovered = () -> ()
+            Size = Vector2.Zero
+        }
+
+    IsHovered: bool overrides get() = this.isHovered
+
+    Size: Vector2 get, set
+
+    ScrollToBottom(): () =
+        this.WillScrollToBottom <- true
+
+class DummyView =
+    inherits View
+
+    Size: Vector2 get, set
+
+    new() =
+        base(ViewTag.Dummy) with {
+            Size = Vector2.Zero
+        }
+
+internal module Helpers =
+
+    field emptyStringBuffer: mutable byte[] = zeroArray<byte>("\0".Length * 2)
+    field mutable emptyStringBufferLength: int32 = System.Text.Encoding.UTF8.GetBytes("\0", 0, "\0".Length, emptyStringBuffer, 0)
+    internal EmptyStringSpan: ReadOnlySpan<byte> get() = ReadOnlySpan(emptyStringBuffer, 0, emptyStringBufferLength)
+
+    field missingImageStringBuffer: mutable byte[] = zeroArray<byte>("MISSING".Length * 2)
+    field mutable missingImageStringBufferLength: int32 = System.Text.Encoding.UTF8.GetBytes("MISSING", 0, "MISSING".Length, missingImageStringBuffer, 0)
+    internal MissingImageStringSpan: ReadOnlySpan<byte> get() = ReadOnlySpan(missingImageStringBuffer, 0, missingImageStringBufferLength)
+
+class UIContext =
+
+    internal Gpu: Gpu get
+    internal GpuPipelineUI: GpuPipelineUI get
+
+    internal ImGuiContext: ImGuiContext get() = this.GpuPipelineUI.ImGuiContext
+
+    internal ClipperDepth: int32 get, set
+    internal ParentStack: Stack<View> get
+    internal Fonts: List<Font> get() = this.GpuPipelineUI.Fonts
+
+    internal TryGetParent(): Option<View> =
+        let mutable result = unchecked default
+        if (this.ParentStack.TryPeek(&result))
+            Some(result)
+        else
+            None
+
+    internal DelayedWindows: Queue<WindowView> get
+
+    ViewportSize: Vector2 get() = ImGui.GetMainViewportSize(this.ImGuiContext)
+
+    IsMouseDragging: bool get() = ImGui.IsMouseDragging(this.ImGuiContext)
+
+    internal new(gpu: Gpu, gpuPipelineUI: GpuPipelineUI) =
+        {
+            DelayedWindows = Queue()
+            Gpu = gpu
+            GpuPipelineUI = gpuPipelineUI
+            ClipperDepth = 0
+            ParentStack = Stack()
+        }
+
+module UI =
+
+    private UpdateHovered<T>(context: UIContext, mutable view: T): () where T: { isHovered: bool get, set; OnHovered: () -> () get } =
+        if (ImGui.IsItemHovered(context.ImGuiContext))
+            if (!view.isHovered)
+                view.isHovered <- true
+                view.OnHovered()
+        else
+            view.isHovered <- false
+
+    private UpdateHoveredWindow<T>(context: UIContext, mutable view: T): () where T: { isHovered: bool get, set; OnHovered: () -> () get } =
+        if (ImGui.IsWindowHovered(context.ImGuiContext))
+            if (!view.isHovered)
+                view.isHovered <- true
+                view.OnHovered()
+        else
+            view.isHovered <- false
+
+    private PushFont(context: UIContext, font: Font): () =
+        if (!font.IsInitialized)
+            font.IsInitialized <- true
+            match (font.FilePath2)
+            | Some(filePath2) =>
+                font.ImFont <-
+                    let fontSize = font.Size * ImGui.GetScaleFactor(context.ImGuiContext)
+                    let fontSize2 = font.Size2 * ImGui.GetScaleFactor(context.ImGuiContext)
+                    ImGui.MergeFonts(
+                        context.ImGuiContext,
+                        [font.FilePath;filePath2],
+                        [fontSize;fontSize2],
+                        [
+                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
+                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
+                        ]
+                    )
+            | _ =>
+                font.ImFont <- ImGui.AddFont(context.ImGuiContext, font.FilePath, font.Size * ImGui.GetScaleFactor(context.ImGuiContext))
+            context.Fonts.Add(font)
+        ImGui.PushFont(context.ImGuiContext, font.ImFont)
+
+    private MakeNode(context: UIContext, view: View): () =
+        match (view.OnBeforeUpdate)
+        | Some(beforeUpdate) =>
+            beforeUpdate(context, context.GpuPipelineUI.DeltaTime)
+        | _ =>
+            ()
+
+        let hasParent = context.TryGetParent().IsSome
+            
+        let canMake =
+            match (view)
+            | View.Window(_) => !hasParent && view.IsVisible
+            | _ => hasParent && view.IsVisible
+
+        match (view)
+        | View.Window(windowView) when (!canMake) =>
+            context.DelayedWindows.Enqueue(windowView)
+        | _ =>
+            ()
+
+        if (canMake)
+            ImGui.PushId(context.ImGuiContext, Unsafe.Cast(view.Id))
+            ImGui.BeginDisabled(context.ImGuiContext, !view.IsEnabled)
+
+            if (hasParent && view.WillFocus)
+                view.WillFocus <- false
+                ImGui.SetKeyboardFocusHere(context.ImGuiContext)
+
+            match (view.Style)
+            | Some(style) =>
+                PushStyle(context, style)
+            | _ =>
+                ()
+
+            match (view)         
+            | View.TextInput(view) when (view.FlipLabel) =>
+                ImGui.TextUnformatted(context.ImGuiContext, view.LabelSpan)
+                ImGui.SameLine(context.ImGuiContext)
+            | _ =>
+                ()
+
+            match (view)
+            | View.Window(view) =>
+                MakeWindow(context, view)
+            
+            | View.Button(view) =>
+                MakeButton(context, view)
+
+            | View.TextInput(view) =>
+                MakeTextInput(context, view)
+
+            | View.Label(view) =>
+                MakeLabel(context, view)
+
+            | View.Image(view) =>
+                MakeImage(context, view)
+
+            | View.Checkbox(view) =>
+                MakeCheckbox(context, view)
+
+            | View.ComboBox(view) =>
+                MakeComboBox(context, view)
+
+            | View.LinePlot(view) =>
+                MakeLinePlot(context, view)
+
+            | View.TabBar(view) =>
+                MakeTabBar(context, view)
+
+            | View.TabItem(view) =>
+                MakeTabItem(context, view)
+
+            | View.Grid(view) =>
+                MakeGrid(context, view)
+
+            | View.StackPanel(view) =>
+                MakeStackPanel(context, view)
+
+            | View.Text(view) =>
+                MakeText(context, view)
+
+            | View.IntInput(view) =>
+                MakeIntInput(context, view)
+
+            | View.SliderFloat(view) =>
+                MakeSliderFloat(context, view)
+
+            | View.Scrollbar(view) =>
+                MakeScrollbar(context, view)
+
+            | _ =>
+                ()
+
+            match (view)         
+            | View.TextInput(view) when (!view.FlipLabel) =>
+                ImGui.SameLine(context.ImGuiContext)
+                ImGui.Text(context.ImGuiContext, view.LabelSpan)
+
+            | View.Checkbox(view) =>
+                ImGui.SameLine(context.ImGuiContext)
+                ImGui.Text(context.ImGuiContext, view.LabelSpan)
+
+            | View.ComboBox(view) =>
+                ImGui.SameLine(context.ImGuiContext)
+                ImGui.Text(context.ImGuiContext, view.LabelSpan)
+
+            | View.LinePlot(view) =>
+                ImGui.SameLine(context.ImGuiContext)
+                ImGui.Text(context.ImGuiContext, view.LabelSpan)
+
+            | View.IntInput(view) =>
+                ImGui.SameLine(context.ImGuiContext)
+                ImGui.Text(context.ImGuiContext, view.LabelSpan)
+
+            | View.SliderFloat(view) =>
+                ImGui.SameLine(context.ImGuiContext)
+                ImGui.Text(context.ImGuiContext, view.LabelSpan)
+
+            | _ =>
+                ()
+
+            match (view.Style)
+            | Some(style) =>
+                PopStyle(context, style)
+            | _ =>
+                ()
+
+            match (view.Tooltip)
+            | Some(toolTip) =>
+                if (ImGui.BeginItemToolTip(context.ImGuiContext))
+                    MakeNode(context, toolTip)
+                    ImGui.EndToolTip(context.ImGuiContext)
+            | _ =>
+                ()  
+
+            ImGui.EndDisabled(context.ImGuiContext)
+            ImGui.PopId(context.ImGuiContext)
+
+            match (view.OnAfterUpdate)
+            | Some(afterUpdate) =>
+                afterUpdate(context, context.GpuPipelineUI.DeltaTime)
+            | _ =>
+                ()
+
+    private MakeChildren<T>(context: UIContext, parent: T): () where T: View, { Children: List<View> get } =
+        MakeChildrenAux(context, parent, false)
+
+    private MakeChildrenAux<T>(context: UIContext, parent: T, isHorizontal: bool): () where T: View, { Children: List<View> get } =
+        let parentView = Unsafe.Cast(parent): View // TODO-language-bug: We should not have to do Unsafe.Cast here. Should be just 'let parentView = parent: View'
+    
+        context.ParentStack.Push(parentView)
+
+        let children = parent.Children
+
+        let count = children.Count
+        let mutable i = 0
+        while (i < count)
+            let child = children[i]
+            MakeNode(context, child)
+            if (isHorizontal && (i != (count - 1)))
+                ImGui.SameLine(context.ImGuiContext)
+            i <- i + 1
+
+        let _ = context.ParentStack.Pop()
+
+    private PushStyle(context: UIContext, view: Style): () =
+        match (view.Font)
+        | Some(font) =>
+            PushFont(context, font)
+        | _ =>
+            ()
+
+        match (view.TextColor)
+        | SomeStruct(color) =>
+            let mutable color = color
+            ImGui.PushStyleColor_Text(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+        | _ =>
+            ()
+
+        match (view.BackgroundColor)
+        | SomeStruct(color) =>
+            let mutable color = color
+            ImGui.PushStyleColor_ChildBackground(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+            ImGui.PushStyleColor_FrameBackground(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+        | _ =>
+            ()
+
+        match (view.ModalScreenColor)
+        | SomeStruct(color) =>
+            let mutable color = color
+            ImGui.PushStyleColor_ModalWindowDimBackground(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+        | _ =>
+            ()
+
+        match (view.ButtonColor)
+        | SomeStruct(color) =>
+            let mutable color = color
+            ImGui.PushStyleColor_Button(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+        | _ =>
+            ()
+
+        match (view.WindowPadding)
+        | SomeStruct(padding) =>
+            ImGui.PushStyleVar_WindowPadding(context.ImGuiContext, padding)
+        | _ =>
+            ()
+
+        match (view.WindowBorderSize)
+        | SomeStruct(size) =>
+            ImGui.PushStyleVar_WindowBorderSize(context.ImGuiContext, size)
+        | _ =>
+            ()
+
+        match (view.WindowBackgroundColor)
+        | SomeStruct(color) =>
+            let mutable color = color
+            ImGui.PushStyleColor_PopupBackground(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+            ImGui.PushStyleColor_WindowBackground(context.ImGuiContext, Vector4(float32(color.R) / 255, float32(color.G) / 255, float32(color.B) / 255, float32(color.A) / 255))
+        | _ =>
+            ()
+
+    private PopStyle(context: UIContext, style: Style): () =
+        if (style.WindowBackgroundColor.IsSome)
+            ImGui.PopStyleColor(context.ImGuiContext)
+
+        if (style.WindowBorderSize.IsSome)
+            ImGui.PopStyleVar(context.ImGuiContext)
+
+        if (style.WindowPadding.IsSome)
+            ImGui.PopStyleVar(context.ImGuiContext)
+
+        if (style.ButtonColor.IsSome)
+            ImGui.PopStyleColor(context.ImGuiContext)
+            
+        if (style.ModalScreenColor.IsSome)
+            ImGui.PopStyleColor(context.ImGuiContext)
+
+        if (style.BackgroundColor.IsSome)
+            ImGui.PopStyleColor(context.ImGuiContext)
+
+        if (style.TextColor.IsSome)
+            ImGui.PopStyleColor(context.ImGuiContext)
+
+        if (style.Font.IsSome)
+            ImGui.PopFont(context.ImGuiContext)
+
+    private MakeWindow(context: UIContext, view: WindowView): () =
+
+        // Begin Validation
+        if (view.Title === unchecked default)
+            throw (NullReferenceException("Title"))
+        // End Validation
+
+        // 'Title' is what makes windows unique in ImGui, so force set the title if it is not appropriately set.
+        // We do this because ImGui does not like just empty strings.
+        // TODO: We should do this at the WindowView class instead of here if we can.
+        if (String.IsNullOrEmpty(view.Title))
+            view.Title <- "###" + view.Id.ToString()
+            view.IsTitleValid <- true
+        else if (!view.IsTitleValid && !view.Title.Contains("###"))
+            view.Title <- view.Title + "###" + view.Id.ToString()
+            view.IsTitleValid <- true
+        else
+            view.IsTitleValid <- true
+
+        let mutable isOpen = view.IsOpen
+        if (view.IsOpen)
+            let screenSize = ImGui.GetMainViewportSize(context.ImGuiContext)
+
+            let mutable defaultFlags = 
+                ImGuiWindowFlags.NoCollapse
+                    | ImGuiWindowFlags.NoMove
+                    | ImGuiWindowFlags.NoResize
+                    | ImGuiWindowFlags.AlwaysAutoResize
+
+            if (!view.CanShowTitle)
+                defaultFlags <- defaultFlags | ImGuiWindowFlags.NoTitleBar
+
+            defaultFlags <-
+                if (view.Kind == WindowKind.Overlay)
+                    defaultFlags 
+                        | ImGuiWindowFlags.NoTitleBar
+                        | ImGuiWindowFlags.NoDecoration
+                        | ImGuiWindowFlags.NoFocusOnAppearing 
+                        | ImGuiWindowFlags.NoNav
+                        | ImGuiWindowFlags.NoBringToFrontOnFocus
+                        | ImGuiWindowFlags.NoInputs
+                else
+                    defaultFlags
+
+            defaultFlags <-
+                if (view.IsScrollingEnabled)
+                    defaultFlags
+                else
+                    defaultFlags 
+                        | ImGuiWindowFlags.NoScrollbar
+                        | ImGuiWindowFlags.NoScrollWithMouse
+
+            defaultFlags <-
+                if (view.IsBackgroundVisible)
+                    defaultFlags
+                else
+                    defaultFlags
+                        | ImGuiWindowFlags.NoBackground
+
+            ImGui.SetNextWindowBackgroundAlpha(context.ImGuiContext, view.BackgroundAlpha)
+
+            let mutable position = Vector2.Zero
+            let mutable pivot = Vector2.Zero
+
+            match (view.ScreenHorizontalAlignment)
+            | HorizontalAlignment.Center =>
+                position.X <- screenSize.X * 0.5
+                pivot.X <- 0.5
+            | HorizontalAlignment.Left =>
+                position.X <- screenSize.X * view.MarginFactor.X
+                pivot.X <- 0
+            | HorizontalAlignment.Right =>
+                position.X <- screenSize.X * (1 - view.MarginFactor.X)
+                pivot.X <- 1
+            | _ =>
+                ()
+
+            match (view.ScreenVerticalAlignment)
+            | VerticalAlignment.Center =>
+                position.Y <- screenSize.Y * 0.5
+                pivot.Y <- 0.5
+            | VerticalAlignment.Top =>
+                position.Y <- screenSize.Y * view.MarginFactor.Y
+                pivot.Y <- 0
+            | VerticalAlignment.Bottom =>
+                position.Y <- screenSize.Y * (1 - view.MarginFactor.Y)
+                pivot.Y <- 1
+            | _ =>
+                ()
+
+            let finalPosition =
+                if (view.IsOffsetScaling)
+                    position + (view.Offset * ImGui.GetScaleFactor(context.ImGuiContext))
+                else
+                    position + view.Offset
+            ImGui.SetNextWindowPositionWithPivot(context.ImGuiContext, finalPosition, pivot)
+            
+            let stretchFactor =
+                let mutable value = Vector2.Zero
+                match (view.ScreenHorizontalAlignment)
+                | HorizontalAlignment.Stretch =>
+                    value.X <- view.ScreenHorizontalStretchFactor
+                | _ =>
+                    ()
+                match (view.ScreenVerticalAlignment)
+                | VerticalAlignment.Stretch =>
+                    value.Y <- view.ScreenVerticalStretchFactor
+                | _ =>
+                    ()
+                value
+
+            ImGui.SetNextWindowSize(context.ImGuiContext, screenSize * stretchFactor)
+
+            let isPopupModal = view.Kind == WindowKind.PopupModal
+            let beginResult =
+                if (isPopupModal)
+                    ImGui.OpenPopup(context.ImGuiContext, view.TitleSpan)
+                    ImGui.BeginPopupModal(context.ImGuiContext, &isOpen, true, view.TitleSpan, defaultFlags)
+                else
+                    ImGui.Begin(context.ImGuiContext, &isOpen, true, view.TitleSpan, defaultFlags)
+
+            if (beginResult)
+                if (view.WillBringToFront)
+                    view.WillBringToFront <- false
+                    ImGui.BringCurrentWindowToDisplayFront(context.ImGuiContext)
+
+                UpdateHoveredWindow(context, view)
+                view.IsOpen <- isOpen
+                MakeChildren(context, view)
+
+                if (isPopupModal)
+                    ImGui.EndPopup(context.ImGuiContext)
+                else
+                    ImGui.End(context.ImGuiContext)
+            else
+                view.isHovered <- false
+        else
+            view.isHovered <- false
+
+    private MakeButton(context: UIContext, view: ButtonView): () =
+        if (ImGui.Button(context.ImGuiContext, view.LabelSpan, Vector2.Zero))
+            view.isHovered <- false
+            view.OnClicked()
+        else
+            UpdateHovered(context, view)
+
+    private MakeTextInput(context: UIContext, view: TextInputView): () =
+        let canUseWindowWidth = view.CanUseWindowWidth
+        if (canUseWindowWidth)
+            let size = ImGui.GetWindowSize(context.ImGuiContext)
+            ImGui.PushItemWidth(context.ImGuiContext, size.X - 16 * ImGui.GetScaleFactor(context.ImGuiContext))
+
+        let flags = ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackCharFilter
+        let flags =
+            if (view.IsHistoryEnabled)
+                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackHistory
+            else
+                flags
+
+        let flags =
+            if (view.IsCompletionEnabled)
+                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackCompletion
+            else
+                flags
+
+        let flags =
+            if (view.IsEnabled)
+                flags
+            else
+                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_ReadOnly
+
+        let flags =
+            if (view.IsPassword)
+                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_Password
+            else
+                flags
+
+        let flags =
+            if (view.WillUpdateOnReturn)
+                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_EnterReturnsTrue
+            else
+                flags
+
+        if (ImGui.InputText(context.ImGuiContext, Helpers.EmptyStringSpan, view.TextSpan, flags, view.Callback))
+            let prevText = view.Text
+
+            let mutable textSpan = view.TextSpan
+            let indexZero = Span.TryFindIndex(textSpan, x -> x == 0)
+            let textSpan = 
+                if (indexZero == -1)
+                    textSpan
+                else
+                    textSpan.Slice(0, indexZero)
+
+            view.Text <- System.Text.Encoding.UTF8.GetString(Span<_>.op_Implicit(textSpan))
+            if (view.IsHistoryEnabled)
+                view.RecordHistory(view.Text)
+            view.OnTextChanged(prevText, view.Text)
+
+        if (canUseWindowWidth)
+            ImGui.PopItemWidth(context.ImGuiContext)
+
+    private MakeLabel(context: UIContext, view: LabelView): () =
+        ImGui.LabelText(context.ImGuiContext, view.LabelSpan, view.TextSpan)
+
+    private MakeImage(context: UIContext, view: ImageView): () =
+        if (view.isDirty || view.descriptorSet == Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
+            view.isDirty <- false
+            
+            if (view.GpuImage !== null && view.GpuImage.IsValid())
+                if (view.descriptorSet != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
+                    ImGui.DestroyTexture(context.ImGuiContext, view.descriptorSet)
+                view.descriptorSet <-
+                    context.Gpu.Upload(view.GpuImage)
+                    ImGui.CreateTexture(context.ImGuiContext, view.GpuImage.GetVkSampler(), view.GpuImage.GetVkImageView(/* todo: ehh not good */ 0), view.GpuImage.GetVkImageLayout(),
+                        () ->
+                            view.descriptorSet <- Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL
+                    )
+
+        let size =
+            if (view.IsScaling)
+                view.Size * ImGui.GetScaleFactor(context.ImGuiContext)
+            else
+                view.Size
+
+        if (view.descriptorSet != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
+            ImGui.Image(context.ImGuiContext, view.descriptorSet, size, Vector2.Zero, Vector2.One, view.BorderColor)
+        else
+            // Fallback, we must display something.
+            ImGui.BeginDisabled(context.ImGuiContext, true)
+            let _ = ImGui.Button(context.ImGuiContext, Helpers.MissingImageStringSpan, size)
+            ImGui.EndDisabled(context.ImGuiContext)
+
+    private MakeCheckbox(context: UIContext, view: CheckboxView): () =
+        let mutable isChecked = view.IsChecked
+        if (ImGui.Checkbox(context.ImGuiContext, Helpers.EmptyStringSpan, &isChecked))
+            view.isHovered <- false
+            view.IsChecked <- isChecked
+            view.OnChecked(isChecked)
+        else
+            UpdateHovered(context, view)
+
+    private MakeComboBox(context: UIContext, view: ComboBoxView): () =
+        let mutable selectedItemIndex = view.SelectedItemIndex
+        if (ImGui.Combo(context.ImGuiContext, Helpers.EmptyStringSpan, &selectedItemIndex, view.itemPtrs, view.PopupMaxHeight))
+            let prevSelectedItemIndex = view.SelectedItemIndex
+
+            view.SelectedItemIndex <- selectedItemIndex
+            view.OnSelectedItemIndexChanged(prevSelectedItemIndex, selectedItemIndex)
+
+    private MakeLinePlot(context: UIContext, view: LinePlotView): () =
+        ImGui.PlotLines(context.ImGuiContext, Helpers.EmptyStringSpan, ReadOnlySpan(view.Values), view.Offset, view.TextSpan, view.MinScale, view.MaxScale, view.BaseSize * ImGui.GetScaleFactor(context.ImGuiContext))
+
+    private MakeTabBar(context: UIContext, view: TabBarView): () =
+        if (ImGui.BeginTabBar(context.ImGuiContext))
+            MakeChildren(context, view)
+            if (view.SelectedTabId == 0 || !context.ImGuiContext.IsFirstFrame)
+                view.SelectedTabId <- ImGui.GetSelectedTabId(context.ImGuiContext)
+            else
+                ImGui.FocusTabById(context.ImGuiContext, view.SelectedTabId)          
+            ImGui.EndTabBar(context.ImGuiContext)
+
+    private HandleTabItemClickedAndHovered(context: UIContext, view: TabItemView): () =
+        if (ImGui.IsItemClicked(context.ImGuiContext))
+            view.isHovered <- true
+            view.OnClicked()
+        else 
+            UpdateHovered(context, view)
+
+    private MakeTabItem(context: UIContext, view: TabItemView): () =
+        let mutable isOpen = view.IsOpen
+        if (ImGui.BeginTabItem(context.ImGuiContext, view.LabelSpan, &isOpen))
+            view.IsOpen <- isOpen
+            HandleTabItemClickedAndHovered(context, view)
+            MakeChildren(context, view)
+            ImGui.EndTabItem(context.ImGuiContext)
+        else
+            HandleTabItemClickedAndHovered(context, view)
+
+    private MakeStackPanel(context: UIContext, view: StackPanelView): () =
+        if (view.Children.Count > 0)
+            ImGui.BeginGroup(context.ImGuiContext)
+            MakeChildrenAux(context, view, view.IsHorizontal)
+            ImGui.EndGroup(context.ImGuiContext)
+
+    private MakeGrid(context: UIContext, view: GridView): () =
+        if (view.ColumnCount > 0)
+            // Begin Style
+            let origCellPadding = ImGui.GetCellPadding(context.ImGuiContext)
+            ImGui.SetCellPadding(context.ImGuiContext, view.CellPadding)
+            // ---           
+            if (ImGui.BeginTable(context.ImGuiContext, view.ColumnCount))
+                let count = view.Children.Count / view.ColumnCount
+                let countRemainder = view.Children.Count % view.ColumnCount
+                let count =
+                    if (countRemainder != 0)
+                        count + 1
+                    else
+                        count
+
+                let canClip = context.ClipperDepth == 0
+
+                if (canClip)
+                    ImGui.BeginClipper(context.ImGuiContext, count)
+
+                context.ClipperDepth <- context.ClipperDepth + 1
+
+                if (canClip)
+                    while (ImGui.ClipperStep(context.ImGuiContext))
+                        let mutable row = ImGui.ClipperDisplayStart(context.ImGuiContext)
+                        while (row < ImGui.ClipperDisplayEnd(context.ImGuiContext))
+                          //  ImGui.TableNextRow(context.ImGuiContext)
+                            let mutable column = 0
+                            while (column < view.ColumnCount)
+                                if (ImGui.TableNextColumn(context.ImGuiContext))
+                                    let i = column + (row * view.ColumnCount)
+                                    if (i < view.Children.Count)
+                                        if (ImGui.TableSetColumnIndex(context.ImGuiContext, column))
+                                            ImGui.BeginTableCell(context.ImGuiContext, i % view.ColumnCount)
+                                            MakeNode(context, view.Children[i])
+                                            ImGui.EndTableCell(context.ImGuiContext)
+                                    column <- column + 1
+                                else
+                                    column <- view.ColumnCount
+                            row <- row + 1
+                else
+                    let rowCount = view.Children.Count / view.ColumnCount
+                    let mutable row = 0                  
+                    while (row < rowCount)
+                        let mutable column = 0
+                        while (column < view.ColumnCount)
+                            if (ImGui.TableNextColumn(context.ImGuiContext))
+                                let i = column + (row * view.ColumnCount)
+                                if (i < view.Children.Count)
+                                    if (ImGui.TableSetColumnIndex(context.ImGuiContext, column))
+                                        ImGui.BeginTableCell(context.ImGuiContext, i % view.ColumnCount)
+                                        MakeNode(context, view.Children[i])
+                                        ImGui.EndTableCell(context.ImGuiContext)
+                            column <- column + 1
+                        row <- row + 1
+
+                context.ClipperDepth <- context.ClipperDepth - 1
+
+                if (canClip)
+                    ImGui.EndClipper(context.ImGuiContext)
+
+                ImGui.EndTable(context.ImGuiContext)
+            // End Style
+            ImGui.SetCellPadding(context.ImGuiContext, origCellPadding)
+            // ---
+
+    private MakeText(context: UIContext, view: TextView): () =
+        if (view.Experimental_IsSelectable)
+            let size = ImGui.GetWindowSize(context.ImGuiContext)
+            let padding = ImGui.GetWindowPadding(context.ImGuiContext)
+            ImGui.PushItemWidth(context.ImGuiContext, size.X - 16 * ImGui.GetScaleFactor(context.ImGuiContext))
+            ImGui.PushStyleColor_FrameBackground(context.ImGuiContext, Vector4.Zero)
+            let _ = ImGui.InputTextReadOnly(context.ImGuiContext, Helpers.EmptyStringSpan, view.TextSpan)
+            ImGui.PopStyleColor(context.ImGuiContext)
+            ImGui.PopItemWidth(context.ImGuiContext)
+        else
+            ImGui.Text(context.ImGuiContext, view.TextSpan)
+        UpdateHovered(context, view)
+
+    private MakeIntInput(context: UIContext, view: IntInputView): () =
+        let mutable value = view.Value
+        if (ImGui.InputInt(context.ImGuiContext, Helpers.EmptyStringSpan, &value))
+            let prevValue = view.Value
+            view.Value <- value
+            view.OnValueChanged(prevValue, value)
+
+    private MakeSliderFloat(context: UIContext, view: SliderFloatView): () =
+        let mutable value = view.Value
+        if (ImGui.SliderFloat(context.ImGuiContext, Helpers.EmptyStringSpan, view.MinValue, view.MaxValue, &value))
+            let prevValue = view.Value
+            view.Value <- value
+            view.OnValueChanged(prevValue, value)
+
+    private MakeScrollbar(context: UIContext, view: ScrollbarView): () =
+        let childFlags = ImGuiChildFlags.EgImGuiChildFlags_None
+        if (ImGui.BeginChild(context.ImGuiContext, uint32(view.Id), view.Size, childFlags))
+            UpdateHoveredWindow(context, view)
+
+            MakeChildren(context, view)
+            if (view.WillScrollToBottom)
+                view.WillScrollToBottom <- false
+                ImGui.SetScrollHereY(context.ImGuiContext, 1)
+                
+            ImGui.EndChild(context.ImGuiContext)
+        else
+            view.isHovered <- false
+
+    NewFrame(context: UIContext): () =
+        ImGui.SetCurrentContext(context.ImGuiContext)
+        ImGui.NewFrame(context.ImGuiContext)
+
+    EndFrame(context: UIContext): () =
+        ImGui.EndFrame(context.ImGuiContext)
+
+    Show(context: UIContext, view: WindowView): () =
+        MakeNode(context, view)
+        let mutable nextView = unchecked default
+        while (context.DelayedWindows.TryDequeue(&nextView))
+            MakeNode(context, nextView)
+
+    ShowImGuiDemo(context: UIContext): () =
+        ImGui.ShowDemoWindow(context.ImGuiContext)
+
+    Draw(context: UIContext, commandBuffer: TerraFX.Interop.Vulkan.VkCommandBuffer, pipeline: TerraFX.Interop.Vulkan.VkPipeline): () =
+        ImGui.Draw(context.ImGuiContext, commandBuffer, pipeline)

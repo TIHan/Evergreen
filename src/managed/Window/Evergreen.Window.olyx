@@ -1,0 +1,335 @@
+#target "dotnet: net8"
+#library
+
+#load "*.oly"
+
+#reference "../Graphics/Evergreen.Graphics.olyx"
+#reference "../Utilities/Evergreen.Utilities.olyx"
+#package "TerraFX.Interop.Windows,10.0.22621.1"
+
+#reference "../Graphics/UI/Backend/ImGui/Interop/Evergreen.Graphics.UI.Backend.ImGui.Interop.csproj"
+#reference "../Graphics/Window/Backend/Interop/Evergreen.Graphics.Window.Backend.Interop.csproj"
+#reference "../Graphics/Shader/Backend/Interop/Evergreen.Graphics.Shader.Backend.Interop.csproj"
+
+// copy fonts
+#copy "Cousine-Regular.ttf"
+#copy "DroidSans.ttf"
+#copy "Karla-Regular.ttf"
+#copy "ProggyClean.ttf"
+#copy "ProggyTiny.ttf"
+#copy "Roboto-Medium.ttf"
+#copy "noto-untouchedsvg.ttf"
+
+#if DEBUG
+#copy "../../native/external/freetype/objs/x64/Debug/freetype.dll"
+#end
+
+#if RELEASE
+#copy "../../native/external/freetype/objs/x64/Release/freetype.dll"
+#end
+
+namespace Evergreen.Window
+
+open System
+open System.Numerics
+open System.Text
+open System.Collections.Generic
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+open Evergreen.Graphics.Window.Backend.Interop
+open static Evergreen.Graphics.Window.Backend.Interop.Methods
+
+private alias CallConvCdecl = System.Runtime.CompilerServices.CallConvCdecl
+
+class DisplayMode =
+
+    Width: int32 get
+    Height: int32 get
+    RefreshRate: float32 get
+
+    new(width: int32, height: int32, refreshRate: float32) =
+        {
+            Width = width
+            Height = height
+            RefreshRate = refreshRate
+        }
+
+    overrides ToString(): string =
+        "W: " + this.Width.ToString() + ", H: " + this.Height.ToString() + ", hz: " + this.RefreshRate.ToString()
+    
+    overrides GetHashCode(): int32 = this.Width + this.Height + int32(this.RefreshRate)
+
+    overrides Equals(o: object): bool =
+        let displayMode = Unsafe.Cast<DisplayMode>(o)
+        this.Width == displayMode.Width && this.Height == displayMode.Height && this.RefreshRate == displayMode.RefreshRate
+
+interface IWindow =
+    inherits IDisposable
+
+    Title: string get
+    HWND: nint get
+    IsClosed: bool get
+    IsHidden: bool get
+    IsMinimized: bool get
+    Position: Vector2 get, set
+    Size: Vector2 get, set
+
+    IsFullscreen: bool get, set
+    IsCursorVisible: bool get, set
+
+    CurrentDisplayMode: DisplayMode get
+
+    Show(): ()
+    Hide(): ()
+    Close(): ()
+    PumpEvents(): InputSnapshot
+    Minimize(): ()
+    
+    GetDisplayModes(): DisplayMode[]
+    ChangeDisplayMode(displayMode: DisplayMode): ()
+
+    DisplayChanged: IEvent<()> get
+
+class WindowVulkan =
+    implements IWindow
+
+    field window: EgWindow
+    field mutable isClosed: bool
+    field mutable isDisposed: bool
+
+    private CheckDisposed(): () =
+        if (this.isDisposed)
+            throw System.ObjectDisposedException("window")
+
+    Internal: EgWindow get() = this.window
+
+    Title: string get
+    HWND: nint
+        get() =
+            nint(egWindowGetWin32Handle(this.window))
+
+    IsClosed: bool
+        get() = this.isClosed || this.isDisposed
+
+    IsHidden: bool 
+        get() = 
+            this.CheckDisposed()
+            egWindowIsHidden(this.window)
+
+    IsMinimized: bool
+        get() =
+            this.CheckDisposed()
+            egWindowIsMinimized(this.window)
+
+    Position: Vector2 
+        get() = 
+            this.CheckDisposed()
+            egWindowGetPosition(this.window)
+        set(value) = 
+            this.CheckDisposed()
+            egWindowSetPosition(this.window, value)
+
+    Size: Vector2
+        get() = 
+            this.CheckDisposed()
+            egWindowGetSize(this.window)
+        set(value) =
+            this.CheckDisposed()
+            if (value != this.Size)
+                egWindowSetSize(this.window, value)
+                this.displayChanged.Trigger(())
+
+    IsFullscreen: bool
+        get() = 
+            this.CheckDisposed()
+            egWindowIsFullscreen(this.window)
+        set(value) = 
+            this.CheckDisposed()
+            if (value != this.IsFullscreen)
+                egWindowSetFullscreen(this.window, value)
+                this.displayChanged.Trigger(())
+
+    IsCursorVisible: bool
+        get() =
+            this.CheckDisposed()
+            egWindowIsCursorVisible(this.window)
+        set(value) =
+            this.CheckDisposed()
+            egWindowSetCursorVisible(this.window, value)
+
+    Show(): () = 
+        this.CheckDisposed()
+        this.isClosed <- false
+        egWindowShow(this.window)
+
+    Hide(): () = 
+        this.CheckDisposed()
+        egWindowHide(this.window)
+
+    Close(): () = 
+        this.CheckDisposed()
+        this.isClosed <- true
+        egWindowHide(this.window)
+
+    static field mutable keyEvents: List<KeyEvent> = List()
+    static field mutable mouseButtonEvents: List<MouseButtonEvent> = List()
+    static field mutable mouseWheelEvents: List<MouseWheelEvent> = List()
+    static field mutable gamepadAxisMotionEvents: List<GamepadAxisMotionEvent> = List()
+    static field mutable gamepadButtonEvents: List<GamepadButtonEvent> = List()
+    static field mutable gamepadEvents: List<GamepadEvent> = List()
+    static field mutable mouseInfo: MouseInfo = default
+    static field mutable quit: bool = false
+    PumpEvents(): InputSnapshot = 
+        this.CheckDisposed()
+
+        keyEvents.Clear()
+        mouseButtonEvents.Clear()
+        mouseWheelEvents.Clear()
+        gamepadAxisMotionEvents.Clear()
+        gamepadButtonEvents.Clear()
+        gamepadEvents.Clear()
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callback1(egKeyEvent: EgWindowKeyEvent) = 
+            keyEvents.Add(egKeyEvent)
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callback2(egMouseInfo: EgWindowMouseInfo): () = 
+            mouseInfo <-
+                let mutable newMouseInfo = MouseInfo()
+                newMouseInfo.Position <- egMouseInfo.position
+                newMouseInfo.DeltaPosition <- egMouseInfo.relativePosition
+                newMouseInfo
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackMouseButtonEvent(egMouseButtonEvent: EgWindowMouseButtonEvent) =
+            mouseButtonEvents.Add(egMouseButtonEvent)
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackMouseWheelEvent(egMouseWheelEvent: EgWindowMouseWheelEvent) =
+            mouseWheelEvents.Add(egMouseWheelEvent)
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackGamepadAxisMotionEvent(egGamepadAxisMotionEvent: EgWindowGamepadAxisMotionEvent) =
+            gamepadAxisMotionEvents.Add(egGamepadAxisMotionEvent)
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackGamepadButtonEvent(egGamepadButtonEvent: EgWindowGamepadButtonEvent) =
+            gamepadButtonEvents.Add(egGamepadButtonEvent)
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackGamepadEvent(egGamepadEvent: EgWindowGamepadEvent) =
+            gamepadEvents.Add(egGamepadEvent)
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackQuit(): () = 
+            quit <- true
+
+        let isMinimized = this.IsMinimized
+
+        egWindowPumpEvents(
+            this.window,
+            true,
+            Unsafe.Cast(&&callback1),
+            Unsafe.Cast(&&callback2),
+            Unsafe.Cast(&&callbackMouseButtonEvent),
+            Unsafe.Cast(&&callbackMouseWheelEvent),
+            Unsafe.Cast(&&callbackGamepadAxisMotionEvent),
+            Unsafe.Cast(&&callbackGamepadButtonEvent),
+            Unsafe.Cast(&&callbackGamepadEvent),
+            Unsafe.Cast(&&callbackQuit)
+        )
+        
+        let didMinimize = !isMinimized && this.IsMinimized
+
+        if (didMinimize)
+            this.displayChanged.Trigger(())
+
+        if (quit)
+            this.Close()
+
+        InputSnapshot(
+            Unsafe.AsImmutable(keyEvents.ToArray()),
+            Unsafe.AsImmutable(mouseButtonEvents.ToArray()),
+            Unsafe.AsImmutable(mouseWheelEvents.ToArray()),
+            mouseInfo,
+            Unsafe.AsImmutable(gamepadAxisMotionEvents.ToArray()),
+            Unsafe.AsImmutable(gamepadButtonEvents.ToArray()),
+            Unsafe.AsImmutable(gamepadEvents.ToArray())
+        )
+
+    Minimize(): () =
+        this.CheckDisposed()
+        if (!this.IsMinimized)
+            egWindowMinimize(this.window)
+            this.displayChanged.Trigger(())
+
+    CurrentDisplayMode: DisplayMode
+        get() =
+            this.CheckDisposed()
+            let egDisplayMode = egWindowGetCurrentDisplayMode(this.window)
+            DisplayMode(egDisplayMode.width, egDisplayMode.height, egDisplayMode.refreshRate)
+
+    DesktopDisplayMode: DisplayMode
+        get() =
+            this.CheckDisposed()
+            let egDisplayMode = egWindowGetDesktopDisplayMode(this.window)
+            DisplayMode(egDisplayMode.width, egDisplayMode.height, egDisplayMode.refreshRate)
+
+    static field mutable displayModes: List<DisplayMode> = List()
+    GetDisplayModes(): DisplayMode[] = 
+        this.CheckDisposed()
+
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callbackDisplayMode(egDisplayMode: EgWindowDisplayMode) =
+            displayModes.Add(DisplayMode(egDisplayMode.width, egDisplayMode.height, egDisplayMode.refreshRate))
+
+        egWindowGetDisplayModes(this.window, Unsafe.Cast(&&callbackDisplayMode))
+        
+        let result = Unsafe.AsImmutable(displayModes.ToArray())
+        displayModes.Clear()
+        result
+
+    ChangeDisplayMode(displayMode: DisplayMode): () =
+        this.CheckDisposed()
+
+        let mutable egDisplayMode = default: EgWindowDisplayMode
+        egDisplayMode.width <- displayMode.Width
+        egDisplayMode.height <- displayMode.Height
+        egDisplayMode.refreshRate <- displayMode.RefreshRate
+        egWindowSetCurrentDisplayMode(this.window, egDisplayMode)
+        this.displayChanged.Trigger(())
+
+    Dispose(): () =
+        this.CheckDisposed()
+        this.isClosed <- true
+        this.isDisposed <- true
+        egWindowDestroy(this.window)
+
+    field displayChanged: Event<()>
+    DisplayChanged: IEvent<()> get() = this.displayChanged.Publish
+
+    new(title: string) =
+
+        let mutable titleHandle = fixedCopyUTF8(title)
+        let window = egWindowCreateVulkan(Unsafe.AsPointer(titleHandle.AddrOfPinnedObject()))
+        titleHandle.Free()
+
+        {
+            displayChanged = Event()
+            window = window
+            isDisposed = false
+            isClosed = false
+
+            Title = title
+        }

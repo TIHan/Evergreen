@@ -1,0 +1,160 @@
+namespace Game.Client
+
+open System
+open System.Numerics
+open System.Text
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics
+open Evergreen.Physics
+open Evergreen.Network
+open Evergreen.Graphics.Rendering
+open Evergreen.Window
+
+open Game.Shared
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Shared.World
+
+open Game.Client.Systems
+open static Game.Client.Types
+open static Game.Client.Components
+
+class ClientReceivedWorld =
+    inherits World
+
+    new(genv: GameEnv) =
+        let registry = ComponentRegistry()
+
+        World.RegisterComponents(registry)
+
+        registry.Register<CharacterInput>()
+        registry.RegisterAttachment<Player, CharacterInput>()
+
+        World.RegisterFieldMappings(genv, registry)
+
+        base(EntityDatabaseKind.Client, registry)
+
+abstract default class ClientStagingWorld =
+    inherits World
+    
+    new(genv: GameEnv) =
+        let registry = ComponentRegistry()
+
+        World.RegisterComponents(registry)
+
+        registry.Register<CharacterInput>()
+        registry.RegisterAttachment<Player, CharacterInput>()
+
+        registry.Register<CharacterId>()
+        registry.Register<VirtualCharacterId>()
+        registry.RegisterAttachment<Character, CharacterId>()
+        registry.RegisterAttachment<VirtualCharacter, VirtualCharacterId>()
+
+        registry.Register<StaticObjectId>()
+        registry.Register<DynamicObjectId>()
+        registry.RegisterAttachment<StaticRigidBody, StaticObjectId>()
+        registry.RegisterAttachment<RigidBody, DynamicObjectId>()
+
+        registry.Register<PredictiveInfo>()
+        registry.RegisterAttachment<RigidBody, PredictiveInfo>()
+
+        registry.Register<CameraLerp>()
+        registry.RegisterAttachment<Camera, CameraLerp>()
+
+        registry.Register<TransformLerp>()
+        registry.RegisterAttachment<Transform, TransformLerp>()
+
+        World.RegisterFieldMappings(genv, registry)
+
+        base(EntityDatabaseKind.Client, registry)
+
+class ClientWorld =
+    inherits ClientStagingWorld
+    implements IDisposable
+
+    new(genv: GameEnv) =
+        base(genv) with {
+            Physics = 
+                let db = this.Database
+                // This registers the events in the physics system first.
+                let physicsSystem = ClientPhysicsSystem.Create(db, genv)
+
+                db.HandleComponentAdded<PredictiveInfo, /**/ Transform>(
+                    (entId, predictiveInfo, transform) ->
+                        predictiveInfo.EntityId <- entId
+                        predictiveInfo.TransitionDuration <- 2
+                        predictiveInfo.LerpToPredictTransitionTime <- 0
+                        predictiveInfo.PredictToLerpTransitionTime <- 0
+                        predictiveInfo.Position <- transform.Position
+                        predictiveInfo.Rotation <- transform.Rotation
+                        predictiveInfo.Status <- PredictionStatus.NotPredicting                      
+                )    
+
+                db.HandleComponentAdded<TransformLerp, /**/ Transform>(
+                    (entId, transformLerp, transform) ->
+                        transformLerp.Value <- transform
+                )
+
+                db.HandleComponentAdded<CameraLerp, /**/ Camera>(
+                    (entId, cameraLerp, camera) ->
+                        cameraLerp.Value <- camera
+                )
+
+                db.HandleComponentAdded<CharacterInput, /**/ Camera>(
+                    (mutable entId, input, camera) ->
+                        input.Yaw <- camera.Yaw
+                        input.Pitch <- camera.Pitch                            
+                )
+
+                physicsSystem
+
+            DebugEntities = ConcurrentDictionary()
+        }
+    
+    field DebugEntities: ConcurrentDictionary<EntityId, ()>
+    public field Physics: ClientPhysicsSystem
+
+    PredictionEnabled: bool
+        get() = this.Physics.PredictionEnabled
+        set(value) = this.Physics.PredictionEnabled <- value
+
+    PredictUpdate(time: GameTime, entId: EntityId): () =
+        if (this.PredictionEnabled)
+            this.Physics.Update(time)
+
+    ResetPredictions(): () =
+        this.Physics.ResetPredictions()
+
+    RecordPlayerPredictions(deltaTime: float32, entId: EntityId): () =
+        if (this.PredictionEnabled)
+            this.Physics.RecordPlayerPredictions(deltaTime, entId)
+
+    SetPhysicsState(): () =
+        this.Physics.SetState()
+
+    UpdateTransforms(): () =
+        this.Physics.UpdateTransforms()
+
+    RollbackCorrections(time: GameTime, entId: EntityId): () =
+        this.Physics.RollbackCorrections(time, entId)
+
+    SetInterpolationState(): () =
+        this.Database.ForEach<TransformLerp, Transform>(
+            (entId, transformLerp, transform) ->
+                transformLerp <- TransformLerp(transform)
+        )
+        this.Database.ForEach<CameraLerp, Camera>(
+            (entId, cameraLerp, camera) ->
+                cameraLerp <- CameraLerp(camera)
+        )
+
+    OptimizeStaticEnvironment(): () =
+        this.Physics.OptimizeBroadPhase()
+
+    Dispose(): () =
+        this.Physics.Dispose()

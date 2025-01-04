@@ -1,0 +1,1011 @@
+module Game.Client.Views
+
+open System
+open System.IO
+open System.Numerics
+open System.Collections.Generic
+open Evergreen.Utilities
+open Evergreen.Graphics.Rendering
+open Evergreen.Graphics.Rendering.UI
+open static Game.Client.ViewModels
+open static Game.Client.Events
+
+private DefaultFont: Font get = Font(FontLocations.DroidSans, 16)
+private DefaultFontLarge: Font get = Font(FontLocations.DroidSans, 32)
+private DefaultFontExtraLarge: Font get = Font(FontLocations.DroidSans, 64)
+private ConsoleFont: Font get = Font(FontLocations.Consolas, 16)
+private ConsoleFontSmall: Font get = Font(FontLocations.Consolas, 12)
+
+module Binding =
+
+    // TODO-language-bug: should not have to do 'mutable view'.
+    Title<T>(mutable view: T, obs: Var<string>): () where T: View, { Title: string get, set } =
+        view.Title <- obs.Value
+        obs.Add(value -> view.Title <- value)
+
+    IsEnabled(view: View, obs: Var<bool>): () =
+        view.IsEnabled <- obs.Value
+        obs.Add(value -> view.IsEnabled <- value)
+
+    IsVisible(view: View, obs: Var<bool>): () =
+        view.IsVisible <- obs.Value
+        obs.Add(value -> view.IsVisible <- value)
+
+    IsOpen(view: WindowView, obs: Var<bool>): () =
+        view.IsOpen <- obs.Value
+        obs.Add(value -> view.IsOpen <- value)
+
+    IsChecked(view: CheckboxView, obs: Var<bool>): () =
+        view.IsChecked <- obs.Value
+        obs.Add(value -> view.IsChecked <- value)
+        view.OnChecked <- value -> obs.Value <- value
+
+    Label(view: LabelView, obs: Var<string>): () =
+        view.Label <- obs.Value
+        obs.Add(value -> view.Label <- value)
+
+    Text(view: TextView, obs: Var<string>): () =
+        view.Text <- obs.Value
+        obs.Add(value -> view.Text <- value)
+    
+    Text(view: LabelView, obs: Var<string>): () =
+        view.Text <- obs.Value
+        obs.Add(value -> view.Text <- value)
+
+    Text(view: TextInputView, obs: Var<string>): () =
+        view.Text <- obs.Value
+        obs.Add(value -> view.Text <- value)
+        view.OnTextChanged <- (prev, curr) -> obs.Value <- curr
+
+    Text(view: LinePlotView, obs: Var<string>): () =
+        view.Text <- obs.Value
+        obs.Add(value -> view.Text <- value)
+
+    Int(view: IntInputView, obs: Var<int32>): () =
+        view.Value <- obs.Value
+        obs.Add(value -> view.Value <- value)
+        view.OnValueChanged <- (prev, curr) -> obs.Value <- curr
+
+    Offset(view: LinePlotView, obs: Var<int32>): () =
+        view.Offset <- obs.Value
+        obs.Add(value -> view.Offset <- value)
+
+    Items<T>(view: ComboBoxView, obs: Var<T[]>, map: T -> string): () =
+        view.Items <- mapAsMutable(obs.Value, x -> map(x)) // TODO: Possible lang feature: convert non-scoped lambda to lambda.
+        obs.Add(items -> view.Items <- mapAsMutable(items, x -> map(x)))
+
+    Image(view: ImageView, obs: Var<Option<IGpuImage>>): () =
+        match (obs.Value)
+        | Some(gpuImage) =>
+            view.GpuImage <- gpuImage
+        | _ =>
+            view.GpuImage <- unchecked default
+        obs.Add(
+            gpuImageOpt ->
+                match (gpuImageOpt)
+                | Some(gpuImage) =>
+                    view.GpuImage <- gpuImage
+                | _ =>
+                    view.GpuImage <- unchecked default
+        )
+
+    Float(view: SliderFloatView, obs: Var<float32>): () =
+        view.Value <- obs.Value
+        obs.Add(value -> view.Value <- value)
+        view.OnValueChanged <- (prev, curr) -> obs.Value <- curr
+
+module FontLocations =
+
+    private GetFontPath(fileName: string): string =
+        let markerTy = DotNet.TypeOf<FontLocations>
+        Path.Combine(Path.GetDirectoryName(markerTy.Assembly.Location), fileName)
+
+    DroidSans: string get = GetFontPath("DroidSans.ttf")
+    Cousine_Regular: string get = GetFontPath("Cousine-Regular.ttf")
+    Karla_Regular: string get = GetFontPath("Karla-Regular.ttf")
+    ProggyClean: string get = GetFontPath("ProggyClean.ttf")
+    ProggyTiny: string get = GetFontPath("ProggyTiny.ttf")
+    Roboto_Medium: string get = GetFontPath("Roboto-Medium.ttf")
+    Noto_UntouchedSvg: string get = GetFontPath("noto-untouchedsvg.ttf")
+    Consolas: string get = 
+        let path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "consola.ttf")
+        if (File.Exists(path))
+            path
+        else
+            DroidSans
+
+private CreateMenuButton(publisher: ClientEventPublisher, onClicked: () -> ()): ButtonView =
+    let view = ButtonView()
+    view.OnHovered <- () -> publisher.MenuButtonHovered()
+    view.OnClicked <- 
+        () ->
+            publisher.MenuButtonClicked()
+            onClicked()
+    view
+
+private CreateBackButton(publisher: ClientEventPublisher): ButtonView =
+    let view = CreateMenuButton(publisher, () -> publisher.NavigateBackRequested())
+    view.Label <- "Back"
+    view
+
+CreateHashCodesOverlay(engineHash: string): WindowView =
+    let window = WindowView()
+
+    window.IsBackgroundVisible <- false
+    window.Kind <- WindowKind.Overlay
+    window.ScreenHorizontalAlignment <- HorizontalAlignment.Right
+    window.ScreenVerticalAlignment <- VerticalAlignment.Bottom
+
+    window.Children.Add(
+        let style = Style()
+        style.Font <- Some(ConsoleFontSmall)
+
+        let view = TextView()
+        view.Style <- Some(style)
+
+        view.Text <- "Engine: " + engineHash
+        view
+    )
+
+    window
+
+CreateMultiplayerMenu(vm: MultiplayerMenuViewModel, publisher: ClientEventPublisher): WindowView =
+    let window = WindowView()
+    window.Title <- "Multiplayer"
+
+    window.Children.Add(
+        let view = TextInputView(15)
+        view.Label <- "Address"
+        Binding.Text(view, vm.Address)
+        view
+    )
+
+    window.Children.Add(
+        let view = IntInputView()
+        view.Label <- "Port"
+        Binding.Int(view, vm.Port)
+        view
+    )
+
+    window.Children.Add(
+        let view = TextInputView(64)
+        view.IsPassword <- true
+        view.Label <- "Password"
+        Binding.Text(view, vm.Password)
+        view
+    )
+
+    window.Children.Add(
+        let view = 
+            CreateMenuButton(publisher, 
+                () -> 
+                    let password = vm.Password.Value
+                    let password =
+                        if (password.Length == 0)
+                            "\"\""
+                        else
+                            password
+                    publisher.ConsoleCommandRequested("cl_password " + password)
+                    publisher.ConnectionRequested(vm.Address.Value, vm.Port.Value)
+            )
+        view.Label <- "Connect"
+        view
+    )
+
+    window.Children.Add(CreateBackButton(publisher))
+
+    let style = Style()
+    style.Font <- Some(DefaultFont)
+    window.Style <- Some(style)
+    window
+
+CreateSettingsMenu(vm: SettingsMenuViewModel, publisher: ClientEventPublisher): WindowView =
+    let window = WindowView()
+    window.Title <- "Settings"
+
+    let tabBarView = TabBarView()
+    window.Children.Add(tabBarView)
+
+    tabBarView.Children.Add(
+        let gameTabView = TabItemView()
+        gameTabView.OnClicked <- () -> publisher.MenuButtonClicked()
+        gameTabView.OnHovered <- () -> publisher.MenuButtonHovered()
+        gameTabView.Label <- "Developer"
+        // TODO
+        gameTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Show Diagnostics"
+            Binding.IsChecked(view, vm.ShowDiagnostics)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Show ImGui Demo"
+            Binding.IsChecked(view, vm.ShowImGuiDemo)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Simulate Latency"
+            Binding.IsChecked(view, vm.SimulateLatency)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Simulate Packet Loss"
+            Binding.IsChecked(view, vm.SimulatePacketLoss)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Async Server (experimental)"
+            Binding.IsChecked(view, vm.AsyncServer)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = SliderFloatView()
+            view.Label <- "Game Speed Offset"
+            view.MinValue <- -1
+            view.MaxValue <- 1
+            Binding.Float(view, vm.GameSpeedOffset)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = CreateMenuButton(publisher, () -> DotNet.GC.Collect())
+            view.Label <- "Force GC"
+            view
+        )
+        gameTabView.Children.Add(
+            let view = GridView()
+            view.ColumnCount <- 3
+            view.Children.Add(
+                let view = TextView()
+                view.Text <- "Made with"
+                view
+            )
+            view.Children.Add(
+                let view = ImageView()
+                view.Size <- Vector2(419 / 3: float32, 519 / 3: float32)
+                Binding.Image(view, vm.DotNetLogo)
+                view
+            )
+            view.Children.Add(
+                let view = ImageView()
+                view.Size <- Vector2(128, 128)
+                Binding.Image(view, vm.OlyLogo)
+                view
+            )
+            view
+        )
+        gameTabView
+    )
+
+    tabBarView.Children.Add(
+        let displayTabView = TabItemView()
+        displayTabView.OnClicked <- () -> publisher.MenuButtonClicked()
+        displayTabView.OnHovered <- () -> publisher.MenuButtonHovered()
+        displayTabView.Label <- "Video"
+        displayTabView.Children.Add(
+            let view = ComboBoxView()
+            view.Label <- "Display"
+            Binding.Items(view, vm.DisplayModes, x -> x.Width.ToString() + " x " + x.Height.ToString() + " | " + x.RefreshRate.ToString("F2") + "hz")
+            view.SelectedItemIndex <- vm.SelectedDisplayModeIndex.Value
+            let _ = vm.SelectedDisplayModeIndex.Subscribe(index -> view.SelectedItemIndex <- index)
+            view.OnSelectedItemIndexChanged <- 
+                (prevIndex: int32, index: int32) ->
+                    let displayModes = vm.DisplayModes.Value
+                    if (index >= 0 && index < displayModes.Length)
+                        vm.SelectedDisplayModeIndex.Value <- index
+                        let displayMode = displayModes[index]
+                        publisher.DisplayModeChangeRequested(displayMode.Width, displayMode.Height, displayMode.RefreshRate)
+                    else
+                        vm.SelectedDisplayModeIndex.Value <- -1
+            view
+        )
+        displayTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Fullscreen"
+            Binding.IsChecked(view, vm.IsFullscreen)
+            view
+        )
+        displayTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Vertical Sync"
+            Binding.IsChecked(view, vm.VerticalSync)
+            view
+        )
+        displayTabView.Children.Add(
+            let view = ComboBoxView()
+            view.Label <- "Anti-Aliasing"
+            Binding.Items(view, vm.AntiAliasingChoices, x -> Enum.GetName(DotNet.TypeOf<AntiAliasingKind>, x))
+            view.OnSelectedItemIndexChanged <- 
+                (prevIndex: int32, index: int32) ->
+                    vm.AntiAliasing.Value <- vm.AntiAliasingChoices.Value[index]
+            view
+        )
+        displayTabView
+    )
+
+    tabBarView.Children.Add(
+        let tabView = TabItemView()
+        tabView.OnClicked <- () -> publisher.MenuButtonClicked()
+        tabView.OnHovered <- () -> publisher.MenuButtonHovered()
+        tabView.Label <- "Graphics"
+        // TODO
+        tabView
+    )
+
+    tabBarView.Children.Add(
+        let tabView = TabItemView()
+        tabView.OnClicked <- () -> publisher.MenuButtonClicked()
+        tabView.OnHovered <- () -> publisher.MenuButtonHovered()
+        tabView.Label <- "Audio"
+
+        tabView.Children.Add(
+            let view = SliderFloatView()
+            view.Label <- "Music Volume"
+            view.MinValue <- 0
+            view.MaxValue <- 1
+            Binding.Float(view, vm.MusicVolume)
+            view
+        )
+
+        tabView.Children.Add(
+            let view = SliderFloatView()
+            view.Label <- "Effects Volume"
+            view.MinValue <- 0
+            view.MaxValue <- 1
+            Binding.Float(view, vm.EffectsVolume)
+            view
+        )
+
+        tabView
+    )
+
+    tabBarView.Children.Add(
+        let tabView = TabItemView()
+        tabView.OnClicked <- () -> publisher.MenuButtonClicked()
+        tabView.OnHovered <- () -> publisher.MenuButtonHovered()
+        tabView.Label <- "Key Bindings"
+        // TODO
+        tabView
+    )
+
+    tabBarView.Children.Add(
+        let accessibilityView = TabItemView()
+        accessibilityView.OnClicked <- () -> publisher.MenuButtonClicked()
+        accessibilityView.OnHovered <- () -> publisher.MenuButtonHovered()
+        accessibilityView.Label <- "Accessibility"
+        // TODO
+        accessibilityView
+    )
+
+    window.Children.Add(CreateBackButton(publisher))
+
+    let style = Style()
+    style.Font <- Some(DefaultFont)
+    window.Style <- Some(style)
+    window
+
+CreateTitle(logo: IGpuImage): WindowView =
+    let view = WindowView()
+    view.ScreenHorizontalAlignment <- HorizontalAlignment.Center
+    view.IsBackgroundVisible <- false
+    view.Kind <- WindowKind.Overlay
+    view.Title <- "Title"
+    view.Children.Add(
+        let view = ImageView()
+        view.IsScaling <- true
+        view.Size <- Vector2(float32(logo.Width), float32(logo.Height))
+        view.GpuImage <- logo
+        view
+    )
+
+    let style = Style()
+    style.Font <- Some(DefaultFontExtraLarge)
+    view.Style <- Some(style)
+    view
+
+CreateMainMenu(vm: MainMenuViewModel, publisher: ClientEventPublisher): WindowView =
+    let window = WindowView()
+    window.ScreenVerticalAlignment <- VerticalAlignment.Center
+    window.Title <- "Main Menu"
+    window.CanShowTitle <- false
+    window.Offset <- Vector2(0, 64)
+    window.IsOffsetScaling <- true
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.NewGameRequested())
+        view.Label <- "\U0001F47D New Game"
+        Binding.IsVisible(view, vm.IsNewGameVisible)
+        view
+    )
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.NavigateToMultiplayerMenuRequested())
+        view.Label <- "\U0001F465 Multiplayer"
+        Binding.IsVisible(view, vm.IsMultiplayerVisible)
+        view
+    )
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.SaveGameRequested("quick_save.json"))
+        view.Label <- "\U0001F3AE Save Game"
+        Binding.IsVisible(view, vm.IsSaveGameVisible)
+        view
+    )
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.LoadGameRequested("quick_save.json"))
+        view.Label <- "\U0001F969 Load Game"
+        Binding.IsVisible(view, vm.IsLoadGameEnabled)
+        view
+    )
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.ExitGameRequested())
+        view.Label <- "\U0001F61E Exit Game"
+        Binding.IsVisible(view, vm.IsExitGameVisible)
+        view
+    )
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.NavigateToSettingsMenuRequested())
+        view.Label <- "\U0001F9F0 Settings"
+        view
+    )
+
+    window.Children.Add(
+        let view = CreateMenuButton(publisher, () -> publisher.QuitGameRequested())
+        view.Label <- "\U0001F9C2 Quit"
+        view
+    )
+
+    Binding.IsOpen(window, vm.IsVisible)
+    
+    let style = Style()
+    style.Font <- Some(DefaultFontLarge.MergeWith(FontLocations.Noto_UntouchedSvg, 32))
+    style.ButtonColor <- SomeStruct(Color.Transparent)
+    window.Style <- Some(style)
+    window
+
+CreateDiagnosticsOverlay(vm: DiagnosticsViewModel): WindowView =
+    let parent = WindowView()
+    parent.BackgroundAlpha <- 0.35
+    parent.ScreenHorizontalAlignment <- HorizontalAlignment.Right
+    parent.Kind <- WindowKind.Overlay
+
+    parent.Children.Add(
+        let style = Style()
+        let view = LinePlotView()
+        view.Style <- Some(style)
+        view.Label <- "Frametime"
+        view.Values <- vm.Frametimes
+        view.MaxScale <- 1000 / 60: float32
+        view.MinScale <- 0
+        style.TextColor <- SomeStruct(Color.Red)
+        Binding.Offset(view, vm.FrametimeOffset)
+        Binding.Text(view, vm.FrametimeText)
+        vm.FrametimeText.Add(
+            text ->
+                let value = vm.Frametimes[vm.FrametimeOffset.Value]
+                if (value > 15)
+                    style.TextColor <- SomeStruct(Color.Red)
+                else if (value > 14)
+                    style.TextColor <- SomeStruct(Color.OrangeRed)
+                else if (value > 13)
+                    style.TextColor <- SomeStruct(Color.Orange)
+                else if (value > 11)
+                    style.TextColor <- SomeStruct(Color.Yellow)
+                else if (value > 8)
+                    style.TextColor <- SomeStruct(Color.GreenYellow)
+                else
+                    style.TextColor <- SomeStruct(Color.Lime)
+        )
+        view
+    )
+
+    parent.Children.Add(
+        let style = Style()
+        let view = LinePlotView()
+        view.Style <- Some(style)
+        view.Label <- "Logic Frametime"
+        view.Values <- vm.LogicFrametimes
+        view.MaxScale <- 1000 / 30: float32
+        view.MinScale <- 0
+        Binding.Offset(view, vm.LogicFrametimeOffset)
+        Binding.Text(view, vm.LogicFrametimeText)
+        vm.LogicFrametimeText.Add(
+            text ->
+                let value = vm.LogicFrametimes[vm.LogicFrametimeOffset.Value]
+                if (value > 26)
+                    style.TextColor <- SomeStruct(Color.Red)
+                else if (value > 23)
+                    style.TextColor <- SomeStruct(Color.OrangeRed)
+                else if (value > 20)
+                    style.TextColor <- SomeStruct(Color.Orange)
+                else if (value > 15)
+                    style.TextColor <- SomeStruct(Color.Yellow)
+                else if (value > 10)
+                    style.TextColor <- SomeStruct(Color.GreenYellow)
+                else
+                    style.TextColor <- SomeStruct(Color.Lime)
+        )
+        view
+    )
+
+    parent.Children.Add(
+        let view = LinePlotView()
+        view.Label <- "Server Bandwidth"
+        view.Values <- vm.ServerUsages
+        view.MinScale <- 0
+        Binding.Offset(view, vm.ServerUsageOffset)
+        Binding.Text(view, vm.ServerUsageText)
+        view
+    )
+
+    parent.Children.Add(
+        let style = Style()
+        let view = LinePlotView()
+        view.Style <- Some(style)
+        view.Label <- "Input Latency"
+        view.Values <- vm.ClientPings
+        view.MaxScale <- 350
+        view.MinScale <- 0
+        Binding.Offset(view, vm.ClientPingOffset)
+        Binding.Text(view, vm.ClientPingText)
+        vm.ClientPingText.Add(
+            text ->
+                let value = vm.ClientPings[vm.ClientPingOffset.Value]
+                if (value > 300)
+                    style.TextColor <- SomeStruct(Color.Red)
+                else if (value > 225)
+                    style.TextColor <- SomeStruct(Color.OrangeRed)
+                else if (value > 150)
+                    style.TextColor <- SomeStruct(Color.Orange)
+                else if (value > 100)
+                    style.TextColor <- SomeStruct(Color.Yellow)
+                else if (value > 75)
+                    style.TextColor <- SomeStruct(Color.GreenYellow)
+                else
+                    style.TextColor <- SomeStruct(Color.Lime)
+        )
+        view
+    )
+
+    parent.Children.Add(
+        let style = Style()
+        let view = LinePlotView()
+        view.Style <- Some(style)
+        view.Label <- "Ping"
+        view.Values <- vm.ServerPings
+        view.MaxScale <- 350
+        view.MinScale <- 0
+        Binding.Offset(view, vm.ServerPingOffset)
+        Binding.Text(view, vm.ServerPingText)
+        vm.ServerPingText.Add(
+            text ->
+                let value = vm.ServerPings[vm.ServerPingOffset.Value]
+                if (value > 300)
+                    style.TextColor <- SomeStruct(Color.Red)
+                else if (value > 225)
+                    style.TextColor <- SomeStruct(Color.OrangeRed)
+                else if (value > 150)
+                    style.TextColor <- SomeStruct(Color.Orange)
+                else if (value > 100)
+                    style.TextColor <- SomeStruct(Color.Yellow)
+                else if (value > 75)
+                    style.TextColor <- SomeStruct(Color.GreenYellow)
+                else
+                    style.TextColor <- SomeStruct(Color.Lime)
+        )
+        view
+    )
+
+    parent.Children.Add(
+        let view = LinePlotView()
+        view.Label <- "RAM Usage"
+        view.Values <- vm.RamUsages
+        view.MinScale <- 0
+        Binding.Offset(view, vm.RamUsageOffset)
+        Binding.Text(view, vm.RamUsageText)
+        view
+    )
+
+    parent.Children.Add(
+        let view = TextView()
+        Binding.Text(view, vm.GpuDeviceName)
+        view
+    )
+
+    parent.Children.Add(
+        let view = LabelView()
+        view.Label <- "VRAM"
+        Binding.Text(view, vm.VRamText)
+        view
+    )
+
+    parent.Children.Add(
+        let view = TextView()
+        Binding.Text(view, vm.CpuDeviceName)
+        view
+    )
+
+    parent.Children.Add(
+        let view = LabelView()
+        view.Label <- "RAM"
+        Binding.Text(view, vm.RamText)
+        view
+    )
+
+    parent.Children.Add(
+        let view = GridView()
+        view.CellPadding <- Vector2.Zero
+        view.ColumnCount <- 3
+        let _ =
+            vm.CpuCores.Subscribe(
+                infos ->
+                    view.Children.Clear()
+                    ForEach(infos,
+                        info ->
+                            if (!info.Name.Contains("Total"))
+                                view.Children.Add(
+                                    let label = LabelView()
+                                    label.Label <- "CPU #" + info.Name
+                                    label.Text <- "| " + info.Usage.ToString() + "%%"
+                                    label
+                                )
+                    )
+            )
+        view
+    )
+
+    let style = Style()
+    style.Font <- Some(DefaultFont)
+    parent.Style <- Some(style)
+    parent
+
+CreateOverlay(vm: EntityInfoOverlayViewModel): WindowView =
+    let window = WindowView()
+    window.BackgroundAlpha <- 0.35
+    window.Kind <- WindowKind.Overlay
+
+    let _ = vm.Position.Subscribe(p -> window.Offset <- p)
+
+    window.Children.AddRange(
+        Cast(
+            [
+                (
+                    let label = LabelView()
+                    label.Label <- "Id"
+                    label.Text <- vm.Id.Value.ToString()
+                    let _ = vm.Id.Subscribe((mutable p) -> label.Text <- p.ToString())
+                    label: View
+                )
+                (
+                    let label = LabelView()
+                    label.Label <- "Position"
+                    label.Text <- vm.InfoPosition.Value.ToString()
+                    let _ = vm.InfoPosition.Subscribe(p -> label.Text <- p.ToString())
+                    label: View
+                )
+                (
+                    let label = LabelView()
+                    label.Label <- "Rotation"
+                    label.Text <- vm.InfoRotation.Value.ToString()
+                    let _ = vm.InfoRotation.Subscribe(p -> label.Text <- p.ToString())
+                    label: View
+                )
+                (
+                    let label = LabelView()
+                    label.Label <- "Linear Velocity"
+                    label.Text <- vm.InfoLinearVelocity.Value.ToString()
+                    let _ = vm.InfoLinearVelocity.Subscribe(p -> label.Text <- p.ToString())
+                    label: View
+                )
+                (
+                    let label = LabelView()
+                    label.Label <- "Angular Velocity"
+                    label.Text <- vm.InfoAngularVelocity.Value.ToString()
+                    let _ = vm.InfoAngularVelocity.Subscribe(p -> label.Text <- p.ToString())
+                    label: View
+                )
+
+            ]
+        )
+    )
+
+    let style = Style()
+    style.Font <- Some(DefaultFont)
+    window.Style <- Some(style)
+    window
+
+module ConsoleColor =
+
+    Error: Color get() = Color.Red
+    Warning: Color get() = Color.Yellow
+    CommandInfo: Color get() = Color.FromArgb(156, 220, 254)
+    Yellow: Color get() = Color.FromArgb(220, 220, 170)
+
+CreateConsole(vm: ConsoleViewModel, publisher: ClientEventPublisher): WindowView =
+    let openCloseDuration = 0.3: float32
+
+    let window = WindowView()
+    window.IsBackgroundVisible <- false
+    window.IsScrollingEnabled <- false
+    window.CanShowTitle <- false
+    window.Kind <- WindowKind.PopupModal
+    window.ScreenVerticalAlignment <- VerticalAlignment.Stretch
+    window.ScreenHorizontalAlignment <- HorizontalAlignment.Stretch
+    window.ScreenVerticalStretchFactor <- 0.4
+    window.ScreenHorizontalStretchFactor <- 1
+
+    let createLine() =
+        let style = Style()
+        let viewChild = TextView()
+        viewChild.Experimental_IsSelectable <- true
+        viewChild.Style <- Some(style)
+        viewChild
+
+    let linePool = Stack<TextView>()
+    For(100,
+        _i ->
+            linePool.Push(createLine())
+    )
+    let pushLines(lines: List<View>) =
+        ForEach(lines, x -> linePool.Push(Unsafe.Cast(x)))
+
+    let textInputView = TextInputView(256)
+    textInputView.WillUpdateOnReturn <- true
+    textInputView.IsHistoryEnabled <- true
+    textInputView.IsCompletionEnabled <- true
+
+    textInputView.CompletionItems.AddRange(Cast(map(vm.CompletionItems.Value, x -> CompletionItem(x))))
+    vm.CompletionItems.Add(
+        xs ->
+            textInputView.CompletionItems.Clear()
+            textInputView.CompletionItems.AddRange(Cast(map(xs, x -> CompletionItem(x))))
+    )
+
+    let focusInput() =
+        textInputView.Focus()
+
+    let consoleText = ScrollbarView()
+
+    let scrollTo() =
+        consoleText.ScrollToBottom()
+
+    window.Children.Add(
+        let view = consoleText
+        vm.Log.Add(
+            str ->
+                pushLines(view.Children)
+                view.Children.Clear()
+
+                ForEachBack(str.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+                    str ->
+                        let mutable viewChild = unchecked default
+                        if (linePool.TryPop(&viewChild))
+                            match (str)
+                            | LogError(str) =>
+                                match (viewChild.Style)
+                                | Some(style) =>
+                                    style.TextColor <- SomeStruct(ConsoleColor.Error)
+                                | _ =>
+                                    ()
+                                viewChild.Text <- str
+                                viewChild.Tooltip <- 
+                                    Some(
+                                        let view = TextView()
+                                        view.Text <- "error"
+                                        view: View
+                                    )
+                            | LogWarning(str) =>
+                                match (viewChild.Style)
+                                | Some(style) =>
+                                    style.TextColor <- SomeStruct(ConsoleColor.Warning)
+                                | _ =>
+                                    ()
+                                viewChild.Text <- str
+                                viewChild.Tooltip <- 
+                                    Some(
+                                        let view = TextView()
+                                        view.Text <- "warning"
+                                        view: View
+                                    )
+                            | LogCommandInfo(str) =>
+                                match (viewChild.Style)
+                                | Some(style) =>
+                                    style.TextColor <- SomeStruct(ConsoleColor.CommandInfo)
+                                | _ =>
+                                    ()
+                                viewChild.Text <- str
+                                viewChild.Tooltip <- 
+                                    Some(
+                                        let view = TextView()
+                                        view.Text <- "command info"
+                                        view: View
+                                    )
+                            | _ =>
+                                match (viewChild.Style)
+                                | Some(style) =>
+                                    style.TextColor <- NoneStruct
+                                | _ =>
+                                    ()
+                                viewChild.Text <- str
+                                viewChild.Tooltip <- 
+                                    Some(
+                                        let view = TextView()
+                                        view.Text <- "info"
+                                        view: View
+                                    )
+                            view.Children.Insert(0, viewChild)
+                )
+
+                if (!view.IsHovered)
+                    scrollTo()
+        )
+        vm.Log.Value <- vm.Log.Value
+        view
+    )
+
+    window.Children.Add(
+        let style = Style()
+        style.BackgroundColor <- SomeStruct(Color.Transparent)
+        let view = textInputView
+        view.CanUseWindowWidth <- true
+        view.Style <- Some(style)
+        view.Text <- vm.Input.Value
+        vm.Input.Add(x -> view.Text <- x)
+        view.OnTextChanged <-
+            (prevText, currText: string) ->
+                focusInput()
+                scrollTo()
+                vm.Input.Value <- ""
+                publisher.ConsoleCommandRequested(currText)
+        view
+    )
+
+     // -- background ---
+
+    let backgroundWindowStyle = Style()
+    backgroundWindowStyle.WindowBorderSize <- SomeStruct(Vector2.Zero)
+    backgroundWindowStyle.WindowPadding <- SomeStruct(Vector2.Zero)
+    let backgroundWindow = WindowView()
+    backgroundWindow.Style <- Some(backgroundWindowStyle)
+    backgroundWindow.BackgroundAlpha <- 0.8
+    backgroundWindow.Kind <- WindowKind.Overlay
+    backgroundWindow.IsScrollingEnabled <- false
+    backgroundWindow.ScreenVerticalAlignment <- window.ScreenVerticalAlignment
+    backgroundWindow.ScreenHorizontalAlignment <- window.ScreenHorizontalAlignment
+    backgroundWindow.ScreenVerticalStretchFactor <- window.ScreenVerticalStretchFactor
+    backgroundWindow.ScreenHorizontalStretchFactor <- window.ScreenHorizontalStretchFactor
+    
+    let background = ImageView()
+    background.IsScaling <- false
+    Binding.Image(background, vm.BackgroundImage)
+
+    backgroundWindow.Children.Add(background)
+
+    // -----------------
+
+    let style = Style()
+    style.ModalScreenColor <- SomeStruct(Color.Transparent)
+    style.Font <- Some(ConsoleFont)
+    window.Style <- Some(style)
+
+
+    // Animation
+
+    let mutable openTween = Tween.From(0: float32).To(0, openCloseDuration)
+    let mutable closeTween = Tween.From(0: float32).To(0, openCloseDuration).WithAlpha(1)
+
+    textInputView.IsEnabled <- false
+    vm.IsVisible.Add(
+        isEnabled ->
+            if (isEnabled)
+                let _ = Tween.StepZero(&openTween)
+                openTween.Alpha <- 1 - closeTween.Alpha
+                Tween.Reset(&closeTween)
+            else
+                let _ = Tween.StepZero(&closeTween)
+                closeTween.Alpha <- 1 - openTween.Alpha
+                Tween.Reset(&openTween)
+            textInputView.IsEnabled <- isEnabled
+    )
+
+    backgroundWindow.OnBeforeUpdate <-
+        Some(
+            (context: UIContext, deltaTime) ->
+                openTween.Start <- -context.ViewportSize.Y * window.ScreenVerticalStretchFactor
+                closeTween.End <- openTween.Start
+
+                if (openTween.IsStepping)
+                    if (Tween.Step(&openTween, deltaTime))
+                        scrollTo()
+                        focusInput()
+                    window.Offset <- Vector2(0, openTween.Current)
+                else if (closeTween.IsStepping)
+                    let _ = Tween.Step(&closeTween, deltaTime)
+                    window.Offset <- Vector2(0, closeTween.Current)
+                else if (!openTween.IsFinished)
+                    window.Offset <- Vector2(0, openTween.Start)
+
+                let screenSize = context.ViewportSize
+                background.Size <- Vector2(screenSize.X * window.ScreenHorizontalStretchFactor, screenSize.Y * window.ScreenVerticalStretchFactor)
+                backgroundWindow.Offset <- window.Offset
+                backgroundWindow.BringToFront()
+                consoleText.Size <- Vector2(0, background.Size.Y * 0.85)
+        )
+
+    backgroundWindow.OnAfterUpdate <-
+        Some(
+            (context: UIContext, deltaTime) ->
+                if (openTween.IsStepping || closeTween.IsStepping)
+                    scrollTo()
+                if (openTween.IsFinished && !consoleText.IsHovered)
+                    focusInput()
+        )
+
+    window.OnBeforeUpdate <-
+        Some(
+            (context: UIContext, deltaTime) ->
+                window.BringToFront()
+        )
+
+    backgroundWindow.Children.Add(window)
+
+    backgroundWindow
+
+CreateLoadingView(vm: LoadingViewModel): WindowView =
+    let window = WindowView()
+    window.IsBackgroundVisible <- true
+    window.IsScrollingEnabled <- false
+    window.CanShowTitle <- false
+    window.Kind <- WindowKind.Overlay
+    window.ScreenVerticalAlignment <- VerticalAlignment.Center
+    window.ScreenHorizontalAlignment <- HorizontalAlignment.Center
+
+    let style = Style()
+    style.Font <- Some(DefaultFontLarge.MergeWith(FontLocations.Noto_UntouchedSvg, 32))
+    window.Style <- Some(style)
+
+    window.Children.Add(
+        let view = LabelView()
+        Binding.Text(view, vm.Text)
+        view
+    )
+
+    window
+
+CreateMessageDialogView(vm: MessageDialogViewModel): WindowView =
+    let window = WindowView()
+    window.IsBackgroundVisible <- true
+    window.IsScrollingEnabled <- false
+    window.CanShowTitle <- true
+    window.Kind <- WindowKind.PopupModal
+    window.ScreenVerticalAlignment <- VerticalAlignment.Center
+    window.ScreenHorizontalAlignment <- HorizontalAlignment.Center
+
+    Binding.Title(window, vm.Title)
+
+    let style = Style()
+    style.Font <- Some(DefaultFontLarge.MergeWith(FontLocations.Noto_UntouchedSvg, 32))
+    window.Style <- Some(style)
+
+    Binding.IsVisible(window, vm.IsVisible)
+
+    window.Children.Add(
+        let view = TextView()
+        Binding.Text(view, vm.Text)
+        view
+    )
+
+    window.Children.Add(
+        let okButton = ButtonView()
+        okButton.Label <- "Ok"
+        okButton.OnClicked <- () -> vm.IsVisible.Value <- false
+        okButton
+    )
+
+    window

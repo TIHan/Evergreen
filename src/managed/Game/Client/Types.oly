@@ -1,0 +1,39 @@
+module Game.Client.Types
+
+open System.Numerics
+open Evergreen.Collections
+open Evergreen.Physics
+open Evergreen.Utilities
+open static Game.Shared.Types
+
+newtype CameraLerp =
+    public field mutable Value: Camera
+
+newtype TransformLerp =
+    public field mutable Value: Transform
+
+enum PredictionStatus =
+    | NotPredicting
+    | Predicting
+
+struct PredictiveInfo =
+    public field mutable EntityId: EntityId = EntityId()
+    public field mutable Status: PredictionStatus = PredictionStatus.NotPredicting
+    public field mutable ServerPosition: Vector3 = Vector3.Zero
+    public field mutable ServerRotation: Quaternion = Quaternion.Identity
+    public field mutable Position: Vector3 = Vector3.Zero
+    public field mutable Rotation: Quaternion = Quaternion.Identity
+    public field mutable TransitionDuration: float32 = 0
+    public field mutable LerpToPredictTransitionTime: float32 = 0
+    public field mutable PredictToLerpTransitionTime: float32 = 0
+    public field mutable Sequence: ByteSequence = ByteSequence.Zero
+
+    IsPredicting: bool get() = this.Status == PredictionStatus.Predicting
+
+    LerpToPredictAlpha: float32
+        get() =
+            1 - (this.LerpToPredictTransitionTime / this.TransitionDuration)
+
+    PredictToLerpAlpha: float32
+        get() =
+            1 - (this.PredictToLerpTransitionTime / this.TransitionDuration)

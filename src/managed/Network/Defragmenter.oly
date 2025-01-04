@@ -1,0 +1,114 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+internal class Defragmenter =
+    field seqBuf: SequenceBuffer
+    field mutable latestSequenceId: uint16
+    
+    new() =
+        {
+            seqBuf = SequenceBuffer()
+            latestSequenceId = 0
+        }
+
+    HandlePacket(packetStream: ByteStream, callback: (ByteStream, channel: byte) -> ()): () =
+        if (packetStream.Position.Index != 0)
+            fail("Invalid packet stream")
+
+        let header = packetStream.Read<PacketMessageHeader>()
+
+        if (header.FragmentIndex < 0 || header.FragmentCount <= 0)
+            throw NetworkInvalidFragmentException()
+
+        let channel = header.Channel
+
+        static let receiveOneFragment(header: inref<PacketMessageHeader>, packetStream: ByteStream, callback: (ByteStream, channel: byte) -> ()) =
+            let callbackData = zeroArray(NetworkPacket.MaxDataSize)
+            packetStream.Read(Span(callbackData))
+            callback(ByteStream(callbackData, header.TotalDataSize), header.Channel)
+
+        static let recordFragment(header: inref<PacketMessageHeader>, seqBuf: SequenceBuffer, packetStream: ByteStream) =
+            let mutable result = unchecked default
+            if (!seqBuf.TryGetValue(header.SequenceId, &result))
+                let reassembledData = zeroArray<byte>(header.TotalDataSize)
+                result <- PacketEntry(reassembledData)
+                seqBuf[header.SequenceId] <- result
+
+            let hashSet = result.Hash
+            let reassembledData = result.Buffer
+            if (hashSet.Add(header.FragmentIndex))
+                let mutable reassembledDataSpan = Span(reassembledData)
+                let lastIndex = header.TotalDataSize / NetworkPacket.MaxDataSize
+                if (int32(header.FragmentIndex) == lastIndex)
+                    let position = lastIndex * NetworkPacket.MaxDataSize
+                    let remaining = header.TotalDataSize - position
+                    let mutable dst = reassembledDataSpan.Slice(position)
+                    packetStream.Read(dst)
+                else
+                    packetStream.Read(reassembledDataSpan.Slice(int32(header.FragmentIndex) * NetworkPacket.MaxDataSize, NetworkPacket.MaxDataSize))
+
+            result
+
+        match (header.Kind)
+        | PacketKind.Unreliable =>
+            if (this.seqBuf.IsInvalid(header.SequenceId))
+                let _ = this.seqBuf.Remove(header.SequenceId)
+
+            if (header.FragmentCount == 1)
+                receiveOneFragment(&header, packetStream, callback)
+            else
+                let result = recordFragment(&header, this.seqBuf, packetStream)
+                let hashSet = result.Hash
+                let reassembledData = result.Buffer
+
+                if (hashSet.Count == int32(header.FragmentCount))
+                    callback(ByteStream(reassembledData, header.TotalDataSize), header.Channel)
+                else if (hashSet.Count > int32(header.FragmentCount))
+                    throw NetworkInvalidFragmentException()
+
+        | PacketKind.UnreliableSequenced 
+        | PacketKind.ReliableSequenced =>
+            if (this.seqBuf.IsLessThan(header.SequenceId))
+                let _ = this.seqBuf.Remove(header.SequenceId)
+
+            let canProcess =
+                // Prevents duplicated packets.
+                if (
+                        SequenceGreaterThan(header.SequenceId, this.latestSequenceId) ||
+                            (header.SequenceId == this.latestSequenceId && (header.FragmentCount > 1) && !this.seqBuf.ContainsFragment(header.SequenceId, header.FragmentIndex))
+                    )
+                    true
+                else
+                    false
+
+            if (canProcess)
+                if (header.FragmentCount == 1)
+                    if (SequenceGreaterThan(header.SequenceId, this.latestSequenceId))
+                        this.latestSequenceId <- header.SequenceId
+                        receiveOneFragment(&header, packetStream, callback)
+                else
+                    let result = recordFragment(&header, this.seqBuf, packetStream)
+                    let hashSet = result.Hash
+                    let reassembledData = result.Buffer
+
+                    if (hashSet.Count == int32(header.FragmentCount))
+                        if (SequenceGreaterThan(header.SequenceId, this.latestSequenceId))
+                            this.latestSequenceId <- header.SequenceId
+                            callback(ByteStream(reassembledData, header.TotalDataSize), header.Channel)
+                    else if (hashSet.Count > int32(header.FragmentCount))
+                        throw NetworkInvalidFragmentException()
+
+        | _ =>
+            throw NotSupportedException(header.Kind.ToString())

@@ -1,0 +1,144 @@
+module Evergreen.Utilities.GameLoop
+
+open System
+open System.Threading
+open System.Diagnostics
+open Evergreen.Utilities
+
+ConvertSecondsToTicks(seconds: float64): int64 = TimeSpan.FromSeconds(seconds).Ticks
+ConvertTicksToSeconds(ticks: int64): float64 = TimeSpan.FromTicks(ticks).TotalSeconds
+ConvertFramesPerSecondToSeconds(fps: float64): float64 = (1000 / fps) * 0.001
+ConvertFramesPerSecondToTicks(fps: float64): int64 = ConvertSecondsToTicks(ConvertFramesPerSecondToSeconds(fps))
+
+ConvertTicksToTickRate(ticks: int64): int64 =
+    int64((float64(1000) / TimeSpan.FromTicks(ticks).TotalMilliseconds))
+
+FixedUpdateFramesPerSecond: uint32 get = 20
+FixedUpdateDeltaTime: int64 get = ConvertFramesPerSecondToTicks(float64(FixedUpdateFramesPerSecond))
+FixedUpdateDeltaTimeInMilliseconds: float64 get = TimeSpan.FromTicks(FixedUpdateDeltaTime).TotalMilliseconds
+FixedUpdateDeltaTimeInSeconds: float64 get = ConvertTicksToSeconds(FixedUpdateDeltaTime)
+
+struct GameLoopEnv =
+
+    Time: GameTime get
+    IsCatchingUp: bool get
+
+    new(stopwatch: Stopwatch, frame: FrameNumber, time: int64, deltaTime: int64, isCatchingUp: bool) =
+        {
+            Time = GameTime(stopwatch, frame, time, deltaTime)
+            IsCatchingUp = isCatchingUp
+        }
+
+#[inline] 
+Start(#[inline] update: GameLoopEnv -> (), #[inline] fixedUpdate: GameLoopEnv -> (bool, float32), #[inline] render: (GameLoopEnv, alpha: float32) -> ()): () =
+    let stopwatch = Stopwatch.StartNew()
+    let getTicks() = stopwatch.Elapsed.Ticks
+
+    let skip = ConvertFramesPerSecondToTicks(1)
+
+    let mutable currentTime = getTicks()
+    let mutable accumulator = FixedUpdateDeltaTime: int64
+
+    let mutable frame = FrameNumber.One
+    let mutable renderFrame = FrameNumber.One
+
+    let mutable quit = false
+    let mutable speedOffset = 0: int64
+    while (!quit)
+        let newTime = getTicks()
+        let frameTime = newTime - currentTime
+        currentTime <- newTime
+
+        // update / pre-render
+        let glenv = GameLoopEnv(stopwatch, renderFrame, newTime, frameTime, /* isCatchingUp */ false)
+        update(glenv)
+
+        // fixed-update
+        accumulator <- 
+            if (frameTime > (FixedUpdateDeltaTime * 2))
+                FixedUpdateDeltaTime
+            else
+                accumulator + frameTime
+
+        let mutable fixedUpdateCount = 0
+        while (accumulator >= FixedUpdateDeltaTime + speedOffset)
+            accumulator <- accumulator - (FixedUpdateDeltaTime + speedOffset)
+            let glenv = GameLoopEnv(stopwatch, frame, newTime, FixedUpdateDeltaTime, /* isCatchingUp */ fixedUpdateCount >= 1)
+            fixedUpdateCount <- fixedUpdateCount + 1
+            let (quitValue, speedOffsetValue) = fixedUpdate(glenv)
+            quit <- quitValue
+            speedOffset <- int64((float64(FixedUpdateDeltaTime) * (1 / 30: float64)) * float64(speedOffsetValue))
+
+        // render
+        let glenv = GameLoopEnv(stopwatch, renderFrame, newTime, frameTime, /* isCatchingUp */ false)
+        let alpha = float32(System.Math.Clamp(float64(accumulator) / float64(FixedUpdateDeltaTime + speedOffset), 0, 1))
+        render(glenv, alpha)
+
+        renderFrame <- renderFrame + FrameNumber.One
+        if (fixedUpdateCount > 0)
+            frame <- frame + FrameNumber.One
+
+#[inline] 
+StartWithBackground(
+        #[inline] update: GameLoopEnv -> (), 
+        #[inline] fixedUpdate: GameLoopEnv -> (bool, float32),
+        #[inline(never)] backgroundFixedUpdate: GameLoopEnv -> (),
+        #[inline] render: (GameLoopEnv, alpha: float32) -> ()
+    ): () =
+    
+    let sv = ManualResetEvent(false)
+    let cl = ManualResetEvent(true)
+    
+    class GameBackgroundThread =
+        field sv: ManualResetEvent
+        field cl: ManualResetEvent
+        field tick: GameLoopEnv -> ()
+    
+        public field mutable glenv: GameLoopEnv
+        public field mutable quit: bool
+    
+        new(sv: ManualResetEvent, cl: ManualResetEvent, tick: GameLoopEnv -> ()) =
+            {
+                quit = false
+                sv = sv
+                cl = cl
+                tick = tick
+                glenv = default
+            }
+    
+        Invoke(): () =
+            while (!this.quit) 
+                let _ = this.sv.WaitOne()
+                let _ = this.sv.Reset()
+                if (!this.quit)
+                    this.tick(this.glenv)
+                let _ = this.cl.Set()
+            let _ = this.cl.Set()
+    
+    let backgroundThread = GameBackgroundThread(sv, cl, backgroundFixedUpdate)
+
+    let mutable task: Thread = null
+
+    Start(
+        update,
+        glenv ->
+            if (task === null)
+                let _ = sv.Reset()
+                let _ = cl.Set()
+                let threadStart = ThreadStart(backgroundThread, nint(&&backgroundThread.Invoke))
+                task <- Thread(threadStart)
+                task.Start()
+
+            let _ = cl.WaitOne()
+            let _ = cl.Reset()
+            backgroundThread.glenv <- glenv
+
+            let (isClosed, gameSpeedOffset) = fixedUpdate(glenv)
+
+            backgroundThread.quit <- isClosed
+            let _ = sv.Set() // begin background fixed-update
+            
+            (isClosed, gameSpeedOffset)
+            ,
+        render
+    )

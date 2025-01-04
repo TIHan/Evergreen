@@ -1,0 +1,126 @@
+module Game.Client.ViewModels
+
+open System.Numerics
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering // Only used for IGpuImage. Is there a better way to do this?
+
+// Note: Do not reference views here, or anything graphical.
+
+class MainMenuViewModel =
+    IsVisible: Var<bool> get = Var(true)
+    IsNewGameVisible: Var<bool> get = Var(true)
+    IsSaveGameVisible: Var<bool> get = Var(false)
+    IsLoadGameEnabled: Var<bool> get = Var(true)
+    IsExitGameVisible: Var<bool> get = Var(false)
+    IsMultiplayerVisible: Var<bool> get = Var(true)
+
+class MultiplayerMenuViewModel =
+    Address: Var<string> get = Var("localhost")
+    Port: Var<int32> get = Var(27015)
+    Password: Var<string> get = Var("")
+
+struct DisplayModeItem =
+    Width: int32 get
+    Height: int32 get
+    RefreshRate: float32 get
+    new(width: int32, height: int32, refreshRate: float32) =
+        {
+            Width = width
+            Height = height
+            RefreshRate = refreshRate
+        }
+
+enum AntiAliasingKind =
+    | None
+    | SSAAx2
+    | SSAAx4
+
+class SettingsMenuViewModel =
+    IsFullscreen: Var<bool> get = Var(false)
+    VerticalSync: Var<bool> get = Var(false)
+    AntiAliasingChoices: Var<AntiAliasingKind[]> get = Var([AntiAliasingKind.None; AntiAliasingKind.SSAAx2; AntiAliasingKind.SSAAx4])
+    AntiAliasing: Var<AntiAliasingKind> get = Var(AntiAliasingKind.None)
+    ShowDiagnostics: Var<bool> get = Var(false)
+    ShowImGuiDemo: Var<bool> get = Var(false)
+    SimulateLatency: Var<bool> get = Var(false)
+    SimulatePacketLoss: Var<bool> get = Var(false)
+    AsyncServer: Var<bool> get = Var(false)
+    GameSpeedOffset: Var<float32> get = Var(0: float32)
+    DisplayModes: Var<DisplayModeItem[]> get = Var([])
+    SelectedDisplayModeIndex: Var<int32> get = Var(-1)
+    OlyLogo: Var<Option<IGpuImage>> get = Var(None)
+    DotNetLogo: Var<Option<IGpuImage>> get = Var(None)
+
+    // Audio
+    MusicVolume: Var<float32> get = Var(0.1: float32) // TODO-language-bug: We should be able to write "Var(0.1)" as it should be inferred.
+    EffectsVolume: Var<float32> get = Var(1: float32)
+
+class CpuCoreViewModel =
+    Name: string get, set = ""
+    Usage: int32 get, set = 0
+
+class DiagnosticsViewModel =
+    Frametimes: mutable float32[] get = zeroArray(256 * 2)
+    FrametimeOffset: Var<int32> get = Var(0)
+    FrametimeText: Var<string> get = Var("")
+    FrametimeTextUpdateTime: float32 get, set = 0
+
+    LogicFrametimes: mutable float32[] get = zeroArray(256)
+    LogicFrametimeOffset: Var<int32> get = Var(0)
+    LogicFrametimeText: Var<string> get = Var("")
+    LogicFrametimeTextUpdateTime: float32 get, set = 0
+
+    ServerUsages: mutable float32[] get = zeroArray(256)
+    ServerUsageOffset: Var<int32> get = Var(0)
+    ServerUsageText: Var<string> get = Var("")
+    ServerUsageTextUpdateTime: float32 get, set = 0
+
+    ClientPings: mutable float32[] get = zeroArray(256)
+    ClientPingOffset: Var<int32> get = Var(0)
+    ClientPingText: Var<string> get = Var("")
+    ClientPingTextUpdateTime: float32 get, set = 0
+
+    ServerPings: mutable float32[] get = zeroArray(256)
+    ServerPingOffset: Var<int32> get = Var(0)
+    ServerPingText: Var<string> get = Var("")
+    ServerPingTextUpdateTime: float32 get, set = 0
+
+    RamUsages: mutable float32[] get = zeroArray(1024 * 10)
+    RamUsageOffset: Var<int32> get = Var(0)
+    RamUsageText: Var<string> get = Var("")
+
+    GpuDeviceName: Var<string> get = Var("")
+    VRamText: Var<string> get = Var("")
+        
+    CpuDeviceName: Var<string> get = Var("")
+    RamText: Var<string> get = Var("")
+    CpuCores: Var<CpuCoreViewModel[]> get = Var([])
+
+class EntityInfoOverlayViewModel =
+
+    Id: Var<EntityId> get = Var(EntityId.Nil)
+    Position: Var<Vector2> get = Var(Vector2.Zero)
+    InfoPosition: Var<Vector3> get = Var(Vector3.Zero)
+    InfoRotation: Var<Quaternion> get = Var(Quaternion.Identity)
+    InfoLinearVelocity: Var<Vector3> get = Var(Vector3.Zero)
+    InfoAngularVelocity: Var<Vector3> get = Var(Vector3.Zero)
+
+class ConsoleViewModel =
+
+    BackgroundImage: Var<Option<IGpuImage>> get = Var(None)
+    IsVisible: Var<bool> get = Var(false)
+    Log: Var<string> get = Var("")
+    Input: Var<string> get = Var("")
+    CompletionItems: Var<string[]> get = Var([])
+
+class LoadingViewModel =
+
+    Text: Var<string> get = Var("")
+
+class MessageDialogViewModel =
+
+    IsVisible: Var<bool> get = Var(false)
+    Title: Var<string> get = Var("")
+    Text: Var<string> get = Var("")
+    

@@ -1,0 +1,30 @@
+{
+    "Layouts": [
+        {
+            "Bindings": [
+                {
+                    "Kind": "Uniform",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "Bindless",
+                    "StageFlags": "Vertex, Fragment",
+                    "Count": 5000
+                }
+            ]
+        }
+    ],
+    
+    "Flags": "DepthWrite, FlipY",
+    "CullMode": "Back",
+    "FrontFace": "CounterClockwise",
+
+    "Vertex": "bindless_test.vert",
+    "Fragment": "bindless_test.frag"
+}

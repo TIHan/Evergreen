@@ -1,0 +1,38 @@
+{
+    "Layouts": [
+        {
+            "Bindings": [
+                {
+                    "Kind": "Uniform",
+                    "Flags": "None",
+                    "StageFlags": "Vertex"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Vertex"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        }
+    ],
+    
+    "Flags": "DepthTest, DepthWrite, DepthOnly, FlipY",
+    "CullMode": "Back",
+    "FrontFace": "CounterClockwise",
+
+    "Vertex": "sprite_depth.vert",
+    "Fragment": "depth.frag"
+}

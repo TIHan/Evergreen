@@ -1,0 +1,198 @@
+namespace Game
+
+open System
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Window
+open Game.Client
+open Game.Client.Gui
+open Game.Server
+open Game.Shared
+open static Game.AssetManager
+open static Game.Shared.Types
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.ViewModels
+open static Game.Client.RenderState
+
+module Orchestration =
+
+    RunServer(genv: GameEnv): () =
+        let sv = ServerGame()
+        GameLoop.Start(
+            /* update */
+            glenv -> (),
+
+            /* fixedUpdate */
+            glenv ->
+                sv.FixedUpdate(glenv.Time)
+                (false, 0: float32),
+
+            /* render, or late-update */ 
+            (glenv, alpha) -> ()
+        )
+
+    Run(genv: GameEnv, renv: RenderEnv): () =
+
+        let clientEventPublisher = ClientEventPublisher(ByteStream())
+
+        let svGame = ServerGameProxy()
+        let game = ClientServerGame(svGame, genv, renv, clientEventPublisher)
+
+        let mutable logicFrame = 0 // background-only
+        let mutable logicFrametime = 0: float32 // background-only
+
+        let mutable renderTime = 0: int64
+        let mutable lastRenderTime = 0: int64
+
+        //
+
+        let window = renv.Window
+        let gpu = renv.Gpu
+        let guiEnv = game.GuiEnv
+
+        let mutable processorUsages = Machine.GetProcessorUsages()
+        let currentProcess = System.Diagnostics.Process.GetCurrentProcess()
+        let mutable memoryUsage = currentProcess.WorkingSet64
+        let mutable refreshProcessTask =
+            System.Threading.Tasks.Task.Run(
+                () -> 
+                    currentProcess.Refresh()
+                    let _ = currentProcess.WorkingSet64
+                    processorUsages <- Machine.GetProcessorUsages()
+
+            )
+
+        let uiWindows = List<WindowView>()
+
+        let csgenv =
+            ClientServerGameEnv(
+                genv.SoundManager.Get("Music/Freedoom/d_e3m9.ogg").Play(guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true),
+                genv.SoundManager.Get("Effects/Freedoom/dspstop.wav"),
+                genv.SoundManager.Get("Effects/Freedoom/dsmetal.wav"),
+                genv.SoundManager.Get("Effects/Freedoom/dspistol.wav"),
+                (Tween.From(0: float32).To(1, 2).WithAlpha(1)) // TODO-language-bug: Should not need '(' ')' around 'Tween.From'.
+            )
+
+        guiEnv.SettingsMenuModel.MusicVolume.Add(
+            value ->
+                if (!csgenv.MusicPlayback.IsDefault)
+                    csgenv.MusicPlayback.Volume <- value
+        )
+
+        let commandProcessor = CommandProcessor(svGame, Some(game), x -> ClientEventPublisher.AppendEvent(clientEventPublisher, x))
+        
+        let consoleCommandsList = List()
+        ForEach(commandProcessor.AvailableCommands,
+            consoleCommand ->
+                consoleCommandsList.Add(consoleCommand) // TODO-language-bug: crashes with 'consoleCommandsList.Add(consoleCommandsList)'
+        )
+        guiEnv.ConsoleModel.CompletionItems.Value <- Unsafe.AsImmutable(consoleCommandsList.ToArray())
+
+        GameLoop.StartWithBackground(
+            /* update */
+            glenv ->
+                game.Update(glenv.Time,
+                    inputSnapshot ->
+                        ClientServerGameHelpers.HandleInputSnapshot(clientEventPublisher, inputSnapshot)
+                        ClientServerGameHelpers.HandleEvents(
+                            genv,
+                            csgenv,
+                            window,
+                            guiEnv,
+                            commandProcessor,
+                            clientEventPublisher,
+                            game
+                        )
+                )
+                ,
+
+            /* fixedUpdate */
+            glenv ->
+                Game.AssetManager.AssetManager.Flush()
+
+                game.FixedUpdateGui(glenv.Time, logicFrame, logicFrametime)
+                game.Sync(glenv.Time)
+
+                (window.IsClosed, guiEnv.SettingsMenuModel.GameSpeedOffset.Value),
+
+            /* backgroundfixedUpdate */
+            glenv ->
+                logicFrametime <- 0
+                let s = Stopwatch.StartNew()
+                game.BackgroundFixedUpdate(genv, glenv.Time, glenv.IsCatchingUp)
+                s.Stop()
+                logicFrametime <- float32(s.Elapsed.TotalMilliseconds)
+                logicFrame <- logicFrame + 1
+                ,
+
+            /* render */
+            (glenv, alpha) ->  
+                // Never allow the window to be hidden.
+                if (!window.IsClosed && window.IsHidden)
+                    window.Show()                
+                
+                let size = window.Size
+                if (!window.IsClosed && !window.IsHidden && size.X != 0 && size.Y != 0)
+                    renderTime <- renderTime + glenv.Time.DeltaTimeTicks
+
+                    // This is for UI
+                    // ----------------------
+
+                    let settingsVm = guiEnv.SettingsMenuModel
+                    let diagsVm = guiEnv.DiagnosticsModel
+
+                    game.RenderUpdateGui(glenv.Time, genv.ConsoleWriter.GetStringBuilder(), uiWindows)
+
+                    if (Gui.CanShowDiagnostics(guiEnv))
+                        uiWindows.Add(guiEnv.Diagnostics)
+
+                        if (refreshProcessTask.IsCompleted)
+                            memoryUsage <- currentProcess.WorkingSet64
+                            diagsVm.CpuCores.Value <-
+                                map(processorUsages,
+                                    x ->
+                                        let info = CpuCoreViewModel()
+                                        info.Name <- x.Name
+                                        info.Usage <- int32(x.Value)
+                                        info
+                                )
+                            refreshProcessTask <- 
+                                System.Threading.Tasks.Task.Run(
+                                    () -> 
+                                        currentProcess.Refresh()
+                                        let _ = currentProcess.WorkingSet64
+                                        processorUsages <- Machine.GetProcessorUsages()
+                                )
+
+                    renv.SetBackgroundAlpha(csgenv.BackgroundTransition.Current)
+                    if (guiEnv.CurrentMenuState != GuiMenuState.Loading)          
+                        let mutable backgroundTransition = csgenv.BackgroundTransition             
+                        let _ = Tween.Step(&backgroundTransition, glenv.Time.DeltaTime)
+                        csgenv.BackgroundTransition <- backgroundTransition
+
+                    Gui.UpdateRenderDiagnostics(
+                        guiEnv,
+                        glenv.Time.DeltaTime,
+                        FrameNumber.GetInt32(glenv.Time.Frame),
+                        renderTime,
+                        lastRenderTime,
+                        memoryUsage
+                    )
+
+                    guiEnv.CurrentUI.ScreenHorizontalAlignment <- HorizontalAlignment.Center
+                    guiEnv.CurrentUI.MarginFactor <- Vector2(0, 0.25)
+                    
+                    game.Render(glenv.Time, alpha, window.Size, uiWindows)
+
+                    // ----------------------
+
+                    lastRenderTime <- renderTime
+
+                uiWindows.Clear()
+        )

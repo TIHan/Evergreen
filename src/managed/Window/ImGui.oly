@@ -1,0 +1,533 @@
+module Evergreen.ImGui.ImGui
+
+open System
+open Evergreen.Window
+open Evergreen.ImGui // TODO-language-bug: We should not need this as this module should include 'Evergreen.ImGui' automatically.
+open System.Numerics
+open System.Runtime.InteropServices
+open System.Runtime.CompilerServices
+open TerraFX.Interop.Windows
+open TerraFX.Interop.Vulkan
+open static TerraFX.Interop.Vulkan.Vulkan
+open Evergreen.Graphics.UI.Backend.ImGui.Interop
+open static Evergreen.Graphics.UI.Backend.ImGui.Interop.Methods
+
+private alias Unsafe = OlyPrelude.Unsafe
+
+#[blittable]
+#[UnmanagedCallersOnly(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+private CheckIntializeVulkan(result: VkResult): () =
+    if (result != VkResult.VK_SUCCESS)
+        fail("Failed to intialize ImGui.")
+
+CreateContext(window: WindowVulkan, app: Evergreen.Graphics.Backend.Vulkan.VulkanApplication, minImageCount: uint32, imageCount: uint32, renderPass: VkRenderPass): ImGuiContext =
+    let ctx = egImGuiCreateContextVulkan(window.Internal, app.Instance, app.PhysicalDevice, app.Device, app.GraphicsQueueFamilyIndex, app.GraphicsQueues[0], minImageCount, imageCount, renderPass, Unsafe.Cast(&&CheckIntializeVulkan))
+    let context = ImGuiContext(ctx, window.HWND)
+    SetCurrentContext(context)
+    context
+
+DestroyContext(context: ImGuiContext): () =
+    let descriptorSets = context.VkDescriptorSets.ToArray()
+    let mutable i = 0
+    while (i < descriptorSets.Length)
+        let mutable pair = descriptorSets[i]
+        pair.Value()
+        i <- i + 1
+
+    egImGuiDestroyContextVulkan(context.Context)
+
+SetScaleFactor(context: ImGuiContext, scaleFactor: float32): () =
+    egImGuiSetScaleFactor(context.Context, scaleFactor)
+
+GetScaleFactor(context: ImGuiContext): float32 = 
+    egImGuiGetScaleFactor(context.Context)
+
+AddFontDefault(context: ImGuiContext): EgImFont =
+    egImGuiAddFontDefault(context.Context)
+
+AddFont(context: ImGuiContext, filePath: string, pixelSize: float32): EgImFont =
+    let fontData = System.IO.File.ReadAllBytes(filePath)
+    let fontDataSize = fontData.Length
+    let mutable fontDataHandle = fixed(fontData)
+
+    let ranges = egImGui_GetGlyphRangesAll()
+    let font = egImGuiAddFont(context.Context, Unsafe.Cast(fontDataHandle.AddrOfPinnedObject()), fontDataSize, pixelSize, ranges)
+
+    fontDataHandle.Free()
+    font
+
+GetGlyphRangesDefault(context: ImGuiContext): nint =
+    nint(egImGui_GetGlyphRangesDefault())
+
+GetGlyphRangesAll(context: ImGuiContext): nint =
+    nint(egImGui_GetGlyphRangesAll())
+
+GetGlyphRangesEmoji(context: ImGuiContext): nint =
+    nint(egImGui_GetGlyphRangesEmoji())
+
+MergeFonts(context: ImGuiContext, filePaths: string[], pixelSizes: float32[], glyphRanges: nint[]): EgImFont =
+    if (filePaths.Length != pixelSizes.Length)
+        fail("Invalid op")
+
+    if (filePaths.Length != glyphRanges.Length)
+        fail("Invalid op")
+
+    if (filePaths.Length == 0)
+        fail("Invalid op")
+
+    let multipleFontData =
+        map(filePaths, x -> System.IO.File.ReadAllBytes(x))
+    let fontDataSizes =
+        map(multipleFontData, x -> x.Length)
+
+    let mutable multipleFontDataHandle = fixedCopy(multipleFontData)
+    let mutable fontDataSizesHandle = fixed(fontDataSizes)
+    let mutable pixelSizesHandle = fixed(pixelSizes)
+    let mutable glyphRangesHandle = fixed(glyphRanges)
+    
+    let font = 
+        egImGuiMergeFonts(
+            context.Context,
+            Unsafe.AsPointer(multipleFontDataHandle.Pointer),
+            Unsafe.AsPointer(fontDataSizesHandle.AddrOfPinnedObject()),
+            Unsafe.AsPointer(pixelSizesHandle.AddrOfPinnedObject()),
+            Unsafe.AsPointer(glyphRangesHandle.AddrOfPinnedObject()),
+            filePaths.Length
+        )
+
+    multipleFontDataHandle.Dispose()
+    fontDataSizesHandle.Free()
+    pixelSizesHandle.Free()
+    glyphRangesHandle.Free()
+
+    font
+
+PushFont(context: ImGuiContext, font: EgImFont): () =
+    egImGuiPushFont(context.Context, font)
+
+PopFont(context: ImGuiContext): () =
+    egImGuiPopFont(context.Context)
+
+UploadFonts(context: ImGuiContext): () =
+    egImGuiUploadFontsVulkan(context.Context)
+
+SetDarkMode(context: ImGuiContext): () =
+    egImGuiSetDarkMode(context.Context)
+
+SetClassicMode(context: ImGuiContext): () =
+    egImGuiSetClassicMode(context.Context)
+
+NewFrame(context: ImGuiContext): () =
+    egImGuiNewFrameVulkan(context.Context)
+
+EndFrame(context: ImGuiContext): () =
+    egImGuiEndFrame(context.Context)
+
+Draw(context: ImGuiContext, commandBuffer: VkCommandBuffer, pipeline: VkPipeline): () =
+    egImGuiDrawVulkan(context.Context, commandBuffer, pipeline)
+    context.isFirstFrame <- false
+
+SetCurrentContext(context: ImGuiContext): () =
+    egImGuiSetCurrentContext(context.Context)
+
+SetMouseCursorChange(context: ImGuiContext, value: bool): () =
+    egImGuiSetMouseCursorChange(context.Context, value)
+
+// TODO: PRODUCES BAD MSIL - WHY?!
+//InputContext: ImGuiContext get, set = unchecked default
+
+ShowDemoWindow(context: ImGuiContext): () =
+    egImGuiShowDemoWindow(context.Context)
+
+IsMouseDragging(context: ImGuiContext): bool =
+    egImGuiIsMouseDragging(context.Context)
+
+GetMainViewportSize(context: ImGuiContext): Vector2 =
+    egImGuiGetMainViewportSize(context.Context)
+
+Begin(context: ImGuiContext, isOpen: byref<bool>, hideCloseButton: bool, mutable title: ReadOnlySpan<byte>, flags: ImGuiWindowFlags): bool =
+    let titlePtr = &&title.GetPinnableReference()
+    egImGuiBegin(context.Context, &&isOpen, if (hideCloseButton) (1: byte) else 0, Unsafe.Cast(titlePtr), flags)
+
+End(context: ImGuiContext): () =
+    egImGuiEnd(context.Context)
+
+BeginPopupModal(context: ImGuiContext, isOpen: byref<bool>, hideCloseButton: bool, mutable title: ReadOnlySpan<byte>, flags: ImGuiWindowFlags): bool =
+    let titlePtr = &&title.GetPinnableReference()
+    egImGui_BeginPopupModal(context.Context, &&isOpen, if (hideCloseButton) (1: byte) else 0, Unsafe.Cast(titlePtr), flags)
+
+EndPopup(context: ImGuiContext): () =
+    egImGui_EndPopup(context.Context)
+
+OpenPopup(context: ImGuiContext, mutable id: ReadOnlySpan<byte>): () =
+    let idPtr = &&id.GetPinnableReference()
+    egImGui_OpenPopup(context.Context, Unsafe.Cast(idPtr))
+
+BeginDisabled(context: ImGuiContext, isDisabled: bool): () =
+    egImGuiBeginDisabled(context.Context, if (isDisabled) (1: byte) else 0)
+
+EndDisabled(context: ImGuiContext): () =
+    egImGuiEndDisabled(context.Context)
+
+BeginChild(context: ImGuiContext, id: uint32, size: Vector2, childFlags: ImGuiChildFlags): bool =
+    egImGuiBeginChild(context.Context, id, size, childFlags)
+
+EndChild(context: ImGuiContext): () =
+    egImGuiEndChild(context.Context)
+
+PushId(context: ImGuiContext, id: int32): () =
+    egImGuiPushId(context.Context, id)
+
+PopId(context: ImGuiContext): () =
+    egImGuiPopId(context.Context)
+
+PushItemWidth(context: ImGuiContext, width: float32): () =
+    egImGuiPushItemWidth(context.Context, width)
+
+PopItemWidth(context: ImGuiContext): () =
+    egImGuiPopItemWidth(context.Context)
+
+CalculateItemWidth(context: ImGuiContext): float32 =
+    egImGuiCalculateItemWidth(context.Context)
+
+SetNextWindowBackgroundAlpha(context: ImGuiContext, alpha: float32): () =
+    egImGuiSetNextWindowBackgroundAlpha(context.Context, alpha)
+
+SetNextWindowPosition(context: ImGuiContext, position: Vector2): () =
+    egImGuiSetNextWindowPosition(context.Context, position)
+
+SetNextWindowPositionWithPivot(context: ImGuiContext, position: Vector2, pivot: Vector2): () =
+    egImGuiSetNextWindowPositionWithPivot(context.Context, position, pivot)
+
+SetNextWindowSize(context: ImGuiContext, size: Vector2): () =
+    egImGuiSetNextWindowSize(context.Context, size)
+
+GetWindowPosition(context: ImGuiContext): Vector2 =
+    egImGuiGetWindowPosition(context.Context)
+
+GetWindowSize(context: ImGuiContext): Vector2 =
+    egImGuiGetWindowSize(context.Context)
+
+SetWindowPosition(context: ImGuiContext, position: Vector2): () =
+    egImGuiSetWindowPosition(context.Context, position)
+
+SetWindowSize(context: ImGuiContext, size: Vector2): () =
+    egImGuiSetWindowSize(context.Context, size)
+
+CalculateWindowSize(context: ImGuiContext): Vector2 =
+    egImGuiCalculateWindowSize(context.Context)
+
+LabelText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable text: ReadOnlySpan<byte>): () =
+    let labelPtr = &&label.GetPinnableReference()
+    let textPtr = &&text.GetPinnableReference()
+
+    egImGuiLabelText(context.Context, Unsafe.Cast(labelPtr), Unsafe.Cast(textPtr))
+
+#[blittable]
+#[UnmanagedCallersOnly(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+private InputTextCallbackNop(x: EgImGui_InputTextCallbackData*): int32 =
+    0
+
+InputText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buffer: Span<byte>, flags: EgImGuiInputTextFlags, callback: ImGuiInputTextCallback): bool =
+    let labelPtr = &&label.GetPinnableReference()
+    let bufferPtr = Unsafe.AsPointer(&&buffer.GetPinnableReference())
+    let callbackPtr = Marshal.GetFunctionPointerForDelegate(callback.CallbackDelegate)
+
+    egImGuiInputText(
+        context.Context, 
+        Unsafe.AsPointer(labelPtr), 
+        bufferPtr, 
+        nuint(buffer.Length), 
+        flags, 
+        Unsafe.Cast(callbackPtr)
+    )
+
+InputTextReadOnly(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buffer: ReadOnlySpan<byte>): bool =
+    let labelPtr = &&label.GetPinnableReference()
+    let bufferPtr = Unsafe.AsPointer(&&buffer.GetPinnableReference())
+
+    egImGuiInputText(context.Context, Unsafe.AsPointer(labelPtr), bufferPtr, nuint(buffer.Length), EgImGuiInputTextFlags.EgImGuiInputTextFlags_ReadOnly, Unsafe.Cast(&&InputTextCallbackNop))
+
+InputInt(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, value: byref<int32>): bool =
+    let labelPtr = &&label.GetPinnableReference()
+
+    egImGuiInputInt(context.Context, Unsafe.AsPointer(labelPtr), &&value)
+
+Checkbox(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, value: byref<bool>): bool =
+    let labelPtr = &&label.GetPinnableReference()
+
+    egImGuiCheckbox(context.Context, Unsafe.AsPointer(labelPtr), &&value)
+
+Button(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, size: Vector2): bool =
+    let labelPtr = &&label.GetPinnableReference()
+
+    egImGuiButton(context.Context, Unsafe.AsPointer(labelPtr), size)
+
+Combo(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, selectedItemIndex: byref<int32>, items: mutable (byte*)[], popupMaxHeight: int32): bool =
+    let labelPtr = &&label.GetPinnableReference()
+    let mutable itemsHandle = fixed(items)
+
+    let result = egImGuiCombo(context.Context, Unsafe.AsPointer(labelPtr), &&selectedItemIndex, Unsafe.AsPointer(itemsHandle.AddrOfPinnedObject()), items.Length, popupMaxHeight)
+
+    itemsHandle.Free()
+
+    result
+
+PlotLines(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable values: ReadOnlySpan<float32>, offset: int32, mutable overlayText: ReadOnlySpan<byte>, scaleMin: float32, scaleMax: float32, size: Vector2): () =
+    let labelPtr = &&label.GetPinnableReference()
+    let valuesPtr = &&values.GetPinnableReference()
+    let overlayTextPtr = &&overlayText.GetPinnableReference()
+
+    egImGuiPlotLines(context.Context, Unsafe.AsPointer(labelPtr), valuesPtr, values.Length, offset, Unsafe.AsPointer(overlayTextPtr), scaleMin, scaleMax, size)
+
+SliderFloat(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, min: float32, max: float32, value: byref<float32>): bool =
+    let labelPtr = &&label.GetPinnableReference()
+    egImGuiSliderFloat(context.Context, Unsafe.AsPointer(labelPtr), min, max, &&value)
+
+BeginTabBar(context: ImGuiContext): bool =
+    egImGuiBeginTabBar(context.Context)
+
+GetSelectedTabId(context: ImGuiContext): uint32 =
+    egImGuiGetSelectedTabId(context.Context)
+
+FocusTabById(context: ImGuiContext, tabId: uint32): () =
+    egImGuiFocusTabById(context.Context, tabId)
+
+EndTabBar(context: ImGuiContext): () =
+    egImGuiEndTabBar(context.Context)
+
+BeginTabItem(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, isOpen: byref<bool>): bool =
+    let labelPtr = &&label.GetPinnableReference()
+
+    egImGuiBeginTabItem(context.Context, Unsafe.AsPointer(labelPtr), Unsafe.Cast(&&isOpen))
+
+EndTabItem(context: ImGuiContext): () =
+    egImGuiEndTabItem(context.Context)
+
+BeginGroup(context: ImGuiContext): () =
+    egImGuiBeginGroup(context.Context)
+
+EndGroup(context: ImGuiContext): () =
+    egImGuiEndGroup(context.Context)
+
+BeginItemToolTip(context: ImGuiContext): bool =
+    egImGuiBeginItemTooltip(context.Context)
+
+EndToolTip(context: ImGuiContext): () =
+    egImGuiEndTooltip(context.Context)
+
+BeginTable(context: ImGuiContext, columnCount: int32): bool =
+    if (columnCount < 0)
+        fail("Column count less than zero.")
+
+    egImGuiBeginTable(context.Context, columnCount)
+
+EndTable(context: ImGuiContext): () =
+    egImGuiEndTable(context.Context)
+
+TableGetCurrentRow(context: ImGuiContext): int32 =
+    egImGuiTableGetCurrentRow(context.Context)
+
+TableNextRow(context: ImGuiContext): () =
+    egImGuiTableNextRow(context.Context)
+
+TableSetColumnIndex(context: ImGuiContext, columnIndex: int32): bool =
+    egImGuiTableSetColumnIndex(context.Context, columnIndex)
+
+BeginTableCell(context: ImGuiContext, column: int32): () =
+    if (column < 0)
+        fail("Column less than zero.")
+
+    egImGuiBeginTableCell(context.Context, column)
+
+EndTableCell(context: ImGuiContext): () =
+    egImGuiEndTableCell(context.Context)
+
+BeginClipper(context: ImGuiContext, amount: int32): () =
+    egImGuiBeginClipper(context.Context, amount)
+
+EndClipper(context: ImGuiContext): () =
+    egImGuiEndClipper(context.Context)
+
+ClipperStep(context: ImGuiContext): bool =
+    egImGuiClipperStep(context.Context)
+
+ClipperDisplayStart(context: ImGuiContext): int32 =
+    egImGuiClipperDisplayStart(context.Context)
+
+ClipperDisplayEnd(context: ImGuiContext): int32 =
+    egImGuiClipperDisplayEnd(context.Context)
+
+TableSetupColumnNoHeaderLabel(context: ImGuiContext): () =
+    egImGuiTableSetupColumnNoHeaderLabel(context.Context)
+
+TableNextColumn(context: ImGuiContext): bool =
+    egImGuiTableNextColumn(context.Context)
+
+TextUnformatted(context: ImGuiContext, mutable text: ReadOnlySpan<byte>): () =
+    let textPtr = &&text.GetPinnableReference()
+
+    egImGuiTextUnformatted(context.Context, Unsafe.AsPointer(textPtr), nullptr)
+
+Text(context: ImGuiContext, mutable text: ReadOnlySpan<byte>): () =
+    let textPtr = &&text.GetPinnableReference()
+
+    egImGuiText(context.Context, Unsafe.AsPointer(textPtr))
+
+ScrollbarY(context: ImGuiContext): () =
+    egImGui_ScrollbarY(context.Context)
+
+CreateTexture(context: ImGuiContext, sampler: VkSampler, imageView: VkImageView, imageLayout: VkImageLayout, onDestroyTexture: () -> ()): VkDescriptorSet =
+    let descriptorSet = egImGuiAddTextureVulkan(context.Context, sampler, imageView, imageLayout)
+    context.VkDescriptorSets[descriptorSet] <- onDestroyTexture
+    descriptorSet
+
+DestroyTexture(context: ImGuiContext, descriptorSet: VkDescriptorSet): () =
+    let mutable onDestroy = unchecked default
+    if (context.VkDescriptorSets.TryRemove(descriptorSet, &onDestroy))
+        context.DestroyTextureQueue.Enqueue(descriptorSet)
+        onDestroy()
+    else
+        fail("Texture already destroyed.")
+
+Image(context: ImGuiContext, texture: VkDescriptorSet, size: Vector2, uv0: Vector2, uv1: Vector2, borderColor: Vector4): () =
+    egImGuiImageVulkan(context.Context, texture, size, uv0, uv1, borderColor)
+
+SameLine(context: ImGuiContext): () =
+    egImGuiSameLine(context.Context)
+
+SameLine(context: ImGuiContext, offsetFromStartX: float32): () =
+    egImGuiSameLineWithOffset(context.Context, offsetFromStartX)
+
+SameLine(context: ImGuiContext, offsetFromStartX: float32, spacing: float32): () =
+    egImGuiSameLineWithOffsetAndSpacing(context.Context, offsetFromStartX, spacing)
+
+IsItemHovered(context: ImGuiContext): bool =
+    egImGuiIsItemHovered(context.Context)
+
+IsWindowHovered(context: ImGuiContext): bool =
+    egImGuiIsWindowHovered(context.Context)
+
+IsItemClicked(context: ImGuiContext): bool =
+    egImGuiIsItemClicked(context.Context)
+
+Flush(context: ImGuiContext): () =
+    let mutable descriptorSet = default
+    if (context.DestroyTextureQueue.TryDequeue(&descriptorSet))
+        egImGuiRemoveTextureVulkan(context.Context, descriptorSet)
+
+SetScrollHereX(context: ImGuiContext, centerRatio: float32): () =
+    egImGui_SetScrollHereX(context.Context, centerRatio)
+
+SetScrollHereY(context: ImGuiContext, centerRatio: float32): () =
+    egImGui_SetScrollHereY(context.Context, centerRatio)
+
+SetFocus(context: ImGuiContext, id: int32): () =
+    egImGui_SetFocus(context.Context, uint32(id))
+
+IsWindowFocused(context: ImGuiContext): bool =
+    egImGui_IsWindowFocused(context.Context)
+
+IsItemFocused(context: ImGuiContext): bool =
+    egImGui_IsItemFocused(context.Context)
+
+SetWindowFocus(context: ImGuiContext): () =
+    egImGui_SetWindowFocus(context.Context)
+
+SetKeyboardFocusHere(context: ImGuiContext): () =
+    egImGui_SetKeyboardFocusHere(context.Context)
+
+BringCurrentWindowToDisplayFront(context: ImGuiContext): () =
+    egImGui_BringCurrentWindowToDisplayFront(context.Context)
+
+Dummy(context: ImGuiContext, size: Vector2): () =
+    egImGui_Dummy(context.Context, size)
+    
+/* Style */
+
+GetCellPadding(context: ImGuiContext): Vector2 =
+    egImGui_GetCellPadding(context.Context)
+
+GetFramePadding(context: ImGuiContext): Vector2 =
+    egImGui_GetFramePadding(context.Context)
+
+GetWindowPadding(context: ImGuiContext): Vector2 =
+    egImGui_GetWindowPadding(context.Context)
+
+GetItemSpacing(context: ImGuiContext): Vector2 =
+    egImGui_GetItemSpacing(context.Context)
+
+GetItemInnerSpacing(context: ImGuiContext): Vector2 =
+    egImGui_GetItemInnerSpacing(context.Context)
+
+SetCellPadding(context: ImGuiContext, cellPadding: Vector2): () =
+    egImGui_SetCellPadding(context.Context, cellPadding)
+
+PushStyleColor_Text(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_Text(context.Context, color)
+
+PushStyleColor_Button(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_Button(context.Context, color)
+
+PushStyleColor_ButtonHovered(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_ButtonHovered(context.Context, color)
+
+PushStyleColor_ButtonActive(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_ButtonActive(context.Context, color)
+
+PushStyleColor_WindowBackground(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_WindowBackground(context.Context, color)
+
+PushStyleColor_ChildBackground(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_ChildBackground(context.Context, color)
+
+PushStyleColor_PopupBackground(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_PopupBackground(context.Context, color)
+
+PushStyleColor_FrameBackground(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_FrameBackground(context.Context, color)
+
+PushStyleColor_FrameBackgroundHovered(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_FrameBackgroundHovered(context.Context, color)
+
+PushStyleColor_FrameBackgroundActive(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_FrameBackgroundActive(context.Context, color)
+
+PushStyleColor_ModalWindowDimBackground(context: ImGuiContext, color: Vector4): () =
+    egImGui_PushStyleColor_ModalWindowDimBackground(context.Context, color)
+
+PopStyleColor(context: ImGuiContext): () =
+    egImGui_PopStyleColor(context.Context)
+
+GetStyleVar_WindowPadding(context: ImGuiContext): Vector2 =
+    egImGui_GetStyleVar_WindowPadding(context.Context)
+
+PushStyleVar_WindowPadding(context: ImGuiContext, padding: Vector2): () =
+    egImGui_PushStyleVar_WindowPadding(context.Context, padding)
+
+PopStyleVar(context: ImGuiContext): () =
+    egImGui_PopStyleVar(context.Context)
+
+GetStyleVar_WindowBorderSize(context: ImGuiContext): Vector2 =
+    egImGui_GetStyleVar_WindowBorderSize(context.Context)
+
+PushStyleVar_WindowBorderSize(context: ImGuiContext, size: Vector2): () =
+    egImGui_PushStyleVar_WindowBorderSize(context.Context, size)
+
+SetCursorPositionX(context: ImGuiContext, x: float32): () =
+    egImGuiSetCursorPositionX(context.Context, x)
+
+SetCursorPositionY(context: ImGuiContext, y: float32): () =
+    egImGuiSetCursorPositionY(context.Context, y)
+
+GetCursorPositionX(context: ImGuiContext): float32 =
+    egImGuiGetCursorPositionX(context.Context)
+
+GetCursorPositionY(context: ImGuiContext): float32 =
+    egImGuiGetCursorPositionY(context.Context)
+
+GetItemRectSize(context: ImGuiContext): Vector2 =
+    egImGuiGetItemRectSize(context.Context)
+
+GetContentRegionAvailability(context: ImGuiContext): Vector2 =
+    egImGuiGetContentRegionAvail(context.Context)

@@ -1,0 +1,33 @@
+namespace Evergreen.Network
+
+enum ClientDisconnectReason =
+    | ServerInitiated
+    | ClientInitiated
+    | MalformedPacketOrException
+    | TimedOut
+    | AckTimedOut
+    | Other
+    | OtherTimedOut
+    | OtherAckTimedOut
+    | BadConnectionKey
+    | InvalidPacket
+
+#[open]
+internal module Helpers =
+
+    SequenceGreaterThan(s1: uint16, s2: uint16): bool =
+        ((s1 > s2) && (s1 - s2 <= 32768)) || ((s1 < s2) && (s2 - s1  > 32768))
+
+internal struct LagSimulatedPacket =
+    Packet: Packet get
+    Time: float32 get
+    new(packet: Packet, time: float32) =
+        packet.Stream.ResetPosition()
+        {
+            Packet = packet
+            Time = time
+        }
+
+internal enum NetworkKind =
+    | Server
+    | Client

@@ -1,0 +1,5 @@
+#target "dotnet: net8"
+
+#load "*.oly"
+
+#reference "../Utilities/Evergreen.Utilities.olyx"

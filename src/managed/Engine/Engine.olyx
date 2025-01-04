@@ -1,0 +1,97 @@
+#target "dotnet: net8"
+
+#load "*.oly"
+
+#reference "../Game/Server/Game.Server.olyx"
+#reference "../Game/Client/Game.Client.olyx"
+#reference "../Game/Shared/Game.Shared.olyx"
+
+open System
+open System.IO
+open System.Runtime.Intrinsics
+open Game.Resources // Resources
+open Game.Shared // GameEnv
+open Evergreen.Graphics.Rendering // RenderingOptions/Rendering
+open static Game.Client.Rendering.Module // RenderEnv
+open Evergreen.Utilities
+
+open System.Numerics
+open Evergreen.Collections
+open static Game.Shared.Types
+open static Game.Shared.Components
+
+BenchmarkMap(resx: Resources): Stream =
+    let world = World(EntityDatabaseKind.Server)
+    let db = world.Database
+
+    let mutable x = 0: float32
+    let mutable y = 0: float32
+    let mutable z = 0: float32
+    resx.Images.ForEach(
+        asset ->
+            let mutable material = default: Material
+            material.ImageId <- asset.Id
+            material.Flags <- MaterialFlags.None
+
+            let mutable transform = Transform()
+            transform.Position <- Vector3(x, y, 0)
+            if (x >= 300: float32)
+                y <- y + 3
+                x <- 0
+            else
+                x <- x + 3
+
+            let meshRef = MeshReference(resx.RenderMeshes.FindId("cube.obj"))
+            
+            if (asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.Frame && asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.FrameView)
+                For(1, 
+                    i -> 
+                        let _ = db.Create(transform, material, meshRef)
+                )
+    )
+    
+    let ms = System.IO.MemoryStream()
+    EntityDatabase.SerializeJson(db, ms)
+    ms.Position <- 0
+    ms
+
+module Marker
+
+main(args: string[]): () =
+    if (args.Length != 1)
+        fail("Invalid arguments")
+    else
+        Environment.CurrentDirectory <- args[0]
+
+        let markerTy = DotNet.TypeOf<Marker>
+        let file = File.OpenRead(markerTy.Assembly.Location)
+        let (_, engineHash) = Hash.SHA256(file)
+        file.Dispose()
+        
+        let options = RenderingOptions()
+#if DEBUG
+        options.IsValidationEnabled <- true
+#end
+        let r = Rendering(options)
+        r.Window.Show()
+
+        // TODO: What do we do for server-only?
+        let resx = Resources(r) // TODO-language-bug: crashes when doing 'Resources.Initialize(r)'. note: 'Initialize' doesn't exist.
+
+        resx.Maps.Register("benchmark.test",
+            () -> return BenchmarkMap(resx)
+        )
+
+        let connectionKey = "oly" + engineHash
+        let genv = GameEnv(connectionKey, engineHash, resx.Maps, resx.RenderMeshes, resx.Sounds, resx.Pipelines, resx.Images)
+        let renv = RenderEnv(r, resx.ShaderGlobals, resx.Frames, resx.Pipelines, resx.RenderMeshes, resx.Images, resx.ShadowMaps, resx.SpriteShadowMaps)
+
+        Tests.SerializeDeserializePlayer(genv)
+        Tests.SerializeDeserializePlayer2(genv)
+        Tests.SerializeDeserializePlayer3(genv)
+        Tests.SerializeDeserializePlayer4(genv)
+        Tests.DatabaseCopyInDifferenSync()
+        Tests.NetworkCompressionShouldSucceed()
+
+        Console.SetOut(genv.ConsoleWriter)
+        Game.Orchestration.Run(genv, renv)

@@ -1,0 +1,269 @@
+#target "dotnet: net8"
+
+#load "*.oly"
+#load "Systems/*.oly"
+
+#reference "../Shared/Game.Shared.olyx"
+#reference "../../Network/Evergreen.Network.olyx"
+
+namespace Game.Server
+
+open System
+open Evergreen.Utilities
+open Game.Shared // GameEnv
+open Game.Server.Internal
+
+class ServerGame =
+    implements IDisposable
+
+    field senv: ServerEnv = ServerEnv()
+
+    Bandwidth: uint64 get() = Server.getBandwidth(this.senv)
+    Port: int32       get() = this.senv.Host.Port
+    IsHosting: bool   get() = this.senv.Host.IsStarted
+
+    StartHosting(connectionKey: string): () =
+        Server.startHosting(this.senv, connectionKey)
+
+    StopHosting(): () =
+        Server.stopHosting(this.senv)
+
+    FixedUpdate(time: GameTime): () =
+        Server.fixedUpdate(this.senv, time)
+
+    SetSimulateLatency(value: bool): () =
+        Server.setSimulateLatency(this.senv, value)
+
+    SetSimulatePacketLoss(value: bool): () =
+        Server.setSimulatePacketLoss(this.senv, value)
+
+    SaveScene(path: string): bool =
+        Server.saveScene(this.senv, path)
+
+    DisposeScene(): () =
+        Server.disposeSceneIfPossible(this.senv)
+
+    LoadScene(filePath: string, genv: GameEnv): () =
+        Server.loadScene(this.senv, genv, filePath)
+
+    Dispose(): () =
+        Server.dispose(this.senv)
+
+enum ServerCommandTag =
+    inherits byte
+
+    | LoadScene
+    | DisposeScene
+    | SaveScene
+    | StartHosting
+    | StopHosting
+    | SetPassword
+
+newtype ServerCommandBuffer =
+    public field Stream: ByteStream
+
+    LoadScene(path: string): () =
+        let stream = this.Stream
+        stream.Write(ServerCommandTag.LoadScene)
+        stream.WriteSmallString(path)
+
+    DisposeScene(): () =
+        let stream = this.Stream
+        stream.Write(ServerCommandTag.DisposeScene)
+
+    SaveScene(path: string): () =
+        let stream = this.Stream
+        stream.Write(ServerCommandTag.SaveScene)
+        stream.WriteSmallString(path)
+
+    StartHosting(connectionKey: string): () =
+        let stream = this.Stream
+        stream.Write(ServerCommandTag.StartHosting)
+        stream.WriteString(connectionKey)
+
+    StopHosting(): () =
+        let stream = this.Stream
+        stream.Write(ServerCommandTag.StopHosting)
+
+    SetPassword(password: string): () =
+        let stream = this.Stream
+        stream.Write(ServerCommandTag.SetPassword)
+        stream.WriteSmallString(password)
+
+struct ServerCommandReader =
+    internal Tag: ServerCommandTag get
+    internal Stream: ByteStream get
+    new(stream: ByteStream) =
+        {
+            Tag = stream.Peek()
+            Stream = stream
+        }
+
+module ServerCommand =
+
+    private ConsumeTag(stream: ByteStream): () =
+        let _ = stream.ReadByte()
+
+    pattern LoadScene(reader: ServerCommandReader): string when (reader.Tag == ServerCommandTag.LoadScene) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern DisposeScene(reader: ServerCommandReader): () when (reader.Tag == ServerCommandTag.DisposeScene) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+
+    pattern SaveScene(reader: ServerCommandReader): string when (reader.Tag == ServerCommandTag.SaveScene) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern StartHosting(reader: ServerCommandReader): string when (reader.Tag == ServerCommandTag.StartHosting) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadString()
+
+    pattern StopHosting(reader: ServerCommandReader): () when (reader.Tag == ServerCommandTag.StopHosting) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+
+    pattern SetPassword(reader: ServerCommandReader): string when (reader.Tag == ServerCommandTag.SetPassword) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+internal struct ServerState =
+    Bandwidth: uint64 get
+    Port: int32 get
+    Password: string get
+    new(bandwidth: uint64, port: int32, password: string) =
+        {
+            Bandwidth = bandwidth
+            Port = port
+            Password = password
+        }
+
+    WithPassword(password: string): ServerState =
+        ServerState(
+            this.Bandwidth,
+            this.Port,
+            password
+        )
+
+class ServerGameProxy =
+    implements IDisposable
+
+    private ServerCommandStreams: DoubleBuffer<ByteStream> get
+
+    private SV: ServerGame get
+
+    private State: ServerState get, set
+
+    Bandwidth: uint64 get() = this.State.Bandwidth
+    Port: int32 get() = this.State.Port
+    Password: string get() = this.State.Password
+
+    new() =
+        {
+            ServerCommandStreams = DoubleBuffer(ByteStream(), ByteStream())
+            SV = ServerGame()
+            State = ServerState(0, -1, String.Empty)
+        }
+
+    /// Background-thread only
+    BackgroundProcessCommands(genv: GameEnv): () =
+        let sv = this.SV
+        let svCmdStream = this.ServerCommandStreams.Back
+    
+        svCmdStream.ResetPosition()
+        while (svCmdStream.Position.Index < svCmdStream.TotalCount)
+            match (ServerCommandReader(svCmdStream))
+
+            | ServerCommand.LoadScene(path) =>
+                LogServer("Command: LoadScene(" + path + ")")
+                sv.LoadScene(path, genv)
+
+            | ServerCommand.DisposeScene =>
+                LogServer("Command: DisposeScene")
+                sv.DisposeScene()
+
+            | ServerCommand.SaveScene(path) =>
+                LogServer("Command: SaveScene(" + path + ")")
+                if (!sv.SaveScene(path))
+                    LogServerError("Unable to save scene at '" + path + "'")
+
+            | ServerCommand.StartHosting(connectionKey) =>
+                LogServer("Command: StartHosting")
+                sv.StartHosting(Hash.Pbkdf2(this.Password, connectionKey, 256))
+
+            | ServerCommand.StopHosting =>
+                LogServer("Command: StopHosting")
+                sv.StopHosting()
+
+            | ServerCommand.SetPassword(password) =>
+                if (sv.IsHosting)
+                    LogServerWarning("Unable to set password while server is running")
+                else
+                    this.State <- this.State.WithPassword(password)
+
+            | _ =>
+                fail("Unhandled or malformed server command.")
+
+    /// Background-thread only
+    BackgroundFixedUpdate(time: GameTime): () =
+        let sv = this.SV
+        sv.FixedUpdate(time)
+
+    /// Main-thread only
+    /// These need to be fast operations since this where we sync the main and background threads.
+    Sync(time: GameTime): () =
+        // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
+        // Background is halted at this point.
+
+        this.State <- ServerState(this.SV.Bandwidth, this.SV.Port, this.State.Password)
+
+        this.ServerCommandStreams.Swap()
+        this.ServerCommandStreams.Front.Reset()
+        // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
+
+    /// Main-thread only
+    SaveScene(path: string): () =
+        let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
+        svCmds.SaveScene(path)
+
+    /// Main-thread only
+    LoadScene(path: string): () =
+        let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
+        svCmds.LoadScene(path)
+
+    /// Main-thread only
+    StartHosting(connectionKey: string): () =
+        let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
+        svCmds.StartHosting(connectionKey)
+
+    /// Main-thread only
+    StopHosting(): () =
+        let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
+        svCmds.StopHosting()
+
+    /// Main-thread only
+    SetPassword(password: string): () =
+        let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
+        svCmds.SetPassword(password)
+
+    /// Main-thread only
+    DisposeScene(): () =
+        let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
+        svCmds.DisposeScene()
+
+    /// Main-thread only
+    SetSimulateLatency(value: bool): () =
+        this.SV.SetSimulateLatency(value)
+
+    /// Main-thread only
+    SetSimulatePacketLoss(value: bool): () =
+        this.SV.SetSimulatePacketLoss(value)
+
+    /// Main-thread only
+    Dispose(): () =
+        this.SV.Dispose()

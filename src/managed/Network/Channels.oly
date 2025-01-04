@@ -1,0 +1,40 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+internal class Channels =
+    public field ReceivingChannels: ConcurrentDictionary<(PacketKind, byte), Defragmenter> = ConcurrentDictionary()
+    public field AckChannels: ConcurrentDictionary<(PacketKind, byte), AckManager> = ConcurrentDictionary()
+
+    Clear(): () =
+        this.ReceivingChannels.Clear()
+        this.AckChannels.Clear()
+
+    GetDefragmenter(packetKind: PacketKind, channel: byte): Defragmenter =
+        let mutable result = unchecked default
+        if (this.ReceivingChannels.TryGetValue((packetKind, channel), &result))
+            result
+        else
+            result <- Defragmenter()
+            this.ReceivingChannels[(packetKind, channel)] <- result
+            result
+
+    GetAck(packetKind: PacketKind, channel: byte): AckManager =
+        let mutable result = unchecked default
+        if (this.AckChannels.TryGetValue((packetKind, channel), &result))
+            result
+        else
+            result <- AckManager(packetKind)
+            this.AckChannels[(packetKind, channel)] <- result
+            result

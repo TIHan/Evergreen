@@ -1,0 +1,88 @@
+namespace Evergreen.Graphics.Rendering
+
+open System
+open System.IO
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Threading.Tasks
+
+open Evergreen
+open Evergreen.Utilities
+open Evergreen.Window
+open Evergreen.Graphics.Backend.Vulkan
+open Evergreen.Graphics.Rendering
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Graphics
+
+open Evergreen.Graphics.Asset.Backend.Interop
+open static Evergreen.Graphics.Asset.Backend.Interop.Methods
+
+open Evergreen.Graphics.Shader.Backend.Interop
+open static Evergreen.Graphics.Shader.Backend.Interop.Methods
+
+private alias CallConvCdecl = System.Runtime.CompilerServices.CallConvCdecl
+
+module RenderingHelpers =
+
+    private field mutable shaderBytes: mutable byte[] = mutable[]
+    private compileShader(kind: EgShaderKind, glslSourceText: mutable byte[]): byte[] =
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        static let callback(binary: int8*, binaryLength: uint32) = 
+            shaderBytes <- zeroArray(int32(binaryLength))
+            Span(Unsafe.AsPointer(binary), int32(binaryLength)).CopyTo(Span(shaderBytes))
+    
+        #[blittable]
+        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[DebuggerHidden]
+        static let callbackError(binary: int8*): () =
+            throw System.Exception(String(binary))
+    
+        let mutable bytesHandle = fixed(glslSourceText)
+        let result = egShaderCompile(kind, Unsafe.Cast(bytesHandle.AddrOfPinnedObject()), uint32(glslSourceText.Length), Unsafe.Cast(&&callback), Unsafe.Cast(&&callbackError))
+        bytesHandle.Free()
+    
+        initArray(shaderBytes.Length, i -> shaderBytes[i])
+    
+    CompileShader(kind: EgShaderKind, glslSourceText: string): byte[] =
+        let bytes = System.Text.Encoding.UTF8.GetBytes(glslSourceText)
+        compileShader(kind, bytes)
+
+    CompileShader(filePath: string): byte[] =
+        let isVertex = filePath.EndsWith(".vert", StringComparison.OrdinalIgnoreCase)
+        let isFragment = filePath.EndsWith(".frag", StringComparison.OrdinalIgnoreCase)
+        let isCompute = filePath.EndsWith(".comp", StringComparison.OrdinalIgnoreCase)
+        let shaderKind =
+            if (isVertex)
+                EgShaderKind.EgShaderKind_VERTEX
+            else if (isFragment)
+                EgShaderKind.EgShaderKind_FRAGMENT
+            else if (isCompute)
+                EgShaderKind.EgShaderKind_COMPUTE
+            else
+                fail("Invalid shader kind.")
+
+        try
+            CompileShader(shaderKind, File.ReadAllText(filePath))
+        catch (ex: Exception) =>
+            System.Threading.Thread.Sleep(500)
+            CompileShader(shaderKind, File.ReadAllText(filePath))
+
+    CreateImage(filePath: string): GpuImage =
+        let fileBytes = File.ReadAllBytes(filePath)
+        let mutable fileBytesHandle = fixed(fileBytes)
+        try
+            let mutable image = default: EgAssetImage
+            if (!egAssetReadImage(Unsafe.Cast(fileBytesHandle.AddrOfPinnedObject()), fileBytes.Length, &&image))
+                fail("Unable to read image.")
+
+            let length = image.width * image.height * image.desiredChannels
+            let mutable bytes = zeroArray<byte>(length)
+            Span(Unsafe.Cast<void*>(image.rawData), length).CopyTo(Span(bytes))
+            egAssetFreeImage(image)
+            GpuImage(GpuFilterKind.Nearest, image.width, image.height, ReadOnlyMemory(bytes))      
+        finally
+            fileBytesHandle.Free()

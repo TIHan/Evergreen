@@ -1,0 +1,39 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+module NetworkCompression =
+
+    Compress(buffer: mutable byte[], offset: int32, length: int32): mutable byte[] =
+        let ms = MemoryStream()
+        let compressedStream = ZLibStream(ms, CompressionLevel.Fastest)
+        let stream = MemoryStream(buffer, offset, length)
+        stream.CopyTo(compressedStream)
+        compressedStream.Close()
+        let bytes = ms.ToArray()
+        compressedStream.Dispose()
+        ms.Dispose()
+        stream.Dispose()
+        bytes
+
+    Decompress(buffer: mutable byte[], offset: int32, length: int32): mutable byte[] =
+        let ms = MemoryStream(buffer, offset, length)
+        let decompressedStream = ZLibStream(ms, CompressionMode.Decompress)
+        let stream = MemoryStream()
+        decompressedStream.CopyTo(stream)
+        let bytes = stream.ToArray()
+        decompressedStream.Dispose()
+        ms.Dispose()
+        stream.Dispose()
+        bytes

@@ -1,0 +1,56 @@
+{
+    "Layouts": [
+        {
+            "Bindings": [
+                {
+                    "Kind": "Uniform",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Vertex"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        }
+    ],
+    
+    "Flags": "DepthTest, DepthWrite, FlipY",
+    "CullMode": "Back",
+    "FrontFace": "CounterClockwise",
+
+    "Vertex": "screen_blur.vert",
+    "Fragment": "screen_final_horizontal_blur.frag"
+}

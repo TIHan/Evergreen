@@ -1,0 +1,340 @@
+namespace Game.Server
+
+open System
+open System.Numerics
+open System.Text
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Physics
+open Evergreen.Network
+
+open Game.Shared
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Shared.World
+
+open Game.Server.Systems
+
+abstract default class ServerStagingWorld =
+    inherits World
+
+    new(genv: GameEnv) =
+        let registry = ComponentRegistry()
+
+        World.RegisterComponents(registry)
+
+        registry.Register<CharacterInput>()
+        registry.RegisterAttachment<Player, CharacterInput>()
+
+        registry.Register<CharacterId>()
+        registry.Register<VirtualCharacterId>()
+        registry.RegisterAttachment<Character, CharacterId>()
+        registry.RegisterAttachment<VirtualCharacter, VirtualCharacterId>()
+
+        registry.Register<StaticObjectId>()
+        registry.Register<DynamicObjectId>()
+
+        registry.RegisterAttachment<RigidBody, DynamicObjectId>()
+        registry.RegisterAttachment<StaticRigidBody, StaticObjectId>()
+
+        World.RegisterFieldMappings(genv, registry)
+
+        base(EntityDatabaseKind.Server, registry)
+
+class ServerWorld =
+    inherits ServerStagingWorld
+    implements IDisposable
+
+    new(genv: GameEnv) =
+        base(genv) with {
+            DestroyEntityQueue = ConcurrentQueue()
+            EventStream = ByteStream()
+            PhysicsSystem = 
+                let physicsSystem = ServerPhysicsSystem.Create(this.Database, genv)
+                let db = this.Database
+
+                db.HandleComponentAdded<CharacterInput, /**/ Camera>(
+                    (entId, input, camera) ->
+                        camera.SetYawPitch(input.Yaw, input.Pitch)
+                )
+
+                physicsSystem
+            genv = genv
+            
+            entityDestroyingEvent = Event()
+        }
+
+    field DestroyEntityQueue: ConcurrentQueue<EntityId>
+    field EventStream: ByteStream
+    field PhysicsSystem: ServerPhysicsSystem
+    field genv: GameEnv
+    field entityDestroyingEvent: Event<EntityId>
+
+    EntityDestroying: IEvent<EntityId> get() = this.entityDestroyingEvent.Publish
+
+    // TODO: Get rid of this, consider doing this baked into EntityDatabase.
+    private Flush(): () =
+        let mutable entId = default
+        while (this.DestroyEntityQueue.TryDequeue(&entId))
+            let _ = this.Database.TryDelete(entId)
+
+    Save(filePath: string): () =       
+        let fs = System.IO.File.Create(filePath)
+        let jsonSave = EntityDatabase.SerializeJson(this.Database, fs)
+        fs.Dispose()
+
+    static Load(filePath: string, genv: GameEnv): ServerWorld =
+        let loadingWorld = ServerStagingWorld(genv)
+        let dstWorld = ServerWorld(genv)
+
+        let id = genv.Maps.TryFindId(filePath)
+        if (id.IsValid)
+            let fs = genv.Maps.Get(id)
+            EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
+            genv.Maps.Free(filePath)
+        else
+            let fs = System.IO.File.OpenRead(filePath)
+            EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
+            fs.Dispose()
+
+        let replicatingEvents = loadingWorld.GetReplicatingEvents(dstWorld, false)
+        loadingWorld.Replicate(dstWorld, dstWorld, replicatingEvents, false)
+        dstWorld.PhysicsSystem.OptimizeBroadPhase()
+        dstWorld
+
+    Update(time: GameTime): () =
+        let deltaTime = time.DeltaTime
+
+        let db = this.Database
+        let physicsSystem = this.PhysicsSystem
+
+        db.ForEach<Orbit, EntityList8, Ownership>(
+            (entId, orbit, entList, ownership) ->
+                db.If<Transform, VirtualCharacter, CharacterInput>(ownership.Owner,
+                    (transform, virtc, input) ->
+                        if (input.Actions.HasFlag(CharacterActions.Special))
+                            if (virtc.SpecialCount == 0)
+                                virtc.SpecialCount <- virtc.SpecialCount + 1
+
+                                if (!entList.IsFull)
+                                    let spawnPosition = transform.Position + Vector3(0, 0, 10)
+                                    let mutable material = Material()
+                                    material.ImageId <- this.genv.Images.FindId("Flats/Freedoom/cons1_1.png")
+                                    material.Flags <- MaterialFlags.CastShadows | MaterialFlags.AcceptLight
+                                    let entId = this.SpawnProjectileWithOwner(spawnPosition, quat.Identity, vec3.One * 0.5, 1, material, entId)
+                                    entList.Add(entId)
+                            else
+                                virtc.SpecialCount <- virtc.SpecialCount + 1
+                        else
+                            virtc.SpecialCount <- 0
+                )
+        )
+
+        // TODO: Get rid of Flush.
+        this.Flush()
+        physicsSystem.Update(time) 
+        this.Flush()        
+
+    SpawnProjectileWithOwner(position: vec3, rotation: quat, scale: vec3, mass: float32, mutable material: Material, owner: EntityId): EntityId =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- rotation
+            transform.Scale <- scale
+
+            let meshRef = MeshReference(this.genv.MeshManager.TryFindId("cube.obj"))
+
+            let mutable phys = RigidBody()
+            phys.Mass <- 10
+            phys.Flags <- RigidBodyFlags.Active | RigidBodyFlags.Predicted
+
+            let mutable ownership = Ownership()
+            ownership.Owner <- owner
+
+            let collider = BoxCollider()
+
+            db.Create(transform, phys, meshRef, collider, material, Outline(), ownership)
+        else
+            EntityId.Nil
+
+    SpawnPlayer(clientIndex: byte): EntityId =
+        let mutable camera = Camera(70, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
+
+        let mutable material = Material()
+        material.ImageId <- this.genv.Images.FindId("Freedoom/stfst01.png")
+        material.Flags <- MaterialFlags.CastShadows | MaterialFlags.AcceptLight
+
+        let mutable player = Player()
+        player.ClientIndex <- clientIndex
+
+        let mutable phys = VirtualCharacter()
+        phys.Speed <- 5
+
+        let mutable transform = Transform()
+        transform.Position <- vec3.Zero
+        transform.Scale <- vec3.One
+
+        camera.Offset <- Vector3(0, 0, 1.7)
+
+        this.Database.ForEach<Transform, PlayerSpawnPoint>(
+            (spawnPointId, spawnPointTransform, _) ->
+                transform.Position <- spawnPointTransform.Position
+        )
+
+        let playerId = this.Database.Create(transform, CharacterInput(), camera, player, Sprite(), material, phys)
+
+        let mutable ownership = Ownership()
+        ownership.Owner <- playerId
+        let _ = this.Database.Create(Orbit(), EntityList8(), ownership)
+
+        playerId
+        
+    Destroy(entId: EntityId): () =
+        this.DestroyEntityQueue.Enqueue(entId)
+
+    AddOrUpdatePlayerInput(entId: EntityId, playerInput: CharacterInput): () =
+        this.Database.TryAddOrUpdate(entId, playerInput)
+
+    SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- rotation
+            transform.Scale <- scale
+
+            let meshRef = MeshReference(this.genv.MeshManager.TryFindId("cube.obj"))
+
+            let mutable phys = RigidBody()
+            phys.Mass <- mass
+            phys.Flags <- RigidBodyFlags.Predicted | RigidBodyFlags.Active
+
+            let collider = BoxCollider()
+
+            let _ = db.Create(transform, phys, meshRef, collider, material, Outline())
+
+    SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material, linearVelocity: Vector3, angularVelocity: Vector3): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- rotation
+            transform.Scale <- scale
+
+            let meshRef = MeshReference(this.genv.MeshManager.TryFindId("cube.obj"))
+
+            let mutable phys = RigidBody()
+            phys.Mass <- mass
+            phys.Flags <- RigidBodyFlags.Predicted | RigidBodyFlags.Active
+            phys.LinearVelocity <- linearVelocity
+            phys.AngularVelocity <- angularVelocity
+
+            let collider = BoxCollider()
+
+            let _ = db.Create(transform, phys, meshRef, collider, material, Outline())
+
+    SpawnStaticBox(position: vec3, rotation: quat, scale: vec3, material: Material): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- rotation
+            transform.Scale <- scale
+
+            let meshRef = MeshReference(this.genv.MeshManager.TryFindId("cube.obj"))
+
+            let mutable phys = StaticRigidBody()
+
+            let collider = BoxCollider()
+
+            let _ = db.Create(transform, phys, meshRef, collider, material)
+
+    SpawnStaticBox(position: vec3, rotation: quat, scale: vec3, material: Material, outline: Outline): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- rotation
+            transform.Scale <- scale
+
+            let meshRef = MeshReference(this.genv.MeshManager.TryFindId("cube.obj"))
+
+            let mutable phys = StaticRigidBody()
+
+            let collider = MeshCollider(meshRef.MeshId)
+
+            let _ = db.Create(transform, phys, meshRef, collider, material, outline)
+
+    SpawnStaticPlane(position: vec3, rotation: quat, scale: vec3, material: Material): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- rotation
+            transform.Scale <- scale
+
+            let meshRef = MeshReference(this.genv.MeshManager.TryFindId("plane.obj"))
+
+            let mutable phys = StaticRigidBody()
+            
+            let collider = MeshCollider(meshRef.MeshId)
+
+            let _ = db.Create(transform, phys, meshRef, collider, material)
+
+    SpawnStaticMesh(position: vec3, material: Material, meshId: Int32Id): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity && meshId.IsValid)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- Quaternion.Identity
+            transform.Scale <- vec3.One
+
+            let meshRef = MeshReference(meshId)
+
+            let mutable phys = StaticRigidBody()
+            
+            let collider = MeshCollider(meshRef.MeshId)
+
+            let _ = db.Create(transform, phys, meshRef, collider, material)
+
+    SpawnStaticMesh(position: vec3, material: Material, meshId: Int32Id, outline: Outline): () =
+        let db = this.Database
+        let physics = this.PhysicsSystem.physics
+
+        if (db.CanSpawnEntity && meshId.IsValid)
+            let mutable transform = Transform()
+            transform.Position <- position
+            transform.Rotation <- Quaternion.Identity
+            transform.Scale <- vec3.One
+            
+            let meshRef = MeshReference(meshId)
+
+            let mutable phys = StaticRigidBody()
+
+            let collider = MeshCollider(meshRef.MeshId)
+
+            let _ = db.Create(transform, phys, meshRef, collider, material, outline)
+
+    Dispose(): () =
+        this.Database.DeleteAll()
+        this.PhysicsSystem.Dispose()
+

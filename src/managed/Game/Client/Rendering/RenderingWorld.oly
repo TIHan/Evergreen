@@ -1,0 +1,450 @@
+module Game.Client.RenderState
+
+open System
+open System.Numerics
+open System.Text
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics
+open Evergreen.Physics
+open Evergreen.Network
+open Evergreen.Graphics.Rendering
+open Evergreen.Window
+open static Game.AssetManager
+
+open Game.Shared
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Shared.World
+
+open Game.Client.Systems
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Rendering.Module
+
+class RenderingWorld =
+    inherits World
+
+    field rfenv: RenderFrameEnv
+    field lights: List<DrawLightInfo>
+    field renderers: List<Renderer>
+
+    new(renv: RenderEnv) =
+        let registry = ComponentRegistry()
+
+        World.RegisterComponents(registry)
+
+        registry.Register<CharacterInput>()
+        registry.RegisterAttachment<Player, CharacterInput>()
+
+        registry.Register<CameraLerp>()
+        registry.RegisterAttachment<Camera, CameraLerp>()
+
+        registry.Register<TransformLerp>()
+        registry.RegisterAttachment<Transform, TransformLerp>()
+
+        base(EntityDatabaseKind.Client, registry) with {
+            rfenv = RenderFrameEnv()
+            lights = List()
+            renderers =
+                let renderers = List()
+                renderers.Add(Renderer(MeshRendererBehavior(), renv.PipelineManager.FindId("Compute/FrustumCulling.json")))
+                renderers.Add(Renderer(SpriteRendererBehavior(), renv.PipelineManager.FindId("Compute/SpriteFrustumCulling.json")))
+                renderers
+        }
+
+    ResetCharacterInputActions(characterEntId: EntityId): () =
+        let _ =
+            this.Database.TryGet<CharacterInput>(characterEntId,
+                input -> input.Actions <- CharacterActions.None
+            )
+
+    SetCharacterInput(deltaTime: float32, characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+        let _ =
+            this.Database.TryGet<CharacterInput, TransformLerp, Transform, CameraLerp, Camera>(characterEntId,
+                (input, transformLerp, transform, cameraLerp, camera) ->
+                    input <- newInput
+                    // Immediately update the previous camera rotation.
+                    cameraLerp.Value.SetYawPitch(input.Yaw, input.Pitch)
+            )
+
+        this.Database.ForEach<CameraLerp, Camera>(
+            (entId, cameraLerp, camera) ->
+                let yaw = cameraLerp.Value.Yaw
+                let pitch = cameraLerp.Value.Pitch
+
+                let mutable cameraCopy = camera
+                cameraCopy.SetYawPitch(yaw, pitch)
+                cameraLerp.Value <- cameraCopy
+        )
+
+    Update(renv: RenderEnv, cameraEntId: EntityId): () =
+        Renderer.Logic.Update(renv, this.rfenv, this.renderers, this.Database, cameraEntId, /* output */ this.lights)
+
+    Dispatch(renv: RenderEnv, time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, cmds: GpuCommandList): () =
+        Rendering.Dispatch(
+            renv,
+            this.renderers,
+            this.Database,
+            cameraEntId,
+            screenSize,
+            this.lights,
+            alpha,
+            cmds
+        )
+
+    Draw(renv: RenderEnv, preCont: scoped GpuCommandList -> (), cont: scoped GpuCommandList -> (), cmds: GpuCommandList): () =
+        Rendering.Draw(
+            renv,
+            this.rfenv,
+            this.renderers,
+            this.lights,
+            preCont,
+            cont,
+            cmds
+        )
+
+    FreeResources(gpu: Gpu): () =
+        ForEach(this.renderers,
+            renderer ->
+                renderer.FreeResources(gpu)
+        )
+        gpu.Free(this.rfenv.Textures.Images)
+        this.rfenv.Textures.Clear()
+        this.lights.Clear()
+
+// --------------------------------------------------------------------------------------------
+
+class MeshRendererBehavior =
+    implements IRendererBehavior
+
+    GetDepthPipeline(renv: RenderEnv): GpuPipeline = renv.PipelineManager.Get("Depth.json")
+
+    GetShadowMapPipeline(renv: RenderEnv): GpuPipeline = renv.PipelineManager.Get("ShadowMap.json")
+
+    GetOutlineMaskPipeline(renv: RenderEnv): GpuPipeline = renv.GetMaskPipeline()
+
+    GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.ShadowMaps.Layers
+
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+        let mutable cameraPosition = vec3.Zero
+        db.If<Camera, Transform>(cameraEntId,
+            (camera, transform) ->
+                cameraPosition <- camera.GetPosition(transform.Position)
+        )
+
+        let transparencyQueue = PriorityQueue<EntityId, float32>()
+
+        db.ForEach<TransformLerp, Transform, MeshReference, Material>(EntityFilter.Not<Outline>(),
+            (entId, transformLerp, transform, meshRef, material) ->
+                if (entId != cameraEntId)
+                    if (material.IsTransparent)
+                        transparencyQueue.Enqueue(entId, -(cameraPosition - transform.Position).Length())
+                    else
+                        let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
+                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
+        )
+
+        db.ForEach<TransformLerp, Transform, MeshReference, Material, Outline>(
+            (entId, transformLerp, transform, meshRef, material, outline) ->
+                if (entId != cameraEntId)
+                    let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
+                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+        )
+
+        let mutable transparencyOrder = 0: byte
+        let mutable entId = default
+        let mutable priority = default
+        while (transparencyQueue.TryDequeue(&entId, &priority))
+            let _ =
+                db.TryGet<TransformLerp, Transform, MeshReference, Material>(entId,
+                    (transformLerp, transform, meshRef, material) ->
+                        let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
+                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
+                        if (transparencyOrder != 255)
+                            transparencyOrder <- transparencyOrder + 1
+                )
+
+    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let lightsDs = renv.LightsBuffer.GetVertexFragmentDescriptorSet()
+        let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
+        gpuCommands.BindDescriptorSet(1, imageDs)
+        gpuCommands.BindDescriptorSet(2, instancesDs)
+        gpuCommands.BindDescriptorSet(3, lightsDs)
+        gpuCommands.BindDescriptorSet(4, renv.Lit_DescriptorSet)
+        gpuCommands.BindDescriptorSet(5, rfenv.Textures.Images.GetVertexDescriptorSet())
+
+    DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        gpuCommands.BindDescriptorSet(1, instancesDs)
+        gpuCommands.BindDescriptorSet(2, occluderDepthImageDs)
+
+    DrawShadowMaps(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        gpuCommands.BindDescriptorSet(1, instancesDs)
+        gpuCommands.BindDescriptorSet(2, renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet())
+
+class SpriteRendererBehavior =
+    implements IRendererBehavior
+
+    GetDepthPipeline(renv: RenderEnv): GpuPipeline = renv.PipelineManager.Get("SpriteDepth.json")
+
+    GetShadowMapPipeline(renv: RenderEnv): GpuPipeline = renv.PipelineManager.Get("SpriteShadowMap.json")
+
+    GetOutlineMaskPipeline(renv: RenderEnv): GpuPipeline = renv.GetSpriteMaskPipeline()
+
+    GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.SpriteShadowMaps.Layers
+
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+        let meshRef = renv.GetPlaneRenderMeshReference()
+
+        let mutable transparencyOrder = 0: byte
+        db.ForEach<TransformLerp, Transform, Sprite, Material>(EntityFilter.Not<Outline>(),
+            (entId, transformLerp, transform, _, material) ->
+                if (entId != cameraEntId)
+                    let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
+                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
+        )
+
+        db.ForEach<TransformLerp, Transform, Sprite, Material, Outline>(
+            (entId, transformLerp, transform, _, material, outline) ->
+                if (entId != cameraEntId)
+                    let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
+                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+        )
+
+    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let lightsDs = renv.LightsBuffer.GetVertexFragmentDescriptorSet()
+        let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
+        gpuCommands.BindDescriptorSet(1, imageDs)
+        gpuCommands.BindDescriptorSet(2, instancesDs)
+        gpuCommands.BindDescriptorSet(3, lightsDs)
+        gpuCommands.BindDescriptorSet(4, renv.Lit_DescriptorSet)
+
+    DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
+        gpuCommands.BindDescriptorSet(1, instancesDs)
+        gpuCommands.BindDescriptorSet(2, occluderDepthImageDs)
+        gpuCommands.BindDescriptorSet(3, imageDs)
+
+    DrawShadowMaps(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        gpuCommands.BindDescriptorSet(1, instancesDs)
+        gpuCommands.BindDescriptorSet(2, renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet())
+
+private module Rendering =
+
+    IfCamera(db: EntityDatabase, entId: EntityId, f: (transformLerp: byref<Transform>, transform: byref<Transform>, cameraLerp: byref<Camera>, camera: byref<Camera>) -> ()): () =
+        let _ =
+            db.TryGet<TransformLerp, Transform, CameraLerp, Camera>(entId,
+                (transformLerp, transform, cameraLerp, camera) ->
+                    f(&transformLerp.Value, &transform, &cameraLerp.Value, &camera)
+            )
+
+    Dispatch(
+        renv: RenderEnv, 
+        renderers: IReadOnlyList<Renderer>, 
+        db: EntityDatabase, 
+        cameraEntId: EntityId, 
+        screenSize: Vector2, 
+        lights: IList<DrawLightInfo>, 
+        alpha: float32,
+        cmds: GpuCommandList): () =
+
+        let globalsBuffer = renv.GlobalsBuffer
+
+        // Update globals.
+        IfCamera(db, cameraEntId,
+            (prevTransform, transform, prevCamera, camera) ->
+                camera.SetYawPitch(prevCamera.Yaw, prevCamera.Pitch)
+
+                let prevCameraTransform = prevCamera.GetTransform(prevTransform.Position)
+                let cameraTransform = camera.GetTransform(transform.Position)
+
+                let prev = Transform(prevCameraTransform.Position, cameraTransform.Rotation, prevCameraTransform.Scale)
+                let curr = Transform(cameraTransform.Position, cameraTransform.Rotation, cameraTransform.Scale)
+
+                let mutable sGlobals = &globalsBuffer.Array[0]
+                sGlobals.View <- Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
+                sGlobals.Projection <- camera.Projection
+                sGlobals.NearZ <- camera.NearPlaneDistance
+                sGlobals.FarZ <- camera.FarPlaneDistance
+                sGlobals.FrustumPlanes <- (sGlobals.View * sGlobals.Projection).GetFrustumPlanes()
+                if (!Matrix4x4.Invert(sGlobals.View, &sGlobals.ViewInverse))
+                    sGlobals.ViewInverse <- Matrix4x4.Identity
+                    LogClientWarning("View matrix was unable to be inverted")
+                if (!Matrix4x4.Invert(sGlobals.Projection, &sGlobals.ProjectionInverse))
+                    sGlobals.ProjectionInverse <- Matrix4x4.Identity
+                    LogClientWarning("Projection matrix was unable to be inverted")
+
+                sGlobals.MainCameraView <- sGlobals.View
+                sGlobals.MainCameraViewInverse <- sGlobals.ViewInverse
+                sGlobals.MainCameraProjection <- sGlobals.Projection
+                sGlobals.MainCameraProjectionInverse <- sGlobals.ProjectionInverse
+
+                globalsBuffer.NeedsUpdate <- true
+
+                let positionLerp = Vector3.Lerp(prev.Position, curr.Position, alpha)
+
+                For(lights.Count,
+                    i ->
+                        let mutable item = lights[i]
+
+                        if (item.Light.Kind == LightKind.Directional)
+                            // Move light's camera relative to the target camera.
+                            let prevPosition = positionLerp - item.PreviousCamera.Direction * MathF.Max(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
+                            let position = positionLerp - item.Camera.Direction * MathF.Max(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
+
+                            // We round to stabilize the shadows when the target camera is moving.
+                            let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
+                            let roundedPosition = Vector3(MathF.Round(position.X), MathF.Round(position.Y), MathF.Round(position.Z))
+
+                            item.PreviousCameraPosition <- roundedPrevPosition
+                            item.CameraPosition <- roundedPosition
+
+                        lights[i] <- item
+                )
+        )
+
+        let lightsBuffer = renv.LightsBuffer
+        let mutable lightsMemory = Memory(lightsBuffer.Array)
+        let mutable lightsSpan = lightsMemory.Span
+        let sLights = &lightsSpan[0]
+
+        let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
+
+        let maxLights = 8
+        let mutable lightCount = 0
+        // TODO: Only gather the closest lights.
+        ForEach(lights,
+            info ->
+                if (lightCount < ShaderLights.MaxCount)
+                    let sLight = &sLights[lightCount]
+
+                    let mutable prevTransform = info.GetPreviousCameraTransform()
+                    let mutable transform = info.GetCameraTransform()
+
+                    sLight.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
+                    sLight.Projection <- info.Camera.Projection
+                    sLight.ViewProjection <- sLight.View * sLight.Projection
+                    if (!Matrix4x4.Invert(sLight.View, &sLight.ViewInverse))
+                        LogClientWarning("Unable to invert view")
+
+                    let lerpTransform = Transform.FromMatrix(Matrix4x4.Lerp(prevTransform.Matrix, transform.Matrix, alpha))
+                    sLight.Direction <- Vector4(lerpTransform.Direction, 0)
+
+                    lightCount <- lightCount + 1
+        )
+        sLights.Count <- lightCount
+        lightsBuffer.NeedsUpdate <- true
+        globalsBuffer.NeedsUpdate <- true
+
+        // Begin Dispatch
+        Renderer.Passes.Dispatch(renv, renderers, cmds)
+        // End Dispatch
+
+    Draw(
+            renv: RenderEnv, 
+            rfenv: RenderFrameEnv, 
+            renderers: IReadOnlyList<Renderer>, 
+            lights: IReadOnlyList<DrawLightInfo>, 
+            preCont: scoped GpuCommandList -> (), 
+            cont: scoped GpuCommandList -> (),
+            cmds: GpuCommandList): () =
+        // Frames
+        let screenFrame = renv.GetScreenFrame()
+        let noOutlinesFrame = renv.GetInverseOutlineMaskFrame()
+        let maskFrame = renv.GetMaskFrame()
+        let verticalBlurFrame = renv.GetBeginBoxBlurFrame()
+        let finalBlurFrame = renv.GetEndBoxBlurFrame()
+        let transparencyFrame = renv.GetTransparencyFrame()
+
+        // Pipelines
+        let screenPipeline = renv.GetScreenPipeline()
+        let verticalBlurPipeline = renv.GetBeginBoxBlurPipeline()
+        let finalBlurPipeline = renv.GetEndBoxBlurPipeline()
+
+        // Shadow Maps
+        let shadowMaps = renv.ShadowMaps.Layers
+        let spriteShadowMaps = renv.SpriteShadowMaps.Layers
+
+        // Images
+        let maskImage = maskFrame.ColorImage
+        let screenImage = screenFrame.ColorImage
+
+        // Transforms
+        let screenTransform = renv.ScreenTransform
+
+        // Meshes
+        let screenMesh = renv.ScreenMesh
+
+        // Begin Shadow Map
+        Renderer.Passes.DrawShadows(renv, rfenv, renderers, lights, shadowMaps, cmds)
+        // End Shadow Map
+
+        cmds.PipelineBarrier(GpuPipelineBarrierKind.DepthStencilToVertexFragmentRead)
+
+        // // Begin Main
+        cmds.BeginFrame(screenFrame)
+        Renderer.Passes.Draw(renv, rfenv, renderers, cmds)
+        Renderer.Passes.DrawTransparency(renv, rfenv, renderers, cmds)
+        cmds.EndFrame()
+        // End Main
+
+        // Begin No Outlines
+        cmds.BeginFrame(noOutlinesFrame)
+        Renderer.Passes.DrawOutlineNoMask(renv, rfenv, renderers, cmds)
+      //  Renderer.Passes.DrawTransparency(renv, renderers, gpuCommands)
+        cmds.EndFrame()
+        // End No Outlines
+        
+        cmds.PipelineBarrier(GpuPipelineBarrierKind.DepthStencilToVertexFragmentRead)
+
+        // Begin Mask
+        cmds.BeginFrame(maskFrame)
+        Renderer.Passes.DrawOutlineMask(renv, rfenv, renderers, cmds)
+        cmds.EndFrame()
+        // End Mask             
+
+        cmds.PipelineBarrier(GpuPipelineBarrierKind.BottomPipeToVertexFragmentRead)
+
+        cmds.BeginFrame(verticalBlurFrame)
+        cmds.BindPipeline(verticalBlurPipeline)
+        cmds.BindDescriptorSet(0, renv.GlobalsDescriptorSet)
+        cmds.BindDescriptorSet(1, maskImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(2, screenTransform.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(3, maskFrame.DepthImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(4, screenFrame.DepthImage.GetVertexDescriptorSet())
+        cmds.DrawIndexed(screenMesh.Vertices, screenMesh.Indices, screenMesh.Indices.Length, 1)
+        cmds.EndFrame()
+
+        cmds.PipelineBarrier(GpuPipelineBarrierKind.BottomPipeToVertexFragmentRead)
+
+        cmds.BeginFrame(finalBlurFrame)
+        cmds.BindPipeline(finalBlurPipeline)
+        cmds.BindDescriptorSet(0, renv.GlobalsDescriptorSet)
+        cmds.BindDescriptorSet(1, verticalBlurFrame.ColorImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(2, screenTransform.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(3, maskFrame.ColorImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(4, screenFrame.DepthImage.GetVertexDescriptorSet())
+        cmds.DrawIndexed(screenMesh.Vertices, screenMesh.Indices, screenMesh.Indices.Length, 1)
+        cmds.EndFrame()
+
+        preCont(cmds)
+
+        cmds.PipelineBarrier(GpuPipelineBarrierKind.BottomPipeToAllGraphics)
+
+        // Begin Final
+        cmds.BeginSwapChainFrame()
+        cmds.BindPipeline(screenPipeline)
+        cmds.BindDescriptorSet(0, renv.GlobalsDescriptorSet)
+        cmds.BindDescriptorSet(1, screenImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(2, noOutlinesFrame.DepthImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(3, maskFrame.ColorImage.GetVertexDescriptorSet())
+        cmds.BindDescriptorSet(4, finalBlurFrame.ColorImage.GetVertexDescriptorSet())
+        cmds.DrawIndexed(screenMesh.Vertices, screenMesh.Indices, screenMesh.Indices.Length, 1)
+        // End Final
+
+        cont(cmds)
+        cmds.EndFrame()

@@ -1,0 +1,333 @@
+namespace Game.Client.Internal
+
+open System
+open System.Numerics
+open Evergreen.Utilities
+open Evergreen.Network
+open Evergreen.Collections
+open Game.Shared
+open Game.Client
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Events
+
+internal class ServerConnection =
+    implements IDisposable
+
+    field NetworkClient: NetworkClient
+    private InputStream: ByteStream get
+    field Snapshots: World[]
+    field SnapshotPool: World[]
+    field SnapshotBuffer: InterpolationBuffer<Snapshot>
+
+    field FullSnapshot: World
+    field ReceivedWorld: ClientReceivedWorld
+
+    field mutable sceneName: string
+    field mutable clientIndex: byte
+    field mutable latestSnapshotFrame: FrameNumber
+    field mutable latestSnapshotTimeStamp: int64
+    field networkAdapterState: EntityDatabaseNetworkAdapterState
+
+    private SendStream: ByteStream get
+
+    ClientIndex: byte get() = this.clientIndex
+
+    new(genv: GameEnv, publisher: ClientEventPublisher) =
+        let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
+        let lerpBuffer = 
+            InterpolationBuffer<Snapshot>(3, 1,
+                (prev, next, alpha, frame) ->
+                    SomeStruct(Snapshot.Lerp(frame, prev, next, alpha, (prev, next, alpha, frame) -> this.LerpWorld(prev, next, alpha, frame))),
+                frameEvent ->
+                    match (frameEvent)
+                    | InterpolationBufferFrameEvent.Lerped =>
+                        LogClientWarning("lerped snapshot")
+                    | InterpolationBufferFrameEvent.Skipped =>
+                        LogClientWarning("skipped snapshot")
+                    | InterpolationBufferFrameEvent.Dropped =>
+                        LogClientWarning("dropped snapshot")
+                    | _ =>
+                        LogClientWarning("no available snapshots")
+            )
+
+        let clientSnapshots = 
+            initArray<World>(30,
+                i -> World(EntityDatabaseKind.Client)
+            )
+
+        let netClient =
+            NetworkClient(
+                /* onConnectionRequested */
+                (_) -> // TODO-language-bug: should be able to do "_ ->" without the "(_)"
+                    ()
+                    ,
+                /* onConnectionFailed */
+                (netClient, reason) ->
+                    this.Reset()
+                    publisher.ConnectionFailed(netClient.LocalEndPoint.ToString(), reason.ToString())
+                    ,
+                /* onConnected */
+                netClient ->
+                    publisher.Connected(netClient.LocalEndPoint.ToString())
+                    ,
+                /* onDisconnected */
+                (netClient, reason) ->
+                    this.Reset()
+                    publisher.Disconnected(netClient.LocalEndPoint.ToString(), reason.ToString())
+                    ,              
+                /* onMessageReceived */
+                (netClient, bstream, channel) ->
+                    if (channel == NetworkChannels.FullSnapshotChannel)
+
+                        let bstream =
+                            let bytes = NetworkCompression.Decompress(bstream.Raw, 0, bstream.TotalCount)
+                            ByteStream(bytes, bytes.Length)
+                        let snapshot = Snapshot.DeserializeForNetwork(bstream, this.ReceivedWorld, this.networkAdapterState)
+    
+                        let clientIndex = snapshot.ClientIndex
+                        let serverFrame = snapshot.ServerFrame
+                        let serverTimeStamp = snapshot.ServerTimeStamp
+    
+                        this.clientIndex <- clientIndex
+                        if (serverFrame > this.latestSnapshotFrame)
+                            this.latestSnapshotFrame <- serverFrame
+                            this.latestSnapshotTimeStamp <- serverTimeStamp
+
+                        snapshot.World.CopyTo(this.FullSnapshot)
+        
+                        let sendingByteStream = ByteStream()
+                        sendingByteStream.Write<int32>(FrameNumber.GetInt32(serverFrame))
+                        netClient.SendReliableSequenced(sendingByteStream.AsReadOnlySpan(), NetworkChannels.SnapshotAckChannel)
+                        //let mutable snapshotFrame = snapshotFrame
+                        //LogClient("sent final ack for snapshot '" + snapshotFrame.ToString() + "'")
+        
+                    else if (channel == NetworkChannels.DeltaSnapshotChannel || channel == NetworkChannels.DeltaFromFullSnapshotChannel)
+                        if (this.latestSnapshotFrame >= FrameNumber.Zero)
+                            let bstream =
+                                let bytes = NetworkCompression.Decompress(bstream.Raw, 0, bstream.TotalCount)
+                                ByteStream(bytes, bytes.Length)
+                            let serverLatestSnapshotFrameAck = FrameNumber(bstream.Read<int32>())
+    
+                            let backTrackPosition = bstream.Position
+    
+                            let serverFrame = FrameNumber(bstream.Read<int32>())
+                            let clientIndex = bstream.Read<byte>()
+                            let clientInputFrame = FrameNumber(bstream.Read<int32>())
+                            let clientInputTimeStamp = bstream.Read<int64>()
+                            let serverTimeStamp = bstream.Read<int64>()
+    
+                            this.clientIndex <- clientIndex
+                            if (serverFrame > this.latestSnapshotFrame)
+                                this.latestSnapshotFrame <- serverFrame
+                                this.latestSnapshotTimeStamp <- serverTimeStamp
+    
+                            if (channel == NetworkChannels.DeltaFromFullSnapshotChannel)
+                                let prevSnapshot = this.FullSnapshot
+                                prevSnapshot.CopyTo(this.ReceivedWorld)
+                                prevSnapshot.CopyTo(clientSnapshots[serverLatestSnapshotFrameAck % clientSnapshots.Length])
+        
+                                bstream.Position <- backTrackPosition
+                                let snapshot = Snapshot.DeserializeDeltaForNetwork(bstream, this.ReceivedWorld, this.networkAdapterState)
+    
+                                this.RecordSnapshot(snapshot) 
+                                let sendingByteStream = ByteStream()
+                                sendingByteStream.Write<int32>(FrameNumber.GetInt32(serverFrame))
+                                netClient.Send(sendingByteStream.AsReadOnlySpan(), NetworkChannels.SnapshotAckChannel)
+                            else
+                                let serverFrameDiff = this.latestSnapshotFrame - serverLatestSnapshotFrameAck
+            
+                                // Drop the snapshot if it is not within range.
+                                if (serverFrameDiff <= FrameNumber(25) && serverFrameDiff > FrameNumber.Zero)
+                                    let prevSnapshot = clientSnapshots[serverLatestSnapshotFrameAck % clientSnapshots.Length]
+                                    prevSnapshot.CopyTo(this.ReceivedWorld)
+            
+                                    bstream.Position <- backTrackPosition
+                                    let snapshot = Snapshot.DeserializeDeltaForNetwork(bstream, this.ReceivedWorld, this.networkAdapterState)
+        
+                                    this.RecordSnapshot(snapshot) 
+                                else
+                                    LogClientWarning("dropped snapshot")
+
+                    else if (channel == NetworkChannels.LoadSceneChannel)
+                        let sceneName = bstream.ReadSmallString()
+                        let snapshotSequence = ByteSequence(bstream.ReadByte())
+                        networkAdapterState.Reset()
+                        publisher.LoadClientSceneRequested(sceneName, snapshotSequence)
+
+                    else
+                        netClient.DisconnectIfPossible(ClientDisconnectReason.Other)
+            )
+
+        {
+            NetworkClient = netClient
+            InputStream = ByteStream()
+            Snapshots = clientSnapshots
+            SnapshotPool =
+                initArray<World>(16,
+                    i -> World(EntityDatabaseKind.Client)
+                )
+            SnapshotBuffer = lerpBuffer
+
+            FullSnapshot = World(EntityDatabaseKind.Client)
+            ReceivedWorld = ClientReceivedWorld(genv)
+
+            sceneName = string.Empty
+            clientIndex = 0
+            latestSnapshotFrame = FrameNumber.Zero
+            latestSnapshotTimeStamp = 0
+            networkAdapterState = networkAdapterState
+
+            SendStream = ByteStream()
+        }
+
+    private Reset(): () =
+        this.FullSnapshot.Reset()
+        this.ReceivedWorld.Reset()
+        ForEach(this.Snapshots,
+            world ->
+                world.Reset()
+        )
+        ForEach(this.SnapshotPool,
+            world ->
+                world.Reset()
+        )
+        this.SnapshotBuffer.Clear()
+        this.clientIndex <- 0
+        this.latestSnapshotFrame <- FrameNumber.Zero
+        this.latestSnapshotTimeStamp <- 0
+        this.InputStream.Reset()
+        this.SendStream.Reset()
+        this.networkAdapterState.Reset()
+
+    private LerpWorld(prev: World, next: World, alpha: float32, frame: FrameNumber): World =
+        let worldPool = this.SnapshotPool
+
+        let curr = worldPool[frame % worldPool.Length]
+
+        next.CopyTo(curr)
+        curr.Database.ForEach<Transform, RigidBody>(
+            (entId, transform, body) ->
+                prev.Database.If<Transform, RigidBody>(entId,
+                    (prevTransform, prevBody) ->
+                        transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
+                        transform.Rotation <- Quaternion.Lerp(prevTransform.Rotation, transform.Rotation, alpha)
+                        body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
+                        body.AngularVelocity <- Vector3.Lerp(prevBody.AngularVelocity, body.AngularVelocity, alpha)
+                )
+        )
+        curr.Database.ForEach<Transform, Character>(
+            (entId, transform, body) ->
+                let _ =
+                    prev.Database.TryGet<Transform, Character>(entId,
+                        (prevTransform, prevBody) ->
+                            transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
+                            transform.Scale <- Vector3.Lerp(prevTransform.Scale, transform.Scale, alpha)
+                            body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
+                    )
+        )
+        curr.Database.ForEach<Transform, VirtualCharacter>(
+            (entId, transform, body) ->
+                if (!curr.Database.Exists<Player>(entId, player -> player.ClientIndex == this.ClientIndex))
+                    let _ =
+                        prev.Database.TryGet<Transform, VirtualCharacter>(entId,
+                            (prevTransform, prevBody) ->
+                                transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
+                                transform.Scale <- Vector3.Lerp(prevTransform.Scale, transform.Scale, alpha)
+                                body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
+                        )
+        )
+        curr
+
+    private RecordSnapshot(snapshot: Snapshot): () =
+        let serverFrame = snapshot.ServerFrame
+        let world = snapshot.World
+
+        let worldPool = this.SnapshotPool
+        let lerpBuffer = this.SnapshotBuffer
+        let clientSnapshots = this.Snapshots
+
+        let newWorld = worldPool[serverFrame % worldPool.Length]
+        world.CopyTo(newWorld)
+
+        let snapshot = snapshot.WithWorld(newWorld)
+        lerpBuffer.AddItem(serverFrame, snapshot)
+
+        let newWorld = clientSnapshots[serverFrame % clientSnapshots.Length]
+        world.CopyTo(newWorld)
+
+    SnapshotQueueCount: int32 get() = this.SnapshotBuffer.QueueCount
+
+    OnSceneLoading(sceneName: string): () =
+        this.SnapshotBuffer.Clear()
+        this.latestSnapshotFrame <- FrameNumber.Zero
+        this.latestSnapshotTimeStamp <- 0
+        this.sceneName <- sceneName
+
+    TryGetSnapshot(snapshot: byref<Snapshot>): bool =
+        this.SnapshotBuffer.TryGetItem(&snapshot)
+
+    Heartbeat(deltaTime: float32): () =
+        this.NetworkClient.Heartbeat(deltaTime)
+
+    SendInput(clientInput: ClientInput): () =
+        let inputStream = this.InputStream
+        inputStream.Reset()
+        inputStream.Write<int32>(FrameNumber.GetInt32(this.latestSnapshotFrame))
+        inputStream.Write(clientInput.Input0)
+        inputStream.Write(clientInput.Input1)
+        inputStream.Write(clientInput.Input2)
+        if (this.NetworkClient.IsConnected)
+            this.NetworkClient.Send(inputStream.AsReadOnlySpan(), NetworkChannels.ClientInputChannel)
+
+    SendSceneLoaded(snapshotSequence: ByteSequence): () =
+        let stream = this.SendStream
+        stream.Reset()
+        stream.WriteByte(ByteSequence.GetByte(snapshotSequence))
+        this.NetworkClient.SendReliableSequenced(stream.AsReadOnlySpan(), NetworkChannels.SceneLoadedChannel)
+
+    Connect(ipOrHostName: string, port: int32, connectionKey: string): () =
+        this.NetworkClient.Connect(ipOrHostName, port, connectionKey)
+
+    DisconnectIfPossible(): () =
+        this.NetworkClient.DisconnectIfPossible(ClientDisconnectReason.ClientInitiated)
+
+    Address: string 
+        get() =
+            match (this.NetworkClient.TryGetRemoteEndPoint())
+            | Some(endPoint) => endPoint.Address.ToString()
+            | _ => String.Empty
+
+    Port: int32 get() = this.NetworkClient.Port
+
+    Status: ConnectionStatus
+        get() =
+            if (this.NetworkClient.IsConnecting)
+                ConnectionStatus.Connecting
+            else if (this.NetworkClient.IsConnected)
+                ConnectionStatus.Connected
+            else
+                ConnectionStatus.NotConnected
+
+    CanSimulateLatency: bool
+        get() =
+            let (_, end) = this.NetworkClient.LatencySimulationRange
+            end > 0
+        set(value) = 
+            if (value)
+                this.NetworkClient.LatencySimulationRange <- (100, 140)
+            else
+                this.NetworkClient.LatencySimulationRange <- (0, 0)
+
+    CanSimulatePacketLoss: bool
+        get() = 
+            let value = this.NetworkClient.PacketLossSimulationRate
+            value > 0
+        set(value) = 
+            if (value)
+                this.NetworkClient.PacketLossSimulationRate <- 1
+            else
+                this.NetworkClient.PacketLossSimulationRate <- 0
+
+    Dispose(): () =
+        this.NetworkClient.Dispose()

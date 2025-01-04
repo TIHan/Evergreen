@@ -1,0 +1,245 @@
+#target "dotnet: net8"
+
+#reference "../Window/Evergreen.Window.olyx"
+#package "Spectre.Console,0.49.1"
+#package "Spectre.Console.Cli,0.49.1"
+#package "System.Drawing.Common,8.0.11"
+
+namespace GpuTest
+
+open System
+open System.Numerics
+open System.IO
+open System.Text.Json
+open System.Text.Json.Serialization
+open System.Runtime.Intrinsics
+open Evergreen.Graphics.Rendering
+open Evergreen.Utilities
+open Spectre.Console
+open Spectre.Console.Cli
+open System.Drawing
+
+open Evergreen.Graphics.Shader.Backend.Interop
+open static Evergreen.Graphics.Shader.Backend.Interop.Methods
+
+struct VertexPositionColor =
+    Position: vec2 get, set
+    TextureCoordinates: vec2 get, set
+    Color: vec4 get, set
+
+    new(position: vec2, texCoords: vec2, color: vec4) =
+        {
+            Position = position
+            TextureCoordinates = texCoords
+            Color = color
+        }
+
+module Shader =
+
+    public field mutable r: Rendering = unchecked default
+
+    Run<T>(shaderKind: string, input: mutable T[], spvBytes: mutable byte[]): mutable T[] where T: unmanaged =
+        if (input.Length == 0)
+            fail("Input is empty")
+
+        let isCompute =
+            match (shaderKind)
+            | "compute" => true
+            | _ => false
+
+        let defaultVertexCode = "#version 450
+            
+layout(location = 0) in vec2 Position;
+layout(location = 1) in vec2 TexCoords;
+layout(location = 2) in vec4 Color;
+
+layout(location = 0) out vec2 fsin_TexCoords;
+layout(location = 1) out vec4 fsin_Color;
+
+void main()
+{
+    gl_Position = vec4(Position, 0, 1);
+    fsin_TexCoords = TexCoords;
+    fsin_Color = Color;
+}"
+
+        let defaultFragmentCode = "#version 450
+
+layout(location = 0) in vec2 fsin_TexCoords;
+layout(location = 1) in vec4 fsin_Color;
+layout(location = 0) out vec4 fsout_Color;
+
+void main()
+{
+    fsout_Color = fsin_Color;
+}"
+
+        if (r === unchecked default)
+            let options = RenderingOptions()
+            options.IsValidationEnabled <- true
+            r <- Rendering(options)
+            r.Window.Size <- Vector2(256, 256)
+
+        let gpu = r.Gpu
+
+        let layouts =
+            match (shaderKind)
+            | "vertex" =>
+                [
+                ]
+            | "fragment" =>
+                [
+                ]
+            | "compute" =>
+                [
+                    GpuDescriptorSetLayout(
+                        [
+                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        ]
+                    )
+                ]
+            | _ =>
+                fail("Invalid shader kind")
+
+        let shader: GpuShader = 
+            match (shaderKind)
+            | "vertex" =>
+                let fragmentByteCode = RenderingHelpers.CompileShader(EgShaderKind.EgShaderKind_FRAGMENT, defaultFragmentCode)
+                GpuShader.VertexFragment(GpuShaderCode(Unsafe.AsImmutable(spvBytes)), GpuShaderCode(fragmentByteCode))
+            | "fragment" =>
+                let vertexByteCode = RenderingHelpers.CompileShader(EgShaderKind.EgShaderKind_VERTEX, defaultVertexCode)
+                GpuShader.VertexFragment(GpuShaderCode(vertexByteCode), GpuShaderCode(Unsafe.AsImmutable(spvBytes)))
+            | _ =>
+                GpuShader.Compute(GpuShaderCode(Unsafe.AsImmutable(spvBytes)))
+
+        let mutable options = GpuPipelineOptions()
+        options.PolygonMode <- GpuPolygonMode.Fill
+        options.FrontFace <- GpuFrontFace.CounterClockwise
+        options.CullMode <- GpuCullMode.Back
+        options.Flags <- GpuPipelineFlags.FlipY | GpuPipelineFlags.DepthTest | GpuPipelineFlags.DepthWrite
+        let testPipeline =
+            GpuPipeline(
+                "gpu_test",
+                options,
+                shader,
+                layouts
+            )
+
+        match (shaderKind)
+        | "vertex"
+        | "fragment" =>
+            testPipeline.SetVertexInput<VertexPositionColor>()
+        | _ =>
+            ()
+
+        let quadVertices =
+            [
+                VertexPositionColor(Vector2(-1, -1), Vector2(0, 0), Vector4(1, 0, 0, 1))
+                VertexPositionColor(Vector2(1, -1), Vector2(1, 0), Vector4(0, 1, 0, 1))
+                VertexPositionColor(Vector2(-1, 1), Vector2(1, 1), Vector4(0, 0, 1, 1))
+                VertexPositionColor(Vector2(1, 1), Vector2(0, 1), Vector4(1, 1, 0, 1))
+            ]
+    
+        let quadIndices = [ 0: uint32; 1; 2;    3; 2; 1 ]
+
+        let buffer = GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, input.Length, i -> input[i])
+        let vertexBuffer = GpuBuffer.Initialize(GpuBufferKind.Vertex, GpuMemoryKind.Shared, quadVertices.Length, i -> quadVertices[i])
+        let indexBuffer = GpuBuffer.Initialize(GpuBufferKind.Index, GpuMemoryKind.Shared, quadIndices.Length, i -> quadIndices[i])
+
+        let cmds = GpuCommandList(10)
+        GpuCommandList.Begin(cmds)
+        match (shaderKind)
+        | "compute" =>
+            cmds.BindPipeline(testPipeline)
+            cmds.BindDescriptorSet(0, buffer.GetComputeDescriptorSet())
+            cmds.Dispatch(input.Length, 1, 1)
+            cmds.BeginSwapChainFrame()
+            cmds.EndFrame()
+        | _ =>
+            cmds.BeginSwapChainFrame()
+            cmds.BindPipeline(testPipeline)
+            cmds.DrawIndexed(vertexBuffer, indexBuffer, indexBuffer.Length, 1)
+            cmds.EndFrame()
+        gpu.Execute(cmds)
+        GpuCommandList.End(cmds)
+
+        gpu.Wait()
+
+        if (isCompute)
+            gpu.Download(buffer)
+
+        let width = int32(r.Window.Size.X)
+        let height = int32(r.Window.Size.Y)
+        let imageData = gpu.DownloadSwapChainImageData(width, height)
+
+        let result = buffer.Array
+
+        gpu.Free(testPipeline)
+        gpu.Free(shader)
+        gpu.Free(buffer)
+        gpu.Free(vertexBuffer)
+        gpu.Free(indexBuffer)
+
+        if (DotNet.TypeOf<T> == DotNet.TypeOf<int32> && !isCompute)
+            Unsafe.Cast(map(imageData, x -> int32(x)))
+        else if (isCompute)
+            result
+        else
+            mutable []
+
+#[export]
+class Input =
+
+    ShaderKind: string get, set = ""
+    DataKind: string get, set = ""
+
+#[export]
+class Input<T> =
+
+    Data: mutable T[] get, set = mutable []
+
+#[export]
+class ShaderCommand =
+    inherits Command<Settings>
+
+    class Settings =
+        inherits CommandSettings
+
+        #[CommandArgument(0, "[input]")]
+        Input: string get, set = ""
+
+        #[CommandArgument(1, "[shaderFile]")]
+        ShaderFile: string get, set = ""
+
+    overrides Execute(context: CommandContext, settings: Settings): int32 =
+        let options = JsonSerializerOptions()
+        try
+            let input = JsonSerializer.Deserialize<Input>(settings.Input, options)
+            let path = settings.ShaderFile
+            let shaderKind = input.ShaderKind
+            match (input.DataKind)
+            | "float32" =>
+                let input = JsonSerializer.Deserialize<Input<float32>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "int32" =>
+                let input = JsonSerializer.Deserialize<Input<int32>>(settings.Input, JsonSerializerOptions())
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | _ =>
+                fail("Invalid data kind: " + input.DataKind)
+        catch (ex: Exception) =>
+            printLine("Error: " + ex.ToString().Replace("\n", "").Replace("\r", ""))
+
+        0
+
+module Program = 
+
+    main(args: string[]): () =
+        let app = CommandApp(null)
+        app.Configure(
+            config ->
+                let _ = config.AddCommand<ShaderCommand>("shader")
+        )
+
+        while (true)
+            let args = Console.ReadLine().Split(mutable [';'])
+            let _ = app.Run(Cast(args))

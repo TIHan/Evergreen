@@ -1,0 +1,23 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+class NetworkInvalidSequenceException =
+    inherits Exception
+
+class NetworkInvalidFragmentException =
+    inherits Exception
+
+class NetworkTimedOutException =
+    inherits Exception

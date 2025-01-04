@@ -1,0 +1,191 @@
+namespace Game.Shared
+
+open System
+open System.Numerics
+open System.Runtime.InteropServices
+open Evergreen.Utilities
+open Evergreen.Physics
+open Evergreen.Collections
+open Evergreen.Graphics
+open Evergreen.Graphics.Rendering
+open Evergreen.Audio
+open static Game.AssetManager
+open static Game.Shared.Types
+open static Game.Shared.Components
+
+struct Vertex =
+    public field Position: Vector3
+    public field Normal: Vector3
+    public field TexCoord: Vector2
+
+    new(position: Vector3, normal: Vector3, texCoord: Vector2) =
+        {
+            Position = position
+            Normal = normal
+            TexCoord = texCoord
+        }
+
+    overrides ToString(): string = 
+        "(Position = " + this.Position.ToString() + ")"
+
+class RenderMesh =
+
+    Vertices: GpuBuffer<Vertex> get
+    Indices: GpuBuffer<uint32> get
+    AABB: AABB get
+    MaterialIndex: int32 get
+
+    new(vertices: GpuBuffer<Vertex>, indices: GpuBuffer<uint32>, aabb: AABB, materialIndex: int32) =
+        {
+            Vertices = vertices
+            Indices = indices
+            AABB = aabb
+            MaterialIndex = materialIndex
+        }
+
+class RenderMeshGroup =
+    Meshes: RenderMesh[] get
+    new(meshes: RenderMesh[]) = { Meshes = meshes }
+
+abstract default class World =
+
+    new(kind: EntityDatabaseKind, registry: ComponentRegistry) =
+        let db = EntityDatabase(kind, registry)
+
+        {
+            Database = db
+        }
+
+    new(kind: EntityDatabaseKind) =
+        World(
+            kind,
+            let registry = ComponentRegistry()
+            RegisterComponents(registry)
+            registry
+        )
+
+    Database: EntityDatabase get
+
+    IsValid(entId: EntityId): bool =
+        this.Database.IsValid(entId)
+
+    CanSpawnEntity: bool get() = this.Database.CanSpawnEntity
+
+    Replicate(dstWorldCopy: World, dstWorld: World, events: EntityDatabase.ReplicatingEvents, nonLocalOnly: bool): () =
+        this.Database.Replicate(dstWorldCopy.Database, dstWorld.Database, events, nonLocalOnly)
+
+    CopyTo(dstWorld: World): () =
+        this.Database.CopyTo(dstWorld.Database)
+
+    SerializeForNetwork(bstream: ByteStream): () =
+        EntityDatabase.SerializeForNetwork(this.Database, bstream)
+
+    DeserializeForNetwork(bstream: ByteStream, adapterState: EntityDatabaseNetworkAdapterState): () =
+        EntityDatabase.DeserializeForNetwork(bstream, this.Database, adapterState)
+
+    SerializeDeltaForNetwork(prev: World, canDeltaArchetypeId: bool, bstream: ByteStream): () =
+        EntityDatabase.SerializeDeltaForNetwork(prev.Database, this.Database, canDeltaArchetypeId, bstream)
+
+    DeserializeDeltaForNetwork(bstream: ByteStream, adapterState: EntityDatabaseNetworkAdapterState): () =
+        EntityDatabase.DeserializeDeltaForNetwork(bstream, this.Database, adapterState)
+
+    GetReplicatingEvents(prevWorld: World, nonLocalOnly: bool): EntityDatabase.ReplicatingEvents =
+        this.Database.GetReplicatingEvents(prevWorld.Database, nonLocalOnly)
+
+    static RegisterComponents(registry: ComponentRegistry): () =
+        registry.Register<Camera>()
+        registry.Register<Material>()
+        registry.Register<MeshReference>()
+        registry.Register<StaticRigidBody>()
+        registry.Register<Character>()
+        registry.Register<RigidBody>()
+        registry.Register<Player>()
+        registry.Register<Outline>()
+        registry.Register<VirtualCharacter>()
+        registry.Register<Light>()
+        registry.Register<Ownership>()
+        registry.Register<EntityList8>()
+        registry.Register<Orbit>()
+        registry.Register<LogicOutput>()
+        registry.Register<LogicInput>()
+        registry.Register<BoxCollider>()
+        registry.Register<MeshCollider>()
+        registry.Register<Pickupable>()
+        registry.Register<Sprite>()
+        registry.Register<Transform>()
+        registry.Register<Health>()
+        registry.Register<PlayerSpawnPoint>()
+
+    static RegisterFieldMappings(genv: GameEnv, registry: ComponentRegistry): () =
+        let registerJsonFieldMapping<T>(
+                    endsWithFieldName: string, 
+                    endsWithNewFieldName: string, 
+                    write: (inref<T>, System.Text.Json.Utf8JsonWriter) -> (),
+                    read: (byref<System.Text.Json.Utf8JsonReader>, byref<T>) -> ()
+                ) where T: unmanaged, struct, ValueType, { new() } =
+            registry.RegisterJsonFieldWriteMapping(endsWithFieldName,
+                (fieldName, fieldTy, mutable src, writer) ->
+                    if (fieldTy == DotNet.TypeOf<T>)
+                        writer.WritePropertyName(fieldName.Replace(endsWithFieldName, endsWithNewFieldName))
+                        let value = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, T>(src)[0]
+                        write(&value, writer)
+                    else
+                        fail("Invalid field type for '" + fieldName + "'")
+            )
+
+            registry.RegisterJsonFieldReadMapping(endsWithNewFieldName,
+                (fieldName, ty, mutable dst, reader) ->
+                    let fldName = fieldName.Replace(endsWithNewFieldName, endsWithFieldName)
+                    let fldTy = ty.GetField(fldName).FieldType
+
+                    let size =
+                        if (fldTy.IsEnum)
+                            Marshal.SizeOf(Enum.GetUnderlyingType(fldTy))
+                        else
+                            Marshal.SizeOf(fldTy)
+
+                    let dst = dst.Slice(int32(Marshal.OffsetOf(ty, fldName)), size)
+
+                    let value = &System.Runtime.InteropServices.MemoryMarshal.Cast<byte, T>(dst)[0]
+                    read(&reader, &value)
+                    fldName
+            )
+
+        registerJsonFieldMapping<Int32Id>(
+            "MeshId", "Mesh",
+            (assetId, writer) ->
+                match (genv.MeshManager.TryGetName(assetId))
+                | Some(name) =>
+                    writer.WriteStringValue(name)
+                | _ =>
+                    writer.WriteStringValue(string.Empty),
+            (reader, assetId) ->
+                assetId <- genv.MeshManager.TryFindId(reader.GetString())
+        )
+
+        registerJsonFieldMapping<Int32Id>(
+            "PipelineId", "Shader",
+            (assetId, writer) ->
+                match (genv.Pipelines.TryGetName(assetId))
+                | Some(name) =>
+                    writer.WriteStringValue(name)
+                | _ =>
+                    writer.WriteStringValue(string.Empty),
+            (reader, assetId) ->
+                assetId <- genv.Pipelines.TryFindId(reader.GetString())
+        )
+
+        registerJsonFieldMapping<Int32Id>(
+            "ImageId", "Texture",
+            (assetId, writer) ->
+                match (genv.Images.TryGetName(assetId))
+                | Some(name) =>
+                    writer.WriteStringValue(name)
+                | _ =>
+                    writer.WriteStringValue(string.Empty),
+            (reader, assetId) ->
+                assetId <- genv.Images.TryFindId(reader.GetString())
+        )
+
+    Reset(): () =
+        EntityDatabase.Reset(this.Database)

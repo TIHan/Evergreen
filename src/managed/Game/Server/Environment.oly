@@ -1,0 +1,237 @@
+namespace Game.Server.Internal
+
+open System
+open System.Numerics
+open System.Collections.Generic
+open System.Threading
+open System.Threading.Tasks
+open Evergreen.Utilities
+open Evergreen.Collections
+open Game.Shared // GameEnv
+open Game.Server
+open Game.Server.Internal
+open static Game.Shared.Components
+open static Game.Shared.Types
+open static Game.Server.Events
+
+internal class ServerEnv =
+    Host: ServerHost get
+    EventStream: ByteStream get
+    Publisher: ServerEventPublisher get
+    EntityIdToClientIndex: Dictionary<EntityId, byte> get
+    ClientIndexToEntityId: Dictionary<byte, EntityId> get
+    SceneTask: Option<Task<ServerScene>> get, set    
+    Scene: Option<ServerScene> get, set
+    Sequence: ByteSequence get, set
+
+    new() =
+        let eventStream = ByteStream()
+        let serverEventPublisher = ServerEventPublisher(eventStream)
+        {
+            Host = ServerHost(serverEventPublisher)
+            EventStream = eventStream
+            Publisher = serverEventPublisher
+            EntityIdToClientIndex = Dictionary()
+            ClientIndexToEntityId = Dictionary()
+            SceneTask = None
+            Scene = None
+            Sequence = ByteSequence.Zero
+        }
+
+internal module Server =
+
+    tryGetWorld(senv: ServerEnv): Option<ServerWorld> =
+        match (senv.Scene)
+        | Some(scene) => Some(scene.World)
+        | _ => None
+
+    tryGetClientEntityId(senv: ServerEnv, clientIndex: byte): OptionStruct<EntityId> =
+        let mutable entId = default
+        if (senv.ClientIndexToEntityId.TryGetValue(clientIndex, &entId))
+            SomeStruct(entId)
+        else
+            NoneStruct
+
+    spawnClientPlayer(senv: ServerEnv, clientIndex: byte): () =
+        match (tryGetWorld(senv))
+        | Some(world) =>
+            let mutable entId = EntityId.Nil
+
+            world.Database.ForEach<Player>(world.Database.CreateQuery<Player>(),
+                (playerId, player) ->
+                    if (player.ClientIndex == clientIndex)
+                        entId <- playerId
+            )
+
+            if (entId.IsNil)
+                entId <- world.SpawnPlayer(clientIndex)
+                
+            senv.EntityIdToClientIndex[entId] <- clientIndex
+            senv.ClientIndexToEntityId[clientIndex] <- entId
+        | _ =>
+            ()
+
+    destroyClientPlayer(senv: ServerEnv, clientIndex: byte): () =
+        let mutable entId = unchecked default
+        if (senv.ClientIndexToEntityId.Remove(clientIndex, &entId))
+            let mutable result = unchecked default
+            if (senv.EntityIdToClientIndex.Remove(entId, &result))
+                match (tryGetWorld(senv))
+                | Some(world) =>                    
+                    world.Destroy(entId)
+                | _ =>
+                    ()
+
+    getBandwidth(senv: ServerEnv): uint64 =
+        senv.Host.ByteCountSinceLastHeartbeat
+
+    setSimulateLatency(senv: ServerEnv, value: bool): () =
+        senv.Host.CanSimulateLatency <- value
+
+    setSimulatePacketLoss(senv: ServerEnv, value: bool): () =
+        senv.Host.CanSimulatePacketLoss <- value
+
+    startHosting(senv: ServerEnv, connectionKey: string): () =
+        let didServerStart = senv.Host.Start(connectionKey)
+        if (!didServerStart)
+            fail("Unable to start server")
+
+    stopHosting(senv: ServerEnv): () =
+        if (!senv.Host.IsStarted)
+            fail("Expected started host")
+        senv.Host.Stop()
+
+    saveScene(senv: ServerEnv, path: string): bool =
+        match (tryGetWorld(senv))
+        | Some(world) =>
+            world.Save(path)
+            true
+        | _ =>
+            false
+
+    disposeSceneIfPossible(senv: ServerEnv): () =
+        match (senv.Scene)
+        | Some(scene) =>
+            scene.Dispose()
+            senv.Scene <- None
+            senv.Publisher.SceneClosed()
+            senv.ClientIndexToEntityId.Clear()
+            senv.EntityIdToClientIndex.Clear()
+        | _ =>
+            ()
+        match (senv.SceneTask)
+        | Some(sceneTask) =>
+            let scene = sceneTask.Result
+            scene.Dispose()
+            sceneTask.Dispose()
+            senv.SceneTask <- None
+        | _ =>
+            ()
+
+    loadScene(senv: ServerEnv, genv: GameEnv, sceneName: string): () =
+        senv.Sequence <- senv.Sequence.Increment()
+        disposeSceneIfPossible(senv)
+        senv.SceneTask <-
+            Some(
+                Task.Factory.StartNew(
+                    () ->
+                        let scene = ServerScene.Load(sceneName, genv)
+                        scene.World.EntityDestroying.Add(
+                            entId ->
+                                let mutable clientIndex = default
+                                if (senv.EntityIdToClientIndex.TryGetValue(entId, &clientIndex))
+                                    let _ = senv.ClientIndexToEntityId.Remove(clientIndex)
+                                    let _ = senv.EntityIdToClientIndex.Remove(entId)
+                        )
+                        scene
+                )
+            )
+        senv.Host.ForEachClient(
+            client ->
+                client.SceneState <- ClientSceneState.None
+                senv.Host.SendLoadScene(client, sceneName, senv.Sequence)
+        )
+
+    processEvents(env: ServerEnv, deltaTime: float32): () =
+        let eventStream = env.EventStream
+        eventStream.ResetPosition()
+        while (eventStream.Position.Index < eventStream.TotalCount)
+            processEvent(env, eventStream)
+        eventStream.Reset()
+
+    fixedUpdate(senv: ServerEnv, time: GameTime): () =
+        let host = senv.Host
+        let deltaTime = time.DeltaTime
+        
+        host.Heartbeat(deltaTime)
+
+        match (senv.SceneTask)
+        | Some(sceneTask) when (sceneTask.IsCompletedSuccessfully) =>
+            let scene = sceneTask.Result
+            senv.SceneTask <- None
+            senv.Scene <- Some(scene)
+            senv.Publisher.SceneLoaded(scene.Name)
+        | _ =>
+            ()
+
+        processEvents(senv, deltaTime)
+
+        match (senv.Scene)
+        | Some(scene) =>
+            host.ForEachClient(
+                client ->
+                    if (client.SceneState == ClientSceneState.Loaded && !client.IsAwaitingFullSnapshot && !client.IsAwaitingFirstDeltaSnapshot)
+                        let clientIndex = client.Index
+                        if (!senv.ClientIndexToEntityId.ContainsKey(clientIndex))
+                            spawnClientPlayer(senv, clientIndex)
+            )
+            let stagingWorld = scene.Update(time)
+            host.SendSnapshot(scene.Name, time, time.Frame, stagingWorld, senv.Sequence)
+        | _ =>
+            ()
+
+    dispose(senv: ServerEnv): () =
+        disposeSceneIfPossible(senv)
+        senv.Host.Dispose()
+
+    /* Event Handlers */
+
+    processEvent(env: ServerEnv, eventStream: ByteStream): () =
+        match (ServerEventReader(eventStream))
+
+        | ServerEvent.ClientConnected(clientIndex) =>
+            onClientConnected(env, clientIndex)
+
+        | ServerEvent.ClientDisconnected(clientIndex) =>
+            onClientDisconnected(env, clientIndex)
+
+        | ServerEvent.ClientInputUpdated(clientIndex, input) =>
+            onClientInputUpdated(env, clientIndex, &input)
+
+        | ServerEvent.SceneLoaded(path) =>
+            onSceneLoaded(env, path)
+
+        | ServerEvent.SceneClosed =>
+            onSceneClosed(env)
+
+        | _ =>
+            throw InvalidOperationException("Invalid or unhandled event.")
+
+    onClientConnected(env: ServerEnv, clientIndex: byte): () =
+        ()
+
+    onClientDisconnected(env: ServerEnv, clientIndex: byte): () =
+        destroyClientPlayer(env, clientIndex)
+
+    onClientInputUpdated(env: ServerEnv, clientIndex: byte, input: inref<CharacterInput>): () =
+        match (tryGetClientEntityId(env, clientIndex), tryGetWorld(env))
+        | SomeStruct(entId), Some(world) =>
+            world.AddOrUpdatePlayerInput(entId, input)
+        | _ =>
+            ()
+
+    onSceneLoaded(env: ServerEnv, path: string): () =
+        ()
+
+    onSceneClosed(env: ServerEnv): () =
+        DotNet.GC.Collect()

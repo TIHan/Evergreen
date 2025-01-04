@@ -1,0 +1,548 @@
+namespace Game
+
+open System
+open System.Numerics
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Audio
+open Evergreen.Graphics.Rendering
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Window
+open Game.Client
+open Game.Client.Gui
+open Game.Server
+open Game.Shared
+open static Game.AssetManager
+open static Game.Shared.Types
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.ViewModels
+open static Game.Client.RenderState
+
+class ClientServerGameEnv =
+
+    IsConnected: bool get, set
+    IsHosting: bool get, set
+    MusicPlayback: SoundPlayback get, set
+    MainMenuCloseSound: Sound get
+    ButtonHoverSound: Sound get
+    ButtonClickSound: Sound get
+    BackgroundTransition: Tween<float32> get, set
+
+    new(musicPlayback: SoundPlayback, mainMenuCloseSound: Sound, buttonHoverSound: Sound, buttonClickSound: Sound, backgroundTransition: Tween<float32>) =
+        {
+            IsConnected = false
+            IsHosting = false
+            MusicPlayback = musicPlayback
+            MainMenuCloseSound = mainMenuCloseSound
+            ButtonHoverSound = buttonHoverSound
+            ButtonClickSound = buttonClickSound
+            BackgroundTransition = backgroundTransition
+        }
+
+module ClientServerGameHelpers =
+
+    private resetGuiMenuState(guiEnv: GuiEnv): () =
+        guiEnv.CurrentMenuState <- GuiMenuState.Main
+        guiEnv.CurrentUI <- guiEnv.MainMenu
+        guiEnv.NavigationStack.Clear()
+
+    private resetGuiMenuStateToNone(guiEnv: GuiEnv): () =
+        guiEnv.CurrentMenuState <- GuiMenuState.None
+        guiEnv.CurrentUI <- guiEnv.MainMenu
+        guiEnv.NavigationStack.Clear()
+
+    private connect(game: ClientServerGame, guiEnv: GuiEnv, address: string, port: int32, connectionKey: string): () =
+        game.Connect(address, port, connectionKey)
+        guiEnv.MainMenuModel.IsNewGameVisible.Value <- false
+        guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- false
+        guiEnv.MainMenuModel.IsSaveGameVisible.Value <- false
+        guiEnv.MainMenuModel.IsExitGameVisible.Value <- false
+        guiEnv.LoadingModel.Text.Value <- "Connecting..."
+        guiEnv.CurrentMenuState <- GuiMenuState.Loading
+        let mutable port = port
+        LogClient("Connection Requested: " + address + ":" + port.ToString())
+
+    private connectLocalHost(game: ClientServerGame, guiEnv: GuiEnv, connectionKey: string): () =
+         connect(game, guiEnv, "localhost", game.LocalServerPort, connectionKey)  
+
+    HandleInputSnapshot(clientEventPublisher: ClientEventPublisher, inputSnapshot: InputSnapshot): () =
+        let keyEvents = inputSnapshot.KeyEvents
+        For(keyEvents.Length,
+            i ->
+                let keyEvent = keyEvents[i]
+                if (keyEvent.IsPressed)
+                    match (keyEvent.key)
+                    | Key.EgWindowKey_F5 =>
+                        clientEventPublisher.SaveGameRequested("quick_save.json")
+                    | Key.EgWindowKey_BACKQUOTE =>
+                        clientEventPublisher.ConsoleRequested()
+                    | Key.EgWindowKey_ESCAPE =>
+                        clientEventPublisher.MainMenuRequested()
+                    | _ =>
+                        ()
+
+                    match (keyEvent.key)
+                    | Key.EgWindowKey_F7 =>
+                        clientEventPublisher.LoadGameRequested("quick_save.json")
+                    | _ =>
+                        ()
+
+                match (keyEvent.key)
+                | Key.EgWindowKey_w =>
+                    if (keyEvent.IsDown || keyEvent.IsPressed)
+                        clientEventPublisher.MoveForwardRequested(1)
+                    else
+                        clientEventPublisher.MoveForwardRequested(0)
+        
+                | Key.EgWindowKey_s =>
+                    if (keyEvent.IsDown || keyEvent.IsPressed)
+                        clientEventPublisher.MoveBackwardRequested(1)
+                    else
+                        clientEventPublisher.MoveBackwardRequested(0)
+        
+                | Key.EgWindowKey_a =>
+                    if (keyEvent.IsDown || keyEvent.IsPressed)
+                        clientEventPublisher.MoveLeftRequested(1)
+                    else
+                        clientEventPublisher.MoveLeftRequested(0)
+        
+                | Key.EgWindowKey_d =>
+                    if (keyEvent.IsDown || keyEvent.IsPressed)
+                        clientEventPublisher.MoveRightRequested(1)
+                    else
+                        clientEventPublisher.MoveRightRequested(0)
+        
+                | Key.EgWindowKey_SPACE =>
+                    clientEventPublisher.JumpUpRequested()
+                | Key.EgWindowKey_q =>
+                    clientEventPublisher.ActivateSpecialRequested()
+
+                | _ =>
+                    ()
+        )
+
+    private canAcceptLocalPlayerActionEvents(csgenv: ClientServerGameEnv, game: ClientServerGame, guienv: GuiEnv): bool =
+        csgenv.IsConnected && game.LocalPlayer.IsSpawned && !guienv.ConsoleModel.IsVisible.Value
+
+    HandleEvents(
+            genv: GameEnv,
+            csgenv: ClientServerGameEnv,
+            window: IWindow, 
+            guiEnv: GuiEnv, 
+            commandProcessor: CommandProcessor,
+            clientEventPublisher: ClientEventPublisher,
+            game: ClientServerGame): () =
+
+        ClientEventPublisher.Process(clientEventPublisher,
+            event ->
+                match (event)
+                | ClientEvent.MainMenuRequested =>
+                    if (csgenv.IsConnected)
+                        game.ToggleGuiMainMenu()
+                        let _ = csgenv.MainMenuCloseSound.Play(0.25, 1, 1, false)
+    
+                | ClientEvent.ConsoleRequested =>
+                    game.ToggleGuiConsole()
+    
+                | ClientEvent.ConsoleCommandRequested(cmd) =>
+                    commandProcessor.Process(cmd)
+    
+                | ClientEvent.QuitGameRequested =>
+                    window.Close()
+    
+                | ClientEvent.NewGameRequested =>
+                    if (csgenv.IsConnected)
+                        fail("should not be connected")
+                    if (guiEnv.MainMenuModel.IsNewGameVisible.Value)
+                        game.LoadScene("map01.json")
+                        game.StartHosting(genv.ConnectionKey)
+                        csgenv.IsHosting <- true
+                        connectLocalHost(game, guiEnv, genv.ConnectionKey)
+                        guiEnv.CurrentMenuState <- GuiMenuState.Loading
+    
+                | ClientEvent.NavigateBackRequested =>
+                    let _ = game.TryGuiNavigateBack()
+    
+                | ClientEvent.NavigateToMultiplayerMenuRequested =>
+                    let _ = game.TryGuiNavigateToMultiplayerMenu()
+    
+                | ClientEvent.NavigateToSettingsMenuRequested =>
+                    let _ = game.TryGuiNavigateToSettingsMenu()
+    
+                | ClientEvent.DisplayModeChangeRequested(width, height, refreshRate) =>
+                    let displayModes = guiEnv.DisplayModes
+                    let index =
+                        tryFindIndex(displayModes,
+                            (i, x) -> x.Width == width && x.Height == height && x.RefreshRate == refreshRate
+                        )
+                    if (index != -1)
+                        let displayMode = displayModes[index]
+                        window.ChangeDisplayMode(displayMode)
+    
+                | ClientEvent.SaveGameRequested(path) =>
+                    if (guiEnv.MainMenuModel.IsSaveGameVisible.Value)
+                        game.SaveScene(path)
+    
+                | ClientEvent.LoadGameRequested(path) =>
+                    if (guiEnv.MainMenuModel.IsLoadGameEnabled.Value)
+                        game.LoadScene(path)
+                        if (!csgenv.IsConnected)
+                            if (csgenv.IsHosting)
+                                fail("already hosting")
+                            game.StartHosting(genv.ConnectionKey)
+                            csgenv.IsHosting <- true
+                            connectLocalHost(game, guiEnv, genv.ConnectionKey)           
+    
+                | ClientEvent.ExitGameRequested =>
+                    if (guiEnv.MainMenuModel.IsExitGameVisible.Value)
+                        game.Disconnect()
+    
+                | ClientEvent.ConnectionRequested(address, port) =>
+                    game.CloseScene()
+                    connect(game, guiEnv, address, port, genv.ConnectionKey)
+    
+                | ClientEvent.Connected(connectionString) =>
+                    if (csgenv.IsConnected)
+                        fail("should not be connected")
+                    let isListenServer = game.LocalServerPort == game.ClientPort && game.ClientAddress == "127.0.0.1"
+                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- isListenServer
+                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- isListenServer
+                    guiEnv.LoadingModel.Text.Value <- "Waiting on server..."
+                    csgenv.IsConnected <- true
+                    LogClient("Connected: " + connectionString)
+                    
+                | ClientEvent.Disconnected(connectionString, reason) =>
+                    if (!csgenv.IsConnected)
+                        fail("should be connected")
+                    guiEnv.MainMenuModel.IsVisible.Value <- true
+                    guiEnv.MainMenuModel.IsNewGameVisible.Value <- true
+                    guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- true
+                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- true
+                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- false
+                    guiEnv.MainMenuModel.IsExitGameVisible.Value <- false
+                    csgenv.IsConnected <- false
+                    resetGuiMenuState(guiEnv)
+                    game.CloseScene()
+                    if (csgenv.IsHosting)
+                        game.StopHosting()
+                        csgenv.IsHosting <- false
+                    LogClient("Disconnected: " + connectionString + " - Reason: " + reason)
+                    Gui.ShowDialog(guiEnv, "Disconnected", "Reason: " + reason)
+    
+                | ClientEvent.ConnectionFailed(connectionString, reason) =>
+                    guiEnv.MainMenuModel.IsVisible.Value <- true
+                    guiEnv.MainMenuModel.IsNewGameVisible.Value <- true
+                    guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- true
+                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- true
+                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- false
+                    guiEnv.MainMenuModel.IsExitGameVisible.Value <- false
+                    csgenv.IsConnected <- false
+                    resetGuiMenuState(guiEnv)
+                    game.CloseScene()
+                    if (csgenv.IsHosting)
+                        game.StopHosting()
+                        csgenv.IsHosting <- false
+                    let errorMsg = "Connection Failed: " + connectionString + " - Reason: " + reason
+                    LogClientWarning(errorMsg)
+                    Gui.ShowDialog(guiEnv, "Connection Failed", "Reason: " + reason)
+    
+                | ClientEvent.LoadClientSceneRequested(sceneName, snapshotSequence) =>
+                    game.LoadClientScene(sceneName, snapshotSequence)
+    
+                | ClientEvent.SceneLoading(path) =>
+                    if (!csgenv.IsConnected)
+                        fail("should be connected")
+                    guiEnv.LoadingModel.Text.Value <- "Loading '" + path + "'..."
+                    guiEnv.CurrentMenuState <- GuiMenuState.Loading
+    
+                    let mutable backgroundTransition = csgenv.BackgroundTransition
+                    Tween.Reset(&backgroundTransition)
+                    csgenv.BackgroundTransition <- backgroundTransition
+    
+                | ClientEvent.SceneLoaded(path) =>
+                    if (!csgenv.IsConnected)
+                        fail("should be connected")
+                    guiEnv.LoadingModel.Text.Value <- "Waiting on server..."
+                    LogClient("Scene Loaded: " + path)
+    
+                | ClientEvent.SceneClosed(path) =>
+                    LogClient("Scene Closed: " + path)
+                    let musicPlayback = genv.SoundManager.Get("Music/Freedoom/d_e3m9.ogg").StopAndPlay(csgenv.MusicPlayback, guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true)
+                    csgenv.MusicPlayback <- musicPlayback
+    
+                | ClientEvent.SceneBegan(sceneName) =>
+                    if (!csgenv.IsConnected)
+                        fail("should be connected")
+                    guiEnv.MainMenuModel.IsVisible.Value <- true
+                    guiEnv.MainMenuModel.IsNewGameVisible.Value <- false
+                    guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- false
+                    guiEnv.MainMenuModel.IsExitGameVisible.Value <- true
+                    resetGuiMenuStateToNone(guiEnv)
+                    LogClient("Scene Began: " + sceneName)
+                    let musicPlayback = genv.SoundManager.Get("Music/Freedoom/d_e1m6.ogg").StopAndPlay(csgenv.MusicPlayback, guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true)
+                    csgenv.MusicPlayback <- musicPlayback
+    
+                | ClientEvent.MenuButtonHovered =>
+                    let _ = csgenv.ButtonHoverSound.Play(0.25, 1, 0, false)
+    
+                | ClientEvent.MenuButtonClicked =>
+                    let _ = csgenv.ButtonClickSound.Play(0.25, 1, 0, false)
+    
+                | ClientEvent.ClearConsoleRequested =>
+                    let consoleLog = genv.ConsoleWriter.GetStringBuilder()
+                    let _ = consoleLog.Clear()
+    
+                | ClientEvent.MoveForwardRequested(factor) =>
+                    if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
+                        ()
+    
+                | ClientEvent.MoveBackwardRequested(factor) =>
+                    if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
+                        ()
+    
+                | ClientEvent.MoveLeftRequested(factor) =>
+                    if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
+                        ()
+    
+                | ClientEvent.MoveRightRequested(factor) =>
+                    if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
+                        ()
+    
+                | ClientEvent.JumpUpRequested =>
+                    if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
+                        ()
+    
+                | ClientEvent.ActivateSpecialRequested =>
+                    if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
+                        ()
+    
+                | _ =>
+                    throw InvalidOperationException("Unhandled or malformed client event.")
+        )
+
+class ClientServerGame =
+    implements IDisposable
+
+    private SV: ServerGameProxy get // TODO: Eventually make this private.
+    private CL: ClientGameProxy get // TODO: Eventually make this private.
+    GuiEnv: GuiEnv get // TODO: Eventually make this private.
+    private RenderEnv: RenderEnv get
+
+    new(svGame: ServerGameProxy, genv: GameEnv, renv: RenderEnv, clientEventPublisher: ClientEventPublisher) =
+        let gpu = renv.Gpu
+        let guiEnv = GuiEnv(genv.EngineHash, renv.Window.Size, renv.Window.GetDisplayModes(), renv.ImageManager, renv.FrameManager, clientEventPublisher)
+
+        Gui.PopulateStaticData(guiEnv, renv.Gpu, renv.Window.CurrentDisplayMode)
+
+        guiEnv.SettingsMenuModel.VerticalSync.Value <- gpu.VerticalSyncEnabled
+        guiEnv.SettingsMenuModel.AntiAliasing.Value <-
+            if (gpu.SuperSamplingAmount == 4)
+                AntiAliasingKind.SSAAx4
+            else if (gpu.SuperSamplingAmount == 2)
+                AntiAliasingKind.SSAAx2
+            else
+                AntiAliasingKind.None
+
+        {
+            SV = svGame
+            CL = ClientGameProxy(genv, renv, clientEventPublisher)
+            GuiEnv = guiEnv
+            RenderEnv = renv
+        }
+
+    LocalServerBandwidth: uint64       get() = this.SV.Bandwidth
+    LocalServerPort: int32             get() = this.SV.Port
+    ClientAddress: string              get() = this.CL.Address
+    ClientPort: int32                  get() = this.CL.Port
+    ClientEntityId: EntityId           get() = this.CL.LocalPlayerId // TODO: rename this to "ClientPlayerEntityId"
+    ClientInputLatency: int64          get() = this.CL.InputLatency
+    ClientPing: int64                  get() = this.CL.Ping
+    ClientPassword: string             get() = this.CL.Password
+
+    /// Background-thread only
+    BackgroundFixedUpdate(genv: GameEnv, time: GameTime, isCatchingUp: bool): () =
+        this.CL.BackgroundProcessCommands()
+        this.SV.BackgroundProcessCommands(genv)
+        this.SV.BackgroundFixedUpdate(time)
+        this.CL.BackgroundFixedUpdate(time, isCatchingUp)
+
+    /// Main-thread only
+    Sync(time: GameTime): () =
+        this.CL.Sync(time) // Updating the client first is intentional.
+        this.SV.Sync(time)
+
+    /// Main-thread only
+    private ResetPlayerInputActions(): () =
+        this.CL.ResetPlayerInputActions()
+
+    /// Main-thread only
+    private UpdatePlayerInput(time: GameTime, inputSnapshot: InputSnapshot): () =
+        this.CL.UpdatePlayerInput(time, inputSnapshot)
+
+    /// Main-thread only
+    Update(time: GameTime, handleInputSnapshot: scoped InputSnapshot -> ()): () =
+        let renv = this.RenderEnv
+        let gpu = renv.Gpu
+        let guiEnv = this.GuiEnv
+        let window = renv.Window
+
+        gpu.SetUIContext(renv.PipelineUI)
+
+        let inputSnapshot = window.PumpEvents()
+        handleInputSnapshot(inputSnapshot)
+
+        Gui.Update(guiEnv, window.Size)
+
+        match (guiEnv.CurrentMenuState)
+        | GuiMenuState.None when (!guiEnv.ConsoleModel.IsVisible.Value) =>
+            this.UpdatePlayerInput(time, inputSnapshot)
+        | _ =>
+            this.ResetPlayerInputActions()
+
+        renv.PipelineUI.CanShowImGuiDemo <- Gui.CanShowImGuiDemo(guiEnv)
+        window.IsCursorVisible           <- Gui.IsCursorVisible(guiEnv)
+        window.IsFullscreen              <- Gui.IsFullscreen(guiEnv)
+        gpu.VerticalSyncEnabled          <- Gui.IsVerticalSyncEnabled(guiEnv)
+        gpu.SuperSamplingAmount          <- Gui.GetSuperSamplingAmount(guiEnv)
+
+    /// Main-thread only
+    RenderUpdateGui(time: GameTime, consoleLog: System.Text.StringBuilder, uiWindows: System.Collections.Generic.List<WindowView>): () =
+        Gui.RenderUpdate(
+            this.GuiEnv,
+            this.RenderEnv.GetConsoleBackgroundRenderFrame().Frame,
+            time,
+            consoleLog,
+            uiWindows
+        )
+
+    /// Main-thread only
+    FixedUpdateGui(time: GameTime, logicFrame: int32, logicFrametime: float32): () =
+        let guiEnv = this.GuiEnv
+
+        this.SetSimulateLatency(Gui.CanSimulateLatency(guiEnv))
+        this.SetSimulatePacketLoss(Gui.CanSimulatePacketLoss(guiEnv))
+
+        Gui.UpdateDiagnostics(
+            guiEnv,
+            time.DeltaTime,
+            logicFrame,
+            logicFrametime,
+            this.LocalServerBandwidth,
+            this.ClientInputLatency,
+            this.ClientPing
+        )
+
+    /// Main-thread only
+    Render(time: GameTime, alpha: float32, screenSize: Vector2, uiWindows: System.Collections.Generic.List<WindowView>): () =
+
+        // TODO: Move block to RenderUpdateGui
+        // {
+        match (this.CL.RenderingWorld)
+        | Some(renderWorld) =>
+            Gui.UpdateRenderClient(this.GuiEnv, renderWorld, this.ClientEntityId, alpha, uiWindows)
+        | _ =>
+            ()
+        this.RenderEnv.PipelineUI.DeltaTime <- time.DeltaTime // do this so we can animate UI properly
+        // }
+
+        this.CL.Render(time, alpha, screenSize,
+            gpuCommands ->
+                gpuCommands.DrawUI(this.RenderEnv.PipelineUI, uiWindows)
+        )
+
+    /// Main-thread only
+    OptimizeStaticEnvironment(): () =
+        this.CL.OptimizeStaticEnvironment()
+
+    /// Main-thread only
+    Connect(address: string, port: int32, connectionKey: string): () =
+        this.CL.Connect(address, port, connectionKey)
+
+    /// Main-thread only
+    Disconnect(): () =
+        this.CL.Disconnect()
+
+    /// Main-thread only
+    SaveScene(path: string): () =
+        this.SV.SaveScene(path)
+
+    /// Main-thread only
+    LoadScene(path: string): () =
+        this.SV.LoadScene(path)
+
+    /// Main-thread only
+    LoadClientScene(sceneName: string, snapshotSequence: ByteSequence): () =
+        this.CL.LoadScene(sceneName, snapshotSequence)
+
+    /// Main-thread only
+    CloseScene(): () =
+        this.CL.DisposeScene()
+        this.SV.DisposeScene()
+
+    /// Main-thread only
+    StartHosting(connectionKey: string): () =
+        this.SV.StartHosting(connectionKey)
+
+    /// Main-thread only
+    StopHosting(): () =
+        this.SV.StopHosting()
+
+    /// Main-thread only
+    private SetSimulateLatency(value: bool): () =
+        this.CL.SetSimulateLatency(value)
+        this.SV.SetSimulateLatency(value)
+
+    /// Main-thread only
+    private SetSimulatePacketLoss(value: bool): () =
+        this.CL.SetSimulatePacketLoss(value)
+        this.SV.SetSimulatePacketLoss(value)
+
+    /// Main-thread only
+    IsFullscreen: bool
+        get() =
+            Gui.IsFullscreen(this.GuiEnv)
+        set(value) =
+            Gui.SetIsFullscreen(this.GuiEnv, value)
+
+    /// Main-thread only
+    CanShowDiagnostics: bool
+        get() =
+            Gui.CanShowDiagnostics(this.GuiEnv)
+        set(value) =
+            Gui.SetCanShowDiagnostics(this.GuiEnv, value)
+
+    /// Main-thread only
+    LocalPlayer: LocalPlayer get() = this.CL.LocalPlayer
+
+    /// Main-thread only
+    SetClientPassword(password: string): () =
+        this.CL.SetPassword(password)
+
+    /// Main-thread only
+    PrintClientEntity(index: int32): () =
+        this.CL.PrintEntity(index)
+
+    ToggleGuiMainMenu(): () =
+        Gui.ToggleMainMenu(this.GuiEnv)
+
+    /// Main-thread only
+    ToggleGuiConsole(): () =
+        Gui.ToggleConsole(this.GuiEnv)
+
+    /// Main-thread only
+    TryGuiNavigateBack(): bool =
+        Gui.TryNavigateBack(this.GuiEnv)
+
+    /// Main-thread only
+    TryGuiNavigateToMultiplayerMenu(): bool =
+        Gui.TryNavigateToMultiplayerMenu(this.GuiEnv)
+
+    /// Main-thread only
+    TryGuiNavigateToSettingsMenu(): bool =
+        Gui.TryNavigateToSettingsMenu(this.GuiEnv)
+
+    /// Main-thread only
+    Dispose(): () =
+        this.CL.Dispose()
+        this.SV.Dispose()

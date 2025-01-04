@@ -1,0 +1,47 @@
+namespace Evergreen.ImGui
+
+open System
+open TerraFX.Interop.Vulkan
+open Evergreen.Graphics.UI.Backend.ImGui.Interop
+open static TerraFX.Interop.Vulkan.Vulkan
+
+alias ImGuiWindowFlags = EgImGuiWindowFlags
+alias ImGuiInputTextFlags = EgImGuiInputTextFlags
+alias ImGuiChildFlags = EgImGuiChildFlags
+alias ImFont = EgImFont
+
+class ImGuiContext =
+    internal Context: EgImGuiContext get
+    internal VkDescriptorSets: System.Collections.Concurrent.ConcurrentDictionary<VkDescriptorSet, () -> ()> get
+    internal field mutable isFirstFrame: bool
+    internal DestroyTextureQueue: System.Collections.Concurrent.ConcurrentQueue<VkDescriptorSet> get
+
+    internal new(context: EgImGuiContext, hwnd: nint) =
+        {
+            Context = context
+            isFirstFrame = true
+            VkDescriptorSets = System.Collections.Concurrent.ConcurrentDictionary()
+            DestroyTextureQueue = System.Collections.Concurrent.ConcurrentQueue()
+        }
+
+    internal static InputContext: ImGuiContext get, set = unchecked default
+
+    IsFirstFrame: bool get() = this.isFirstFrame
+
+class ImGuiInputTextCallback =
+
+    field callback: byref<EgImGui_InputTextCallbackData> -> int32
+
+    public field CallbackDelegate: Delegate
+
+    new(
+            callback: byref<EgImGui_InputTextCallbackData> -> int32
+        ) =
+        {
+            callback = callback
+            CallbackDelegate = DotNet.CreateDelegate(this, &&this.Callback)
+        }
+
+    //#[blittable] // TODO: need a new lang feature - #[blittable(cdecl)]
+    Callback(args: EgImGui_InputTextCallbackData*): int32 =
+        this.callback(&*args)

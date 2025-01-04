@@ -1,0 +1,35 @@
+{
+    "ServerSide": {},
+    "ClientSide": {},
+    "Transform": {
+      "Sequence": 0,
+      "Position": {
+        "X": 0,
+        "Y": 0,
+        "Z": 0
+      },
+      "Rotation": {
+        "X": 0,
+        "Y": 0,
+        "Z": 0
+      },
+      "Scale": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+      }
+    },
+    "Material": {
+      "Texture": "",
+      "Flags": "CastShadows, AcceptLight"
+    },
+    "StaticRigidBody": {
+      "Flags": "None"
+    },
+    "MeshReference": {
+      "Mesh": "plane.obj"
+    },
+    "MeshCollider": {
+      "Mesh": "plane.obj"
+    }
+  }

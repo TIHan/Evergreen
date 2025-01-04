@@ -1,0 +1,46 @@
+{
+  "ServerSide": {},
+  "ClientSide": {},
+  "Transform": {
+    "Sequence": 0,
+    "Position": {
+      "X": 0,
+      "Y": 0,
+      "Z": 0
+    },
+    "Rotation": {
+      "X": 0,
+      "Y": 0,
+      "Z": 0
+    },
+    "Scale": {
+      "X": 1,
+      "Y": 1,
+      "Z": 1
+    }
+  },
+  "Camera": {
+    "Offset": {
+      "X": 0,
+      "Y": 0,
+      "Z": 0
+    },
+    "Yaw": 0,
+    "Pitch": 0,
+    "FieldOfView": 0,
+    "Width": 20,
+    "Height": 20,
+    "NearPlaneDistance": 0.1,
+    "FarPlaneDistance": 20,
+    "ProjectionKind": "Orthographic"
+  },
+  "Light": {
+    "Kind": "Directional",
+    "Color": {
+      "X": 1,
+      "Y": 1,
+      "Z": 1,
+      "W": 1
+    }
+  }
+}

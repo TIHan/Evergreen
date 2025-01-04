@@ -1,0 +1,1518 @@
+#target "dotnet: net8"
+#library
+
+#load "*.oly"
+
+#package "System.Management,8.0.0"
+#package "System.Diagnostics.PerformanceCounter,8.0.0"
+
+namespace Evergreen.Utilities
+
+open System
+open System.IO
+open System.Text
+open System.Text.Json
+open System.Numerics
+open System.Diagnostics
+open System.Management
+open System.Security.Cryptography
+open System.Runtime.InteropServices
+open System.Runtime.CompilerServices
+open System.Runtime.Intrinsics
+open System.Collections.Generic
+open System.Collections.Concurrent
+
+private alias Unsafe = OlyPrelude.Unsafe
+
+class DoubleBuffer<T> =
+    field mutable currentIndex: int32
+    field buffer0: T
+    field buffer1: T
+
+    new(buffer0: T, buffer1: T) =
+        {
+            currentIndex = 0
+            buffer0 = buffer0
+            buffer1 = buffer1
+        }
+
+    Front: T
+        get() =
+            if (this.currentIndex == 0)
+                this.buffer0
+            else
+                this.buffer1
+
+    Back: T
+        get() =
+            if (this.currentIndex == 0)
+                this.buffer1
+            else
+                this.buffer0
+
+    Swap(): () =
+        if (this.currentIndex == 0)
+            this.currentIndex <- 1
+        else
+            this.currentIndex <- 0
+
+// REVIEW: Two years worth of frames, do we need more? Do we need to handle frames when it wraps around?
+#[open]
+newtype FrameNumber =
+    field Value: int32
+
+    IsValid: bool get() = this.Value > 0
+
+    static Zero: FrameNumber get() = FrameNumber(0)
+    static One: FrameNumber get() = FrameNumber(1)
+
+    static (>=)(n1: FrameNumber, n2: FrameNumber): bool =
+        n1.Value >= n2.Value
+
+    static (>)(n1: FrameNumber, n2: FrameNumber): bool =
+        n1.Value > n2.Value
+
+    static (<=)(n1: FrameNumber, n2: FrameNumber): bool =
+        n1.Value <= n2.Value
+
+    static (<)(n1: FrameNumber, n2: FrameNumber): bool =
+        n1.Value < n2.Value
+
+    static (==)(n1: FrameNumber, n2: FrameNumber): bool =
+        n1.Value == n2.Value
+
+    static (!=)(n1: FrameNumber, n2: FrameNumber): bool =
+        n1.Value != n2.Value
+
+    static (+)(n1: FrameNumber, n2: FrameNumber): FrameNumber =
+        FrameNumber(n1.Value + n2.Value)
+
+    static (-)(n1: FrameNumber, n2: FrameNumber): FrameNumber =
+        FrameNumber(n1.Value - n2.Value)
+
+    static (%)(n1: FrameNumber, n2: int32): int32 =
+        n1.Value % n2
+
+    static GetHashCode(n: FrameNumber): int32 = n.Value
+
+    static GetInt32(n: FrameNumber): int32 = n.Value
+
+#[open]
+newtype ByteSequence =
+    field Value: byte
+
+    private static SequenceGreaterThan(s1: byte, s2: byte): bool =
+        ((s1 > s2) && (s1 - s2 <= 128)) || ((s1 < s2) && (s2 - s1 > 128))
+
+    Increment(): ByteSequence =
+        ByteSequence(this.Value + 1)
+
+    IsNewerThan(n: ByteSequence): bool =
+        ByteSequence.SequenceGreaterThan(this.Value, n.Value) // TODO-language-bug: ByteSequence.SequenceGreaterThan(this, n.Value) does error, but with the wrong range
+
+    static Zero: ByteSequence get() = ByteSequence(0)
+
+    static GetByte(n: ByteSequence): byte = n.Value
+
+    static (==)(n1: ByteSequence, n2: ByteSequence): bool =
+        n1.Value == n2.Value
+
+    static (!=)(n1: ByteSequence, n2: ByteSequence): bool =
+        n1.Value != n2.Value
+
+class GameTime =
+
+    private Stopwatch: Stopwatch get
+    Frame: FrameNumber get
+
+    TimeStampTicks: int64 get
+    TimeStamp: float32 get
+    TimeStampMilliseconds: float32 get
+
+    DeltaTimeTicks: int64 get
+    DeltaTime: float32 get
+    DeltaTimeMilliseconds: float32 get
+
+    Now(): int64 = this.Stopwatch.ElapsedTicks
+
+    new(stopwatch: Stopwatch, frame: FrameNumber, timeTicks: int64, deltaTimeTicks: int64) =
+        {
+            Stopwatch = stopwatch
+            Frame = frame
+
+            TimeStampTicks = timeTicks
+            TimeStamp = float32(TimeSpan.FromTicks(timeTicks).TotalSeconds)
+            TimeStampMilliseconds = float32(TimeSpan.FromTicks(timeTicks).TotalMilliseconds)
+
+            DeltaTimeTicks = deltaTimeTicks
+            DeltaTime = float32(TimeSpan.FromTicks(deltaTimeTicks).TotalSeconds)
+            DeltaTimeMilliseconds = float32(TimeSpan.FromTicks(deltaTimeTicks).TotalMilliseconds)           
+        }
+
+newtype BitSet512 =
+    field value: Vector512<uint64>
+
+    static Create(value: uint64): BitSet512 =
+        BitSet512(Vector512.WithElement(Vector512<uint64>.Zero, 0, value))
+
+    static Create(value0: uint64, value1: uint64, value2: uint64, value3: uint64, value4: uint64, value5: uint64, value6: uint64, value7: uint64): BitSet512 =
+        let mutable value = Vector512<uint64>.Zero
+        value <- Vector512.WithElement(value, 0, value0)
+        value <- Vector512.WithElement(value, 1, value1)
+        value <- Vector512.WithElement(value, 2, value2)
+        value <- Vector512.WithElement(value, 3, value3)
+        value <- Vector512.WithElement(value, 4, value4)
+        value <- Vector512.WithElement(value, 5, value5)
+        value <- Vector512.WithElement(value, 6, value6)
+        value <- Vector512.WithElement(value, 7, value7)
+        BitSet512(value)
+
+    static field CachedIndices: BitSet512[] =
+        initArray(512,
+            i -> FromIndexCore(i)
+        )
+
+    private static FromIndexCore(index: int32): BitSet512 =
+        if (index < 0 || index >= 512)
+            throw IndexOutOfRangeException()
+        
+        let value = ((1: uint64) << (index % 64))
+        BitSet512(Vector512.WithElement(Vector512<uint64>.Zero, index / 64, value))
+
+    #[inline(always)]
+    static FromIndex(index: int32): BitSet512 = CachedIndices[index]
+
+    ToIndex(): int32 =
+        let valueIndex = this.ToValueIndex()
+        let value = this.GetValue(valueIndex)
+        let mutable result = -1
+        let mutable i = 0
+        while (i < 64)
+            if (((1: uint64) << i) == value)
+                result <- valueIndex * 8 + i
+                i <- 64
+            i <- i + 1
+        result
+
+    ToValueIndex(): int32 = 
+        if (this.value[0] & 0xFFFFFFFFFFFFFFFF != 0)
+            0
+        else if (this.value[1] & 0xFFFFFFFFFFFFFFFF != 0)
+            1
+        else if (this.value[2] & 0xFFFFFFFFFFFFFFFF != 0)
+            2
+        else if (this.value[3] & 0xFFFFFFFFFFFFFFFF != 0)
+            3
+        else if (this.value[4] & 0xFFFFFFFFFFFFFFFF != 0)
+            4
+        else if (this.value[5] & 0xFFFFFFFFFFFFFFFF != 0)
+            5
+        else if (this.value[6] & 0xFFFFFFFFFFFFFFFF != 0)
+            6
+        else if (this.value[7] & 0xFFFFFFFFFFFFFFFF != 0)
+            7
+        else
+            0
+
+    ToBytes(): mutable byte[] =
+        let bytes = zeroArray<byte>(64)
+        Vector512.CopyTo(Vector512.AsByte(this.value), bytes, 0)
+        bytes
+
+    GetValue(valueIndex: int32): uint64 = 
+        this.value[valueIndex]
+
+    SetValue(valueIndex: int32, value: uint64): BitSet512 =
+        BitSet512(Vector512.WithElement(this.value, valueIndex, value))
+
+    IsSupersetOf(bitSet: BitSet512): bool =
+        this.value & bitSet.value == bitSet.value
+
+    IsZero: bool 
+        #[inline(always)]
+        get() = this.value == Vector512<uint64>.Zero
+
+    IsSet(index: int32): bool =
+        match (index / 64)
+        | 0 => this.value[0] & ((1: uint64) << index) != 0
+        | 1 => this.value[1] & ((1: uint64) << (index - 64 * 1)) != 0
+        | 2 => this.value[2] & ((1: uint64) << (index - 64 * 2)) != 0
+        | 3 => this.value[3] & ((1: uint64) << (index - 64 * 3)) != 0
+        | 4 => this.value[4] & ((1: uint64) << (index - 64 * 4)) != 0
+        | 5 => this.value[5] & ((1: uint64) << (index - 64 * 5)) != 0
+        | 6 => this.value[6] & ((1: uint64) << (index - 64 * 6)) != 0
+        | 7 => this.value[7] & ((1: uint64) << (index - 64 * 7)) != 0
+        | _ => 
+            fail("should not happen")
+
+    #[inline(always)]
+    GetHash(): int32 =
+        0
+
+    #[inline(always)]
+    BitwiseNot(): BitSet512 =
+        BitSet512(Vector512<uint64>.op_OnesComplement(this.value))
+
+    #[inline(always)]
+    static op_Equality(bitSet1: BitSet512, bitSet2: BitSet512): bool =
+        bitSet1.value == bitSet2.value
+
+    #[inline(always)]
+    static op_Inequality(bitSet1: BitSet512, bitSet2: BitSet512): bool =
+        bitSet1.value != bitSet2.value
+
+    #[inline(always)]
+    static op_BitwiseOr(bitSet1: BitSet512, bitSet2: BitSet512): BitSet512 =
+        BitSet512(bitSet1.value | bitSet2.value)
+
+    #[inline(always)]
+    static op_BitwiseAnd(bitSet1: BitSet512, bitSet2: BitSet512): BitSet512 =
+        BitSet512(bitSet1.value & bitSet2.value)
+
+class BitSet512EqualityComparer =
+    implements IEqualityComparer<BitSet512>
+
+    GetHashCode(x: BitSet512): int32 = x.GetHash()
+
+    Equals(x: BitSet512, y: BitSet512): bool = x == y
+
+struct ByteStreamPosition =
+
+    Index: int32 get
+    BitIndex: int32 get
+    BitCount: byte get
+
+    new(index: int32, bitIndex: int32, bitCount: byte) =
+#if DEBUG
+        if (index < 0)
+            throw ArgumentOutOfRangeException("index")
+        if (bitIndex < -1)
+            throw ArgumentOutOfRangeException("bitIndex")
+        if (bitCount > 8)
+            throw ArgumentOutOfRangeException("bitCount")
+#end
+        {
+            Index = index
+            BitIndex = bitIndex
+            BitCount = bitCount
+        }
+
+class ByteStream =
+    field isResizeable: bool
+    field mutable buffer: mutable byte[]
+    field mutable position: int32
+    field mutable totalCount: int32
+    field mutable deltaPosition: int32
+    field mutable deltaCount: int32
+
+    new(capacity: int32) =
+        {
+            isResizeable = true
+            buffer = zeroArray(capacity)
+            position = 0
+            totalCount = 0
+            deltaPosition = -1
+            deltaCount = 0
+        }
+
+    new() =
+        ByteStream(8)
+
+    new(buffer: mutable byte[]) =
+        {
+            isResizeable = false
+            buffer = buffer
+            position = 0
+            totalCount = 0
+            deltaPosition = -1
+            deltaCount = 0
+        }
+
+    new(buffer: mutable byte[], length: int32) =
+        {
+            isResizeable = false
+            buffer = buffer
+            position = 0
+            totalCount = length
+            deltaPosition = -1
+            deltaCount = 0
+        }
+
+    new(buffer: mutable byte[], offset: int32, length: int32) =
+        {
+            isResizeable = false
+            buffer = buffer
+            position = offset
+            totalCount = offset + length
+            deltaPosition = -1
+            deltaCount = 0            
+        }
+
+    Raw: mutable byte[] get() = this.buffer
+    Position: ByteStreamPosition 
+        get() = ByteStreamPosition(this.position, this.deltaPosition, byte(this.deltaCount))
+        set(value) =
+            if (value.Index > this.totalCount)
+                throw ArgumentOutOfRangeException("position")
+            this.position <- value.Index
+            this.deltaCount <- int32(value.BitCount)
+            this.deltaPosition <- value.BitIndex
+    TotalCount: int32 
+        get() = this.totalCount
+        set(value) =
+            if (value > this.buffer.Length)
+                if (!this.isResizeable)
+                    throw InvalidOperationException("ByteStream is not resizeable.")
+    
+                let newBuffer = zeroArray<byte>(this.buffer.Length * 2)
+                Span(this.buffer, 0, this.buffer.Length).CopyTo(Span(newBuffer))
+                this.buffer <- newBuffer
+                this.TotalCount <- value
+            else
+                this.totalCount <- value
+
+    ResetPosition(): () =
+        this.position <- 0
+        this.deltaPosition <- -1
+        this.deltaCount <- 0
+
+    Reset(): () =
+        this.ResetPosition()
+        this.totalCount <- 0
+
+    Read<T>(): T where T: unmanaged, struct, ValueType, { new() } =
+        let size = DotNet.SizeOf<T>
+        let currentPosition = this.position
+        let nextPosition = currentPosition + size
+
+        if (nextPosition > this.totalCount)
+            throw ArgumentOutOfRangeException()
+
+        let mutable span = MemoryMarshal.Cast<_, T>(Span(this.buffer, currentPosition, size))
+        let result = span[0]
+        let value = result
+
+        this.position <- nextPosition
+
+        value
+
+    Peek<T>(): T where T: unmanaged, struct, ValueType, { new() } =
+        let oldPosition = this.Position
+        let value = this.Read<T>()
+        this.position <- oldPosition.Index
+        this.deltaCount <- int32(oldPosition.BitCount)
+        this.deltaPosition <- oldPosition.BitIndex
+        value
+
+    WriteStream(bstream: ByteStream): () =
+        let size = bstream.TotalCount
+        if (size > 0)
+            let currentPosition = this.position
+            let nextPosition = currentPosition + size
+            let buffer = this.buffer
+
+            if (nextPosition >= buffer.Length)
+                if (!this.isResizeable)
+                    throw InvalidOperationException("ByteStream is not resizeable.")
+
+                let newBuffer = zeroArray<byte>(buffer.Length * 2)
+                Span(buffer, 0, buffer.Length).CopyTo(Span(newBuffer))
+                this.buffer <- newBuffer
+                this.WriteStream(bstream)
+            else
+                Span(bstream.buffer, 0, size).CopyTo(Span(buffer, currentPosition, size))
+                this.position <- nextPosition
+                if (nextPosition > this.totalCount)
+                    this.totalCount <- this.totalCount + size
+
+    #[inline(always)]
+    Write(value: byte): () =
+        let size = 1
+        let currentPosition = this.position
+        let nextPosition = currentPosition + size
+        let buffer = this.buffer
+
+        if (nextPosition >= buffer.Length)
+            if (!this.isResizeable)
+                throw InvalidOperationException("ByteStream is not resizeable.")
+
+            let newBuffer = zeroArray<byte>(buffer.Length * 2)
+            Span(buffer, 0, buffer.Length).CopyTo(Span(newBuffer))
+            this.buffer <- newBuffer
+            this.Write(value)
+        else
+            (MemoryMarshal.Cast(Span(buffer, currentPosition, size))[0]) <- value
+            this.position <- nextPosition
+            if (nextPosition > this.totalCount)
+                this.totalCount <- this.totalCount + size
+
+    Write<T>(value: T): () where T: unmanaged, struct, ValueType, { new() } =
+        this.Write(&value)
+    Write<T>(value: inref<T>): () where T: unmanaged, struct, ValueType, { new() } =
+        let size = DotNet.SizeOf<T>
+        let currentPosition = this.position
+        let nextPosition = currentPosition + size
+        let buffer = this.buffer
+
+        if (nextPosition >= buffer.Length)
+            if (!this.isResizeable)
+                throw InvalidOperationException("ByteStream is not resizeable.")
+
+            let newBuffer = zeroArray<byte>(buffer.Length * 2)
+            Span(buffer, 0, buffer.Length).CopyTo(Span(newBuffer))
+            this.buffer <- newBuffer
+            this.Write(&value)
+        else
+            (MemoryMarshal.Cast(Span(buffer, currentPosition, size))[0]) <- value
+            this.position <- nextPosition
+            if (nextPosition > this.totalCount)
+                this.totalCount <- this.totalCount + size
+
+    WriteSmallString(str: string): () =
+        if (str.Length > 64)
+            throw ArgumentOutOfRangeException("String is larger than 64 characters.")
+            
+        let length = Math.Min(str.Length, 64)
+        if (length == 0)
+            this.WriteInt32(length)
+        else
+            this.WriteInt32(length)
+            this.Write(System.MemoryExtensions.AsSpan(str))
+
+    WriteString(str: string): () =
+        if (str.Length == 0)
+            this.WriteInt32(0)
+        else
+            this.WriteInt32(str.Length)
+            this.Write(System.MemoryExtensions.AsSpan(str))
+
+    ReadString(): string =
+        // TODO: We can optimize this without having to create two buffers.
+        let length = this.ReadInt32()
+        if (length == 0)
+            String.Empty
+        else
+            let arr = zeroArray<char>(length)
+            this.Read(Span(arr, 0, length))
+            String(arr)
+
+    ReadSmallString(): string =
+        // TODO: We can optimize this without having to create two buffers.
+        let length = Math.Min(this.ReadInt32(), 64)
+        if (length == 0)
+            String.Empty
+        else
+            let arr = zeroArray<char>(length)
+            this.Read(Span(arr, 0, length))
+            String(arr)
+
+    CopyExactTo(bstream: ByteStream): () =
+        bstream.position <- this.position
+        bstream.totalCount <- this.totalCount
+
+        if (bstream.buffer.Length < this.buffer.Length)
+            if (!this.isResizeable)
+                throw InvalidOperationException("ByteStream is not resizeable.")
+
+            bstream.buffer <- zeroArray(this.buffer.Length)
+
+        Span(this.buffer, 0, this.totalCount).CopyTo(Span(bstream.buffer))
+
+    Write(value: Span<byte>): () =
+        this.Write(Span<_>.op_Implicit(value))
+
+    Write(mutable value: ReadOnlySpan<byte>): () =
+        let currentPosition = this.position
+        let totalByteLength = value.Length
+        let nextPosition = currentPosition + totalByteLength
+
+        let buffer = this.buffer
+
+        if (nextPosition >= buffer.Length)
+            if (!this.isResizeable)
+                throw InvalidOperationException("ByteStream is not resizeable.")
+
+            let newBuffer = zeroArray<byte>(buffer.Length * 2)
+            System.Array.Copy(Unsafe.Cast(buffer), Unsafe.Cast(newBuffer), buffer.Length)
+            this.buffer <- newBuffer
+            this.Write(value)
+        else
+            value.CopyTo(Span(this.buffer, currentPosition, totalByteLength))
+            this.position <- nextPosition
+            this.totalCount <- this.totalCount + totalByteLength
+
+    Write<T>(mutable value: ReadOnlySpan<T>): () where T: unmanaged, struct, ValueType, { new() } =
+        let size = DotNet.SizeOf<T>
+        let totalByteLength = size * value.Length           
+        let currentPosition = this.position
+        let nextPosition = currentPosition + totalByteLength
+
+        let buffer = this.buffer
+
+        if (nextPosition >= buffer.Length)
+            if (!this.isResizeable)
+                throw InvalidOperationException("ByteStream is not resizeable.")
+
+            let newBuffer = zeroArray<byte>(buffer.Length * 2)
+            System.Array.Copy(Unsafe.Cast(buffer), Unsafe.Cast(newBuffer), buffer.Length)
+            this.buffer <- newBuffer
+            this.Write(value)
+        else
+            MemoryMarshal.Cast(value).CopyTo(Span(this.buffer, currentPosition, totalByteLength))
+            this.position <- nextPosition
+            this.totalCount <- this.totalCount + totalByteLength
+
+    WriteBit(value: bool): () =
+        if (this.deltaCount > 8)
+            fail("Invalid delta count.")
+        if ((this.deltaPosition == -1) || (this.deltaCount == 8))
+            this.deltaPosition <- this.position
+            if (value)
+                this.Write(1: byte)
+            else
+                this.Write(0: byte)
+            this.deltaCount <- 1
+        else
+            ()
+            if (value)
+                let deltaByte = &this.buffer[this.deltaPosition]
+                deltaByte <- deltaByte | ((1: byte) << this.deltaCount)
+            this.deltaCount <- this.deltaCount + 1
+
+    ReadBit(): bool =
+        if (this.deltaCount > 8)
+            fail("Invalid delta count.")
+        if ((this.deltaPosition == -1) || (this.deltaCount == 8))
+            this.deltaPosition <- this.position
+            let deltaByte = this.Read<byte>()
+            this.deltaCount <- 1
+            (deltaByte & 1) != 0
+        else
+            let deltaByte = this.buffer[this.deltaPosition]
+            let value = (deltaByte & ((1: byte) << this.deltaCount)) != 0
+            this.deltaCount <- this.deltaCount + 1
+            value
+
+    Read(mutable dst: Span<byte>): () =
+        let currentPosition = this.position
+        let nextPosition = currentPosition + dst.Length
+
+        if (nextPosition > this.totalCount)
+            throw ArgumentOutOfRangeException("dst")
+
+        Span(this.buffer, currentPosition, dst.Length).CopyTo(dst)
+
+        this.position <- nextPosition
+
+    Read<T>(mutable dst: Span<T>): () where T: unmanaged, struct, ValueType, { new() } =
+        let size = DotNet.SizeOf<T>
+        let totalByteLength = size * dst.Length  
+        let currentPosition = this.position
+        let nextPosition = currentPosition + totalByteLength
+
+        if (nextPosition > this.totalCount)
+            throw ArgumentOutOfRangeException("dst")
+
+        Span(this.buffer, currentPosition, totalByteLength).CopyTo(MemoryMarshal.Cast(dst))
+
+        this.position <- nextPosition
+
+    ReadByte(): byte = this.Read<byte>()
+    ReadInt32(): int32 = this.Read<int32>()
+    WriteByte(value: byte): () = this.Write<byte>(value)
+    WriteInt32(value: int32): () = this.Write<int32>(value)
+
+    ReadPackedUInt16(): uint16 =
+        if (this.ReadBit())
+            uint16(this.Read<byte>())
+        else
+            this.Read<uint16>()
+
+    WritePackedUInt16(value: uint16): () =
+        if (value <= uint16(Byte.MaxValue))
+            this.WriteBit(true)
+            this.WriteByte(byte(int32(value)))
+        else
+            this.WriteBit(false)
+            this.Write<uint16>(value)
+
+    AsReadOnlySpan(): ReadOnlySpan<byte> =
+        ReadOnlySpan(this.buffer, 0, this.totalCount)
+
+// IO
+
+class ExternalProcess =
+    implements IDisposable
+
+    field p: Process
+
+    new(filePath: string, args: string) =
+        ExternalProcess(filePath, args, Environment.CurrentDirectory)
+
+    new(filePath: string, args: string, workingDirectory: string) =
+        let startInfo = ProcessStartInfo()
+        startInfo.FileName <- filePath
+        startInfo.Arguments <- args
+        startInfo.RedirectStandardError <- true
+        startInfo.RedirectStandardOutput <- true
+        startInfo.WorkingDirectory <- workingDirectory
+        startInfo.UseShellExecute <- false
+        startInfo.CreateNoWindow <- true
+
+        {
+            p =
+                let p = Process()
+                p.StartInfo <- startInfo
+                p
+        }
+
+    RunAsync(ct: System.Threading.CancellationToken): System.Threading.Tasks.Task<(output: string, errors: string)> =
+        class DataReceived =
+
+            field f: DataReceivedEventArgs -> ()
+            new(f: DataReceivedEventArgs -> ()) =
+                {
+                    f  = f
+                }
+
+            Invoke(sender: object, e: DataReceivedEventArgs): () =
+                this.f(e)
+
+        let work =
+            () ->
+                let output = System.Text.StringBuilder()
+                let error = System.Text.StringBuilder()
+                let outputWaitHandle = System.Threading.AutoResetEvent(false)
+                let errorWaitHandle = System.Threading.AutoResetEvent(false)
+
+                let outputDataReceived = 
+                    DataReceived(
+                        e ->
+                            if (e.Data === unchecked default)
+                                let result = outputWaitHandle.Set()
+                            else
+                                let result = output.AppendLine(e.Data)
+
+                    )
+                this.p.add_OutputDataReceived(
+                    DataReceivedEventHandler(outputDataReceived, nint(&&outputDataReceived.Invoke))
+                )
+
+                let errorDataReceived = 
+                    DataReceived(
+                        e ->
+                            if (e.Data === unchecked default)
+                                let result = errorWaitHandle.Set()
+                            else
+                                let result = error.AppendLine(e.Data)
+
+                    )
+                this.p.add_ErrorDataReceived(
+                    DataReceivedEventHandler(errorDataReceived, nint(&&errorDataReceived.Invoke))
+                )
+
+                let result = this.p.Start()
+
+                this.p.BeginOutputReadLine()
+                this.p.BeginErrorReadLine()
+
+                this.p.WaitForExit() // TODO: We should use the async version
+                let result = outputWaitHandle.WaitOne()
+                let result = errorWaitHandle.WaitOne()
+                let output = output.ToString()
+                let errors = error.ToString()
+                if (this.p.ExitCode != 0)
+                    throw Exception(output)
+
+                (output, errors)
+
+        System.Threading.Tasks.Task.Run(work)
+
+    Dispose(): () =
+        this.p.Dispose()
+
+// **********************************************************************************************************************************
+
+internal class Subscription =
+    implements IDisposable
+
+    private Unsubscribe: () -> () get
+
+    new(unsubscribe: () -> ()) =
+        {
+            Unsubscribe = unsubscribe
+        }
+
+    Dispose(): () = this.Unsubscribe()
+
+internal class Observer<T> =
+    implements IObserver<T>
+
+    field callback: T -> ()
+
+    new(callback: T -> ()) = { callback = callback }
+
+    OnCompleted(): () = ()
+
+    OnError(error: Exception): () =
+        throw error
+
+    OnNext(value: T): () =
+        this.callback(value)
+
+class Var<T> =
+    implements IObservable<T>
+
+    field subscribers: List<IObserver<T>>
+    field lockObj: object
+    field mutable value: T
+
+    SubscriberCount: int32 get() = this.subscribers.Count
+
+    Subscribe(callback: T -> ()): IDisposable =
+        this.Subscribe(Observer(callback))
+
+    Subscribe(observer: IObserver<T>): IDisposable =
+        lock(this.lockObj,
+            () ->
+                let mutable exists = false
+                For(this.subscribers.Count,
+                    i ->
+                        if (observer === this.subscribers[i])
+                            exists <- true
+                )
+                if (exists)
+                    throw InvalidOperationException("Observer already subscribed")
+
+                this.subscribers.Add(observer)
+                Subscription(
+                    () -> 
+                        lock(this.lockObj,
+                            () -> 
+                                let _ = this.subscribers.Remove(observer)
+                        )
+                )
+        )
+
+    Add(callback: T -> ()): () =
+        let _ = this.Subscribe(callback)
+
+    Value: T
+        get() = this.value
+        set(value) =
+            lock(this.lockObj,
+                () ->
+                    this.value <- value
+                    ForEach(this.subscribers, observer -> observer.OnNext(value))
+            )
+
+    new(value: T) = { value = value; subscribers = List(); lockObj = Object() }
+
+interface IEvent<T> =
+    inherits IObservable<T>
+
+    Add(subscriber: T -> ()): ()
+
+class Event<T> =
+
+    field subscribers: List<IObserver<T>> = List()
+    field lockObj: object = Object()
+
+    private struct Publisher =
+        implements IEvent<T>
+
+        field event: Event<T>
+        new(event: Event<T>) =
+            {
+                event = event
+            }
+
+        Subscribe(observer: IObserver<T>): IDisposable =
+            this.event.Subscribe(observer)
+
+        Subscribe(callback: T -> ()): IDisposable =
+            this.event.Subscribe(callback)
+
+        Add(callback: T -> ()): () =
+            this.event.Add(callback)
+
+    Publish: IEvent<T> get() = Publisher(this)
+
+    Subscribe(callback: T -> ()): IDisposable =
+        this.Subscribe(Observer(callback))
+
+    Subscribe(observer: IObserver<T>): IDisposable =
+        lock(this.lockObj,
+            () ->
+                let mutable exists = false
+                For(this.subscribers.Count,
+                    i ->
+                        if (observer === this.subscribers[i])
+                            exists <- true
+                )
+                if (exists)
+                    throw InvalidOperationException("Observer already subscribed")
+
+                this.subscribers.Add(observer)
+                Subscription(
+                    () -> 
+                        lock(this.lockObj,
+                            () -> 
+                                let _ = this.subscribers.Remove(observer)
+                        )
+                )
+        )
+
+    Add(callback: T -> ()): () =
+        let _ = this.Subscribe(callback)
+
+    Trigger(eventData: T): () =
+        lock(this.lockObj,
+            () ->
+                let mutable i = 0
+                while (i < this.subscribers.Count)
+                    let subscriber = this.subscribers[i]
+                    subscriber.OnNext(eventData)
+                    i <- i + 1
+        )
+
+    SubscriberCount: int32 
+        get() =
+            lock(this.lockObj,
+                () -> 
+                    this.subscribers.Count
+            )
+
+    ClearSubscribers(): () =
+        lock(this.lockObj,
+            () ->
+                ForEach(this.subscribers,
+                    observer ->
+                        observer.OnCompleted()
+                )
+                this.subscribers.Clear()
+        )
+
+/// Adaptive value
+#[open]
+newtype AVal<T> =
+    internal field VarF: (OptionStruct<() -> ()>) -> Var<T>
+
+    Evaluate(): Var<T> = this.VarF(NoneStruct)
+    Evaluate(computeOpt: OptionStruct<() -> ()>): Var<T> = this.VarF(computeOpt)
+
+    #[open]
+    extension AValMonad =
+        inherits AVal<T>
+        implements Monad<AVal>
+
+        static overrides Bind<A, B>(ma: AVal<A>, f: A -> AVal<B>): AVal<B> =
+            let mutable subscription: IDisposable = unchecked default
+            AVal<B>(
+                computeOpt -> 
+                    if (subscription !== unchecked default)
+                        subscription.Dispose()
+                    let valueA = ma.Evaluate(computeOpt)
+                    let valueB = f(valueA.Value).Evaluate(computeOpt)
+                    match (computeOpt)
+                    | SomeStruct(compute) =>
+                        subscription <-
+                            valueA.Subscribe(
+                                t -> compute()
+                            )
+                    | _ =>
+                        ()
+                    valueB
+            )
+
+        static overrides Return<A>(a: A): AVal<A> =
+            let valueA = Var(a)
+            AVal<A>((_) -> valueA)
+
+#[open]
+newtype Option<T> where T: not struct =
+    field Value: T
+
+    static Some(value: T): Option<T> = Option(value)
+    static None: Option<T> get = Option(unchecked default)
+
+    pattern Some(option: Option<T>): T when (option.Value !== unchecked default) =>
+        option.Value
+
+    pattern None(option: Option<T>): () when (option.Value === unchecked default) =>
+        ()
+        
+    IsSome: bool get() = this.Value !== unchecked default
+    IsNone: bool get() = this.Value === unchecked default
+
+#[open]
+struct OptionStruct<T> =
+    field HasValue: bool
+    field Value: T
+
+    private new() =
+        {
+            HasValue = false
+            Value = unchecked default
+        }
+
+    private new(value: T) =
+        {
+            HasValue = true
+            Value = value
+        }
+
+    static SomeStruct(value: T): OptionStruct<T> = OptionStruct(value)
+    static NoneStruct: OptionStruct<T> get = OptionStruct()
+
+    pattern SomeStruct(option: OptionStruct<T>): T when (option.HasValue) =>
+        option.Value
+
+    pattern NoneStruct(option: OptionStruct<T>): () when (!option.HasValue) =>
+        ()
+        
+    IsSome: bool get() = this.HasValue
+    IsNone: bool get() = !this.HasValue
+
+// Math -----------------------------------------------------------------------------
+
+alias vec2 = Vector2
+alias vec3 = Vector3
+alias vec4 = Vector4
+alias quat = Quaternion
+alias mat4 = Matrix4x4
+
+#[open]
+extension Vector3Extensions =
+    inherits Vector3
+
+    static Forward: vec3 get() = -vec3.UnitZ
+    static Backward: vec3 get() = vec3.UnitZ
+    static Left: vec3 get() = -vec3.UnitX
+    static Right: vec3 get() = vec3.UnitX
+    static Up: vec3 get() = -vec3.UnitY
+    static Down: vec3 get() = vec3.UnitY
+
+    XY: vec2 get() = Vector2(this.X, this.Y)
+
+#[open]
+module MathHelpers =
+
+    radians(degrees: float64): float64 = float64.DegreesToRadians(degrees)
+
+    radians(degrees: float32): float32 = float32.DegreesToRadians(degrees)
+
+    degrees(radians: float32): float32 = float32.RadiansToDegrees(radians)
+
+    snapWithinThreeDigits(value: float32): float32 =
+        static let tryRound(roundN: float32, n: float32): float32 =
+            if (roundN > n && (roundN - 0.001) <= n)
+                roundN
+            else if (roundN < n && (roundN + 0.001) >= n)
+                roundN
+            else
+                n
+        tryRound(MathF.Round(value), value)
+
+    clamp(min: float32, max: float32, value: float32): float32 =
+        if (max <= min)
+            throw System.ArgumentException("Invalid Min Max")
+
+        if (value < min)
+            min
+        else if (value > max)
+            max
+        else
+            value
+
+    (*)(v1: vec3, v2: vec3): vec3 = vec3.Multiply(v1, v2)
+    (*)(v: vec3, s: float32): vec3 = vec3.Multiply(v, s)
+
+    lerp(x: int64, y: int64, a: float32): int64 =
+        int64(float64(x) * (float64(1 - a)) + float64(y) * float64(a))
+
+    lerp(x: int32, y: int32, a: float32): int32 =
+        int32(float64(x) * (float64(1 - a)) + float64(y) * float64(a))
+
+    lerp(x: byte, y: byte, a: float32): byte =
+        byte(float64(x) * (float64(1 - a)) + float64(y) * float64(a))
+
+#[open]
+extension QuaternionExtensions =
+    inherits Quaternion
+
+    Direction: vec3
+        get() =
+            Vector3.Normalize(Vector3.Transform(Vector3.Forward, this))
+
+    ToEulerAngles(): Vector3 =
+        let q = this
+
+        let mutable angles = default: Vector3
+
+        let sinr_cosp = 2 * (q.W * q.X + q.Y * q.Z)
+        let cosr_cosp = 1 - 2 * (q.X * q.X + q.Y * q.Y)
+        angles.X <- MathF.Atan2(sinr_cosp, cosr_cosp)
+
+        let sinp = 2 * (q.W * q.Y - q.Z * q.X)
+        if (MathF.Abs(sinp) >= 1)
+            angles.Y <- MathF.CopySign(MathF.PI / 2, sinp)
+        else
+            angles.Y <- MathF.Asin(sinp)
+
+        let siny_cosp = 2 * (q.W * q.Z + q.X * q.Y)
+        let cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z)
+        angles.Z <- MathF.Atan2(siny_cosp, cosy_cosp)
+
+        angles
+
+struct AABB =
+    public field mutable Min: Vector3
+    field Padding0: float32
+    public field mutable Max: Vector3
+    field Padding1: float32
+
+    new(min: Vector3, max: Vector3) =
+        {
+            Min = min
+            Max = max
+            Padding0 = 0
+            Padding1 = 0
+        }
+
+struct FrustumPlanes =
+    Left: Vector4 get
+    Right: Vector4 get
+    Top: Vector4 get
+    Bottom: Vector4 get
+    Near: Vector4 get
+    Far: Vector4 get
+
+    new(left: Vector4, right: Vector4, top: Vector4, bottom: Vector4, near: Vector4, far: Vector4) =
+        {
+            Left = left
+            Right = right
+            Top = top
+            Bottom = bottom
+            Near = near
+            Far = far
+        }
+
+    Length: int32 get() = 6
+
+    get_Item(index: int32): Vector4 =
+        match (index)
+        | 0 => this.Left
+        | 1 => this.Right
+        | 2 => this.Top
+        | 3 => this.Bottom
+        | 4 => this.Near
+        | 5 => this.Far
+        | _ =>
+            throw IndexOutOfRangeException()
+
+#[open]
+extension Matrix4x4Extensions =
+    inherits Matrix4x4
+
+    GetFrustumPlanes(): FrustumPlanes =
+        let m = this
+            
+        let leftPlane =
+            Vector4(
+                m.M14 + m.M11,
+                m.M24 + m.M21,
+                m.M34 + m.M31,
+                m.M44 + m.M41
+            )
+
+        let rightPlane =
+            Vector4(
+                m.M14 - m.M11,
+                m.M24 - m.M21,
+                m.M34 - m.M31,
+                m.M44 - m.M41
+            )
+
+        let topPlane =
+            Vector4(
+                m.M14 - m.M12,
+                m.M24 - m.M22,
+                m.M34 - m.M32,
+                m.M44 - m.M42
+            )
+
+        let bottomPlane =
+            Vector4(
+                m.M14 + m.M12,
+                m.M24 + m.M22,
+                m.M34 + m.M32,
+                m.M44 + m.M42
+            )
+
+        let nearPlane =
+            Vector4(
+                m.M13,
+                m.M23,
+                m.M33,
+                m.M43
+            )
+
+        let farPlane =
+            Vector4(
+                m.M14 - m.M13,
+                m.M24 - m.M23,
+                m.M34 - m.M33,
+                m.M44 - m.M43
+            )
+
+        let planes =
+            mutable [
+                leftPlane
+                rightPlane
+                topPlane
+                bottomPlane
+                nearPlane
+                farPlane
+            ]
+
+        let mutable i = 0
+        while (i < 6)
+            let plane = &planes[i]
+            let length = MathF.Sqrt((plane.X * plane.X) + (plane.Y * plane.Y) + (plane.Z * plane.Z))
+            
+            plane.X <- plane.X / length
+            plane.Y <- plane.Y / length
+            plane.Z <- plane.Z / length
+            plane.W <- plane.W / length
+            i <- i + 1
+
+        FrustumPlanes(
+            planes[0],
+            planes[1],
+            planes[2],
+            planes[3],
+            planes[4],
+            planes[5]
+        )
+
+module Machine =
+
+    struct ProcessorUsage =
+        Name: string get
+        Value: uint64 get
+        new(name: string, value: object) = 
+            { Name = name; Value = Convert.ToUInt64(value) }
+
+    GetProcessorUsages(): ProcessorUsage[] =
+        // windows only
+        let xs = System.Linq.Enumerable.Cast<ManagementBaseObject>(ManagementObjectSearcher("SELECT * FROM Win32_PerfFormattedData_PerfOS_Processor").Get())
+        Unsafe.AsImmutable(
+            System.Linq.Enumerable.ToArray(
+                System.Linq.Enumerable.OrderBy(
+                    System.Linq.Enumerable.Select(xs, x -> ProcessorUsage(Unsafe.Cast<string>(x["Name"]), Unsafe.Cast<object>(x["PercentProcessorTime"]))),
+                    x -> 
+                        if (x.Name.Contains("Total"))
+                            Int32.MaxValue
+                        else
+                            int32.Parse(x.Name)
+                )
+            )
+        )
+
+    GetProcessorName(): string =
+        // windows only
+        let xs = System.Linq.Enumerable.Cast<ManagementBaseObject>(ManagementObjectSearcher("SELECT Name FROM Win32_Processor").Get())
+        let result =
+            System.Linq.Enumerable.FirstOrDefault(
+                System.Linq.Enumerable.Select(xs, x -> Unsafe.Cast<string>(x["Name"]))
+            )
+        if (String.IsNullOrWhiteSpace(result))
+            string.Empty
+        else
+            result.Trim()
+
+    GetProcessorMaxClockSpeed(): uint32 =
+        // windows only
+        let xs = System.Linq.Enumerable.Cast<ManagementBaseObject>(ManagementObjectSearcher("SELECT MaxClockSpeed FROM Win32_Processor").Get())
+        System.Linq.Enumerable.FirstOrDefault(
+            System.Linq.Enumerable.Select(xs, x -> Convert.ToUInt32((x["MaxClockSpeed"])))
+        )
+
+    GetProcessorMaxClockSpeedInGHz(): float32 =
+        float32(GetProcessorMaxClockSpeed()) * 0.001
+
+    GetRamCapacity(): uint64 =
+        // windows only
+        let xs = System.Linq.Enumerable.Cast<ManagementBaseObject>(ManagementObjectSearcher("SELECT Capacity FROM Win32_PhysicalMemory").Get())
+        let mutable result = 0: uint64
+        let results =
+            System.Linq.Enumerable.ToArray(
+                System.Linq.Enumerable.Select(xs, x -> Convert.ToUInt64((x["Capacity"])))
+            )
+        ForEach(results, x -> result <- result + x)
+        result
+
+    GetRamCapacityInGB(): float32 =
+        float32(GetRamCapacity()) / 1024 / 1024 / 1024
+
+#[open]
+module Logging =
+
+    // TODO-language-bug: Instead of internal, it should be private.
+    internal WarningMarker: string get() = "[warning]"
+    internal ErrorMarker: string get() = "[error]"
+    internal CommandInfoMarker: string get() = "[command_info]"
+
+    Log<T>(o: T): () where T: { ToString(): string } =
+        printLine(o)
+
+    LogWarning<T>(o: T): () where T: { ToString(): string } =
+        printLine(WarningMarker + o.ToString())
+
+    LogError<T>(o: T): () where T: { ToString(): string } =
+        printLine(ErrorMarker + o.ToString())
+
+    /// If the string contains line endings, it will append the appropriate markers.
+    LogMultipleErrors<T>(o: T): () where T: { ToString(): string } =
+        let split = o.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        if (split.Length > 0)
+            let builder = StringBuilder()
+            ForEach(split,
+                line ->
+                    let _ = builder.AppendLine(ErrorMarker + line)
+            )
+            printLine(builder.ToString())  
+
+    LogCommandInfo<T>(o: T): () where T: { ToString(): string } =
+        printLine(CommandInfoMarker + o.ToString())
+
+    LogServer<T>(o: T): () where T: { ToString(): string } =
+        printLine("[server] - " + o.ToString())
+
+    LogServerWarning<T>(o: T): () where T: { ToString(): string } =
+        printLine(WarningMarker + "[server] - " + o.ToString())
+
+    LogServerError<T>(o: T): () where T: { ToString(): string } =
+        printLine(ErrorMarker + "[server] - " + o.ToString())
+
+    LogClient<T>(o: T): () where T: { ToString(): string } =
+        printLine("[client] - " + o.ToString())
+
+    LogClientWarning<T>(o: T): () where T: { ToString(): string } =
+        printLine(WarningMarker + "[client] - " + o.ToString())
+
+    LogClientError<T>(o: T): () where T: { ToString(): string } =
+        printLine(ErrorMarker + "[client] - " + o.ToString())
+
+    pattern LogError(str: string): string when (str.StartsWith(ErrorMarker)) =>
+        str.Replace(ErrorMarker, "")
+
+    pattern LogWarning(str: string): string when (str.StartsWith(WarningMarker)) =>
+        str.Replace(WarningMarker, "")
+
+    pattern LogCommandInfo(str: string): string when (str.StartsWith(CommandInfoMarker)) =>
+        str.Replace(CommandInfoMarker, "")
+
+module Hash =
+
+    SHA256(stream: Stream): (Memory<byte>, string) =
+        let builder = StringBuilder()
+        let sha = SHA256.Create()
+        let hash = sha.ComputeHash(stream)
+        ForEach(hash,
+            (mutable x) ->
+                let _ = builder.Append(x.ToString("x2"))
+        )
+        (Memory(hash), builder.ToString())
+
+    Pbkdf2(password: string, salt: string, outputLength: int32): string =
+        System.Text.Encoding.UTF8.GetString(Rfc2898DeriveBytes.Pbkdf2(System.Text.Encoding.UTF8.GetBytes(password), System.Text.Encoding.UTF8.GetBytes(salt), 1000000, HashAlgorithmName.SHA256, outputLength))
+
+abstract class Disposable =
+    implements IDisposable
+
+    field mutable isDisposed: bool = false
+
+    protected CheckDisposal(): () =
+        if (this.isDisposed)
+            throw ObjectDisposedException(this.GetType().Name)
+
+    protected abstract DisposeCore(): ()
+
+    Dispose(): () =
+        this.CheckDisposal()
+        this.DisposeCore()
+        this.isDisposed <- true
+
+module Json =
+
+    private class JsonDisposable =
+        inherits Disposable
+
+        Stream: Stream get
+        RentedBuffer: mutable byte[] get
+
+        new(stream: Stream, rentedBuffer: mutable byte[]) =
+            {
+                Stream = stream
+                RentedBuffer = rentedBuffer
+            }
+
+        protected overrides DisposeCore(): () =
+            this.Stream.Dispose()
+            System.Buffers.ArrayPool<byte>.Shared.Return(this.RentedBuffer, false)
+
+    CreateReader(utf8Stream: Stream, reader: byref<Utf8JsonReader>): IDisposable =
+        let length = int32(utf8Stream.Length - utf8Stream.Position)
+        let buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(length)
+        let length = utf8Stream.Read(buffer, 0, length)
+        let json = ReadOnlySpan(buffer, 0, length)
+
+        let mutable options = default: JsonReaderOptions
+        reader <- Utf8JsonReader(json, options)
+        JsonDisposable(utf8Stream, buffer)
+
+#[open]
+extension Utf8JsonReaderExtensions =
+    inherits Utf8JsonReader
+
+    mutable IsNextReadProperty(propertyName: string): bool =
+        if (this.TokenType == JsonTokenType.PropertyName)
+            this.GetString() == propertyName
+        else
+            false
+
+    mutable ReadString(): string =
+        let value = this.GetString()
+        let _ = this.Read()
+        value
+
+    mutable ReadFloat32(): float32 =
+        let value = float32(this.GetDouble())
+        let _ = this.Read()
+        value
+
+    mutable ReadNone(): () =
+        if (this.TokenType != JsonTokenType.None)
+            fail("Expected 'None' token")
+        let _ = this.Read()
+
+    mutable ReadStartObject(): () =
+        if (this.TokenType != JsonTokenType.StartObject)
+            fail("Expected 'StartObject' token")
+        let _ = this.Read()
+
+    mutable ReadEndObject(): () =
+        if (this.TokenType != JsonTokenType.EndObject)
+            fail("Expected 'EndObject' token")
+        let _ = this.Read()
+
+    mutable ReadPropertyOf<T>(expectedName: string, readValue: scoped byref<Utf8JsonReader> -> T): T =
+        if (this.TokenType != JsonTokenType.PropertyName)
+            fail("Expected 'PropertyName' token")
+
+        let name = this.ReadString()
+        if (name != expectedName)
+            fail("Expected property name '" + expectedName + "' but is '" + name + "'")
+
+        readValue(&this)
+
+    mutable ReadPropertyOfString(expectedName: string): string =
+        this.ReadPropertyOf<string>(expectedName,
+            reader ->
+                if (reader.TokenType != JsonTokenType.String)
+                    fail("Expected 'String' token")
+            
+                reader.ReadString()
+        )
+
+    mutable ReadPropertyOfFloat32(expectedName: string): float32 =
+        this.ReadPropertyOf<float32>(expectedName,
+            reader ->
+                if (reader.TokenType != JsonTokenType.Number)
+                    fail("Expected 'String' token")
+            
+                reader.ReadFloat32()
+        )
+
+    mutable ReadPropertyOfEnum<T>(expectedName: string): T where T: Enum =
+        this.ReadPropertyOf<T>(expectedName,
+            reader ->
+                if (reader.TokenType != JsonTokenType.String)
+                    fail("Expected 'String' token")
+
+                let valueObj = Enum.Parse(DotNet.TypeOf<T>, reader.ReadString())
+                Unsafe.Cast<T>(valueObj) // TODO-language-bug: Should we use just Cast and not Unsafe.Cast?
+        )
+
+    mutable ReadPropertyOfEnumOrDefault<T>(expectedName: string, defaultValue: T): T where T: Enum =
+        if (this.IsNextReadProperty(expectedName))
+            this.ReadPropertyOfEnum<T>(expectedName)
+        else
+            defaultValue
+
+    mutable ReadPropertyOfObject<T>(expectedName: string, readValue: scoped byref<Utf8JsonReader> -> T): T =
+        this.ReadPropertyOf<T>(expectedName,
+            reader ->
+                reader.ReadStartObject()
+                let result = readValue(&reader)
+                reader.ReadEndObject()
+                result
+        )
+
+    mutable ReadPropertyOfArray<T>(expectedName: string, readValue: scoped byref<Utf8JsonReader> -> T): T[] =
+        this.ReadPropertyOf<T[]>(expectedName,
+            reader ->
+                if (reader.TokenType != JsonTokenType.StartArray)
+                    fail("Expected 'StartArray' token")
+                let _ = reader.Read()
+
+                let result = List<T>()
+
+                while (reader.TokenType != JsonTokenType.EndArray)
+                    result.Add(readValue(&reader))
+                let _ = reader.Read()
+
+                Unsafe.AsImmutable(result.ToArray())
+        )
+        
+
+newtype Int32Id =
+    public field Value: int32
+
+    IsValid: bool get() = this.Value > 0
+
+#[open]
+module BenchmarkModule =
+
+    #[inline]
+    Benchmark(#[inline] f: scoped () -> ()): TimeSpan =
+        let s = Stopwatch.StartNew()
+        f()
+        s.Stop()
+        s.Elapsed
+
+module Geometry =
+
+    class Mesh =
+        Vertices:   mutable Vector3[] get
+        Indices:    mutable uint32[] get
+        Normals:    mutable Vector3[] get
+        TexCoords:  mutable Vector2[] get
+        AABB:       AABB get
+        MaterialIndex: int32 get
+    
+        new(vertices: mutable Vector3[], indices: mutable uint32[], normals: mutable Vector3[], texCoords: mutable Vector2[], aabb: AABB, materialIndex: int32) =
+            {
+                Vertices = vertices;
+                Indices = indices;
+                Normals = normals;
+                TexCoords = texCoords
+                AABB = aabb
+                MaterialIndex = materialIndex
+            }
+    
+    class MeshGroup =
+        Meshes: Mesh[] get
+        new(meshes: Mesh[]) = { Meshes = meshes }

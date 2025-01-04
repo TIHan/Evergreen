@@ -1,0 +1,179 @@
+namespace Game.Client.Internal
+
+open System
+open System.Numerics
+open System.Collections.Generic
+open Evergreen.Utilities
+open Evergreen.Graphics.Rendering
+open Evergreen.Collections
+open Evergreen.Window
+open Game.Shared
+open Game.Client
+open Game.Client.Internal
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.RenderState
+
+internal class ClientScene =
+    implements IDisposable
+
+    field World: ClientWorld
+    field WorldCopy: ClientStagingWorld
+
+    field mutable clientEntityId: EntityId // TODO: rename
+    field mutable prevPlayerInput: CharacterInput
+    field mutable prevPrevPlayerInput: CharacterInput
+
+    Name: string get
+    ClientEntityId: EntityId get() = this.clientEntityId
+    ClientWorld: ClientWorld get() = this.World
+
+    new(name: string, genv: GameEnv) =
+        {
+            Name = name
+            World = ClientWorld(genv)
+            WorldCopy = ClientStagingWorld(genv)
+
+            clientEntityId = EntityId.Nil
+            inputLatency = 0
+            ping = 0
+            prevPlayerInput = default
+            prevPrevPlayerInput = default
+
+            speedOffset = 0
+            timeStamp = 0
+        }
+
+    field mutable speedOffset: float32
+    SpeedOffset: float32 get() = this.speedOffset
+
+    field mutable timeStamp: int64
+    TimeStamp: int64 get() = this.timeStamp
+
+    field mutable inputLatency: int64
+    InputLatency: int64 get() = this.inputLatency
+
+    field mutable ping: int64
+    Ping: int64 get() = this.ping
+
+    GetEntityAsJsonByIndex(index: int32): string =
+        let entId = this.World.Database.TryGetValidEntityIdByIndex(index)
+        if (entId.IsNil)
+            string.Empty
+        else
+            let ms = System.IO.MemoryStream()
+            EntityDatabase.SerializeJsonForEntity(this.World.Database, entId, ms)
+            let json = System.Text.Encoding.UTF8.GetString(ReadOnlySpan(ms.GetBuffer(), 0, int32(ms.Length)))
+            ms.Dispose()
+            json
+
+    UpdateInput(time: GameTime, input: CharacterInput): OptionStruct<ClientInput> =
+        let db = this.World.Database
+        let clientEntId = this.clientEntityId
+
+        this.timeStamp <- time.Now()
+        
+        let mutable result = default: ClientInput
+        let hasPlayer = 
+            db.TryGet<CharacterInput, Player, Camera>(clientEntId,
+                (playerInput, playerInfo, camera) ->
+                    playerInput <- input
+                    playerInput.Frame <- time.Frame
+                    playerInput.TimeStamp <- this.timeStamp
+                    camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+                    if (this.World.PredictionEnabled)
+                        this.World.Physics.UpdatePlayer(time.DeltaTime, clientEntId, &playerInput)
+                        this.World.RecordPlayerPredictions(time.DeltaTime, clientEntId)
+                        this.World.Physics.UpdatePlayerTransforms(clientEntId)
+                    result <- ClientInput(playerInput, this.prevPlayerInput, this.prevPrevPlayerInput)
+                    this.prevPrevPlayerInput <- this.prevPlayerInput
+                    this.prevPlayerInput <- playerInput
+            )
+        if (hasPlayer)
+            SomeStruct(result)
+        else
+            NoneStruct
+
+    FixedUpdate(time: GameTime, isCatchingUp: bool, snapshotOpt: OptionStruct<(Snapshot, byte)>): () =
+        let printLog = false
+            
+        let deltaTime = time.DeltaTime
+            
+        let clientWorld = this.World
+
+        clientWorld.SetInterpolationState()
+        clientWorld.PredictUpdate(time, this.clientEntityId)
+
+        match (snapshotOpt)
+        | SomeStruct(snapshot, currentClientIndex) =>
+            let serverToClientEvents = snapshot.World.GetReplicatingEvents(clientWorld, true)
+            clientWorld.CopyTo(this.WorldCopy)
+            snapshot.World.Replicate(this.WorldCopy, clientWorld, serverToClientEvents, true)
+
+            // Which entity is the player?
+            let prevClientId = this.clientEntityId
+            this.clientEntityId <- EntityId.Nil
+            clientWorld.Database.ForEach<Player>(clientWorld.Database.CreateQuery(),
+                (entId, player) ->
+                    if (player.ClientIndex == currentClientIndex)
+                        this.clientEntityId <- entId
+            )
+
+            if (this.clientEntityId.IsNil)
+                let mutable currentClientIndex = currentClientIndex
+                LogClientWarning("client " + "'" + currentClientIndex.ToString() + "'" + " player is not assigned an entity")
+
+            if (prevClientId != this.clientEntityId && !this.clientEntityId.IsNil)
+                if (printLog)
+                    LogClient("recording first prediction for " + this.clientEntityId.ToString())
+                clientWorld.RecordPlayerPredictions(deltaTime, this.clientEntityId)
+
+            clientWorld.SetPhysicsState()
+
+            // Because rollback corrections are expensive, skip it when catching-up.
+            if (!isCatchingUp)
+                clientWorld.RollbackCorrections(time, this.clientEntityId)
+
+            clientWorld.UpdateTransforms()
+
+            this.inputLatency <- this.timeStamp - snapshot.ClientInputTimeStamp
+            this.ping <- snapshot.ServerPing
+        | _ =>
+            ()
+
+    OptimizeStaticEnvironment(): () =
+        this.World.OptimizeStaticEnvironment()
+
+    Dispose(): () =
+        this.inputLatency <- 0
+        this.ping <- 0
+        this.timeStamp <- 0
+        this.speedOffset <- 0
+        this.World.Database.DeleteAll()
+        this.World.Dispose()
+
+    static Load(sceneName: string, genv: GameEnv): ClientScene =
+        let scene = ClientScene(sceneName, genv)
+        let loadingWorld = ClientReceivedWorld(genv)
+        let dstWorld = scene.World
+
+        let id = genv.Maps.TryFindId(sceneName)
+        if (id.IsValid)
+            let fs = genv.Maps.Get(id)
+            EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
+            genv.Maps.Free(sceneName)
+        else
+            let fs = System.IO.File.OpenRead(sceneName)
+            EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
+            fs.Dispose()
+
+        let replicatingEvents = loadingWorld.GetReplicatingEvents(dstWorld, false)
+        dstWorld.CopyTo(scene.WorldCopy)
+        loadingWorld.Replicate(scene.WorldCopy, dstWorld, replicatingEvents, false)
+        dstWorld.OptimizeStaticEnvironment()
+        scene

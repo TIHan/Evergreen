@@ -1,0 +1,89 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+internal class Encryption =
+
+    class IV =
+        field buffer: mutable byte[]
+        private new() = { buffer = zeroArray(128 / 8) }
+
+        Regenerate(): () =
+            let mutable guid = Guid.NewGuid()
+            Span(guid.ToByteArray(), 0, this.buffer.Length).CopyTo(this.buffer.AsSpan())
+
+        AsSpan(): Span<byte> = this.buffer.AsSpan()
+        AsReadOnlySpan(): ReadOnlySpan<byte> = this.buffer.AsReadOnlySpan()
+
+        static Create(): IV = IV()
+
+    static field aes: Aes =
+        let aes = Aes.Create()
+        aes.BlockSize <- 128
+        aes.KeySize <- 256
+        aes
+
+    private SendBuffer: mutable byte[] get
+    private ReceiveBuffer: mutable byte[] get
+    new() = 
+        { SendBuffer = zeroArray(NetworkMTU.Amount); ReceiveBuffer = zeroArray(NetworkMTU.Amount) }
+
+    SendPacket(socket: Socket, srcPacket: Packet, iv: IV): int32 =
+        let numberOfBytesToSend = Encrypt(srcPacket, iv, this.SendBuffer.AsSpan())
+        socket.SendTo(ReadOnlySpan(this.SendBuffer, 0, numberOfBytesToSend), SocketFlags.None, srcPacket.IPEndPoint)
+
+    ReceivePacket(socket: Socket, port: int32, iv: IV, dstPacket: Packet): int32 =
+        let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
+        let numberOfBytesReceived = socket.ReceiveFrom(this.ReceiveBuffer, SocketFlags.None, &endPoint)
+        
+        if (numberOfBytesReceived == 0)
+            dstPacket.IPEndPoint <- null
+            0
+        else
+            Decrypt(ReadOnlySpan(this.ReceiveBuffer, 0, numberOfBytesReceived), iv, dstPacket)
+            dstPacket.IPEndPoint <- Unsafe.Cast<IPEndPoint>(endPoint)
+            numberOfBytesReceived
+
+    private static Encrypt(srcPacket: Packet, iv: IV, mutable dst: Span<byte>): int32 =
+        match (srcPacket.Kind)
+        | PacketKind.Heartbeat
+        | PacketKind.ConnectionRequested
+        | PacketKind.ConnectionAccepted
+        | PacketKind.Disconnect 
+        | PacketKind.ServerConnectionRefused =>
+            // These packets are not encrypted.
+            ReadOnlySpan(srcPacket.Buffer, 0, srcPacket.Length).CopyTo(dst)
+            srcPacket.Length
+        | _ =>
+            let mutable numberOfBytesToSend = 0
+            if (!aes.TryEncryptCbc(srcPacket.SendingSpan.Slice(1), iv.AsReadOnlySpan(), dst.Slice(1), &numberOfBytesToSend, PaddingMode.PKCS7))
+                throw InvalidOperationException("Failed to encrypt.")
+            (dst[0]) <- Unsafe.Cast(srcPacket.Kind)
+            numberOfBytesToSend + 1
+
+    private static Decrypt(mutable src: ReadOnlySpan<byte>, iv: IV, dstPacket: Packet): () =
+        match (Unsafe.Cast(src[0]))
+        | PacketKind.Heartbeat
+        | PacketKind.ConnectionRequested
+        | PacketKind.ConnectionAccepted
+        | PacketKind.Disconnect 
+        | PacketKind.ServerConnectionRefused =>
+            // These packets are not encrypted.
+            src.CopyTo(dstPacket.ReceivingSpan)
+            dstPacket.DataSize <- src.Length - dstPacket.HeaderSize
+        | _ =>
+            let length = aes.DecryptCbc(src.Slice(1), iv.AsReadOnlySpan(), dstPacket.ReceivingSpan.Slice(1), PaddingMode.PKCS7)
+            let b = src[0]
+            (dstPacket.ReceivingSpan[0]) <- b // TODO-language-bug: Cannot do 'bytes[0]' here.
+            dstPacket.DataSize <- (length + 1) - dstPacket.HeaderSize

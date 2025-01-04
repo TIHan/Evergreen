@@ -1,0 +1,305 @@
+module Game.Client.Events
+
+open Evergreen.Utilities
+
+internal enum Tag =
+    inherits byte
+
+    | MainMenuRequested
+    | ConsoleRequested
+    | ConsoleCommandRequested
+    | QuitGameRequested
+    | NewGameRequested
+    | NavigateBackRequested
+    | NavigateToMultiplayerMenuRequested
+    | NavigateToSettingsMenuRequested
+    | ConnectionRequested
+    | Connected
+    | ConnectionFailed
+    | Disconnected
+    | LoadClientSceneRequested
+    | SceneLoading
+    | SceneLoaded
+    | SceneClosed
+    | SceneBegan
+    | SaveGameRequested
+    | LoadGameRequested
+    | ExitGameRequested
+    | DisplayModeChangeRequested
+    | MenuButtonHovered
+    | MenuButtonClicked
+    | ClearConsoleRequested
+
+    // Character movement/actions
+    | MoveForwardRequested
+    | MoveBackwardRequested
+    | MoveLeftRequested
+    | MoveRightRequested
+    | JumpUpRequested
+    | ActivateSpecialRequested
+
+
+newtype ClientEventPublisher =
+    field stream: ByteStream
+
+    static AppendPublisher(publisher: ClientEventPublisher, value: ClientEventPublisher): () =
+        publisher.stream.WriteStream(value.stream)
+
+    static AppendEvent(publisher: ClientEventPublisher, f: scoped ClientEventPublisher -> ()): () =
+        let pos = publisher.stream.Position
+        f(publisher)
+        publisher.stream.Position <- pos
+
+    static Process(publisher: ClientEventPublisher, f: scoped ClientEventReader -> ()): () =
+        let stream = publisher.stream
+
+        stream.ResetPosition()
+        while (stream.Position.Index < stream.TotalCount)
+            f(ClientEventReader(stream))
+        stream.Reset()
+
+    MainMenuRequested(): () =
+        this.stream.Write(Tag.MainMenuRequested)
+
+    ConsoleRequested(): () =
+        this.stream.Write(Tag.ConsoleRequested)
+
+    ConsoleCommandRequested(cmd: string): () =
+        this.stream.Write(Tag.ConsoleCommandRequested)
+        this.stream.WriteSmallString(cmd)
+
+    QuitGameRequested(): () =
+        this.stream.Write(Tag.QuitGameRequested)
+
+    NewGameRequested(): () =
+        this.stream.Write(Tag.NewGameRequested)
+
+    NavigateBackRequested(): () =
+        this.stream.Write(Tag.NavigateBackRequested)
+
+    NavigateToMultiplayerMenuRequested(): () =
+        this.stream.Write(Tag.NavigateToMultiplayerMenuRequested)
+
+    NavigateToSettingsMenuRequested(): () =
+        this.stream.Write(Tag.NavigateToSettingsMenuRequested)
+
+    ConnectionRequested(address: string, port: int32): () =
+        this.stream.Write(Tag.ConnectionRequested)
+        this.stream.WriteString(address)
+        this.stream.WriteInt32(port)
+
+    Connected(connectionString: string): () =
+        this.stream.Write(Tag.Connected)
+        this.stream.WriteString(connectionString)
+
+    ConnectionFailed(connectionString: string, reason: string): () =
+        this.stream.Write(Tag.ConnectionFailed)
+        this.stream.WriteString(connectionString)
+        this.stream.WriteString(reason)
+
+    Disconnected(connectionString: string, reason: string): () =
+        this.stream.Write(Tag.Disconnected)
+        this.stream.WriteString(connectionString)
+        this.stream.WriteString(reason)
+
+    LoadClientSceneRequested(sceneName: string, snapshotSequence: ByteSequence): () =
+        this.stream.Write(Tag.LoadClientSceneRequested)
+        this.stream.WriteSmallString(sceneName)
+        this.stream.WriteByte(ByteSequence.GetByte(snapshotSequence))
+
+    SceneLoading(path: string): () =
+        this.stream.Write(Tag.SceneLoading)
+        this.stream.WriteSmallString(path)
+
+    SceneLoaded(path: string): () =
+        this.stream.Write(Tag.SceneLoaded)
+        this.stream.WriteSmallString(path)
+
+    SceneClosed(path: string): () =
+        this.stream.Write(Tag.SceneClosed)
+        this.stream.WriteSmallString(path)
+
+    SceneBegan(path: string): () =
+        this.stream.Write(Tag.SceneBegan)
+        this.stream.WriteSmallString(path)
+
+    SaveGameRequested(path: string): () =
+        this.stream.Write(Tag.SaveGameRequested)
+        this.stream.WriteString(path)
+
+    LoadGameRequested(path: string): () =
+        this.stream.Write(Tag.LoadGameRequested)
+        this.stream.WriteString(path)
+
+    ExitGameRequested(): () =
+        this.stream.Write(Tag.ExitGameRequested)
+
+    DisplayModeChangeRequested(width: int32, height: int32, refreshRate: float32): () =
+        this.stream.Write(Tag.DisplayModeChangeRequested)
+        this.stream.WriteInt32(width)
+        this.stream.WriteInt32(height)
+        this.stream.Write<float32>(refreshRate)
+
+    MenuButtonHovered(): () =
+        this.stream.Write(Tag.MenuButtonHovered)
+
+    MenuButtonClicked(): () =
+        this.stream.Write(Tag.MenuButtonClicked)
+
+    ClearConsoleRequested(): () =
+        this.stream.Write(Tag.ClearConsoleRequested)
+
+    MoveForwardRequested(factor: float32): () =
+        this.stream.Write(Tag.MoveForwardRequested)
+        this.stream.Write(factor)
+
+    MoveBackwardRequested(factor: float32): () =
+        this.stream.Write(Tag.MoveBackwardRequested)
+        this.stream.Write(factor)
+
+    MoveLeftRequested(factor: float32): () =
+        this.stream.Write(Tag.MoveLeftRequested)
+        this.stream.Write(factor)
+
+    MoveRightRequested(factor: float32): () =
+        this.stream.Write(Tag.MoveRightRequested)
+        this.stream.Write(factor)
+
+    JumpUpRequested(): () =
+        this.stream.Write(Tag.JumpUpRequested)
+
+    ActivateSpecialRequested(): () =
+        this.stream.Write(Tag.ActivateSpecialRequested)
+
+struct ClientEventReader =
+    internal Tag: Tag get
+    internal Stream: ByteStream get
+    new(stream: ByteStream) =
+        {
+            Tag = stream.Peek()
+            Stream = stream
+        }
+
+module ClientEvent =
+
+    private ConsumeTag(stream: ByteStream): () =
+        let _ = stream.ReadByte()
+
+    pattern MainMenuRequested(reader: ClientEventReader): () when (reader.Tag == Tag.MainMenuRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern ConsoleRequested(reader: ClientEventReader): () when (reader.Tag == Tag.ConsoleRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern ConsoleCommandRequested(reader: ClientEventReader): string when (reader.Tag == Tag.ConsoleCommandRequested) =>
+        ConsumeTag(reader.Stream)
+        reader.Stream.ReadSmallString()
+
+    pattern QuitGameRequested(reader: ClientEventReader): () when (reader.Tag == Tag.QuitGameRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern NewGameRequested(reader: ClientEventReader): () when (reader.Tag == Tag.NewGameRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern NavigateBackRequested(reader: ClientEventReader): () when (reader.Tag == Tag.NavigateBackRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern NavigateToMultiplayerMenuRequested(reader: ClientEventReader): () when (reader.Tag == Tag.NavigateToMultiplayerMenuRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern NavigateToSettingsMenuRequested(reader: ClientEventReader): () when (reader.Tag == Tag.NavigateToSettingsMenuRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern ConnectionRequested(reader: ClientEventReader): (address: string, port: int32) when (reader.Tag == Tag.ConnectionRequested) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadString(), stream.ReadInt32())
+
+    pattern Connected(reader: ClientEventReader): string when (reader.Tag == Tag.Connected) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadString()
+
+    pattern ConnectionFailed(reader: ClientEventReader): (string, reason: string) when (reader.Tag == Tag.ConnectionFailed) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadString(), stream.ReadString())
+
+    pattern Disconnected(reader: ClientEventReader): (connectionString: string, reason: string) when (reader.Tag == Tag.Disconnected) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadString(), stream.ReadString())
+
+    pattern LoadClientSceneRequested(reader: ClientEventReader): (string, ByteSequence) when (reader.Tag == Tag.LoadClientSceneRequested) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadSmallString(), ByteSequence(stream.ReadByte()))
+
+    pattern SceneLoading(reader: ClientEventReader): string when (reader.Tag == Tag.SceneLoading) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern SceneLoaded(reader: ClientEventReader): string when (reader.Tag == Tag.SceneLoaded) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern SceneClosed(reader: ClientEventReader): string when (reader.Tag == Tag.SceneClosed) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern SceneBegan(reader: ClientEventReader): string when (reader.Tag == Tag.SceneBegan) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+    pattern SaveGameRequested(reader: ClientEventReader): string when (reader.Tag == Tag.SaveGameRequested) =>
+        let stream = reader.Stream
+        ConsumeTag(reader.Stream)
+        stream.ReadString()
+
+    pattern LoadGameRequested(reader: ClientEventReader): string when (reader.Tag == Tag.LoadGameRequested) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadString()
+
+    pattern ExitGameRequested(reader: ClientEventReader): () when (reader.Tag == Tag.ExitGameRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern DisplayModeChangeRequested(reader: ClientEventReader): (width: int32, height: int32, refreshRate: float32) when (reader.Tag == Tag.DisplayModeChangeRequested) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadInt32(), stream.ReadInt32(), stream.Read<float32>())
+
+    pattern MenuButtonHovered(reader: ClientEventReader): () when (reader.Tag == Tag.MenuButtonHovered) =>
+        ConsumeTag(reader.Stream)
+
+    pattern MenuButtonClicked(reader: ClientEventReader): () when (reader.Tag == Tag.MenuButtonClicked) =>
+        ConsumeTag(reader.Stream)
+
+    pattern ClearConsoleRequested(reader: ClientEventReader): () when (reader.Tag == Tag.ClearConsoleRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern MoveForwardRequested(reader: ClientEventReader): float32 when (reader.Tag == Tag.MoveForwardRequested) =>
+        ConsumeTag(reader.Stream)
+        reader.Stream.Read<float32>()
+
+    pattern MoveBackwardRequested(reader: ClientEventReader): float32 when (reader.Tag == Tag.MoveBackwardRequested) =>
+        ConsumeTag(reader.Stream)
+        reader.Stream.Read<float32>()
+
+    pattern MoveLeftRequested(reader: ClientEventReader): float32 when (reader.Tag == Tag.MoveLeftRequested) =>
+        ConsumeTag(reader.Stream)
+        reader.Stream.Read<float32>()
+
+    pattern MoveRightRequested(reader: ClientEventReader): float32 when (reader.Tag == Tag.MoveRightRequested) =>
+        ConsumeTag(reader.Stream)
+        reader.Stream.Read<float32>()
+
+    pattern JumpUpRequested(reader: ClientEventReader): () when (reader.Tag == Tag.JumpUpRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern ActivateSpecialRequested(reader: ClientEventReader): () when (reader.Tag == Tag.ActivateSpecialRequested) =>
+        ConsumeTag(reader.Stream)

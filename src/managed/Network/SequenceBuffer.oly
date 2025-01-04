@@ -1,0 +1,79 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+#[null]
+internal class PacketEntry =
+    public field Hash: HashSet<uint16>
+    public field Buffer: mutable byte[]
+
+    new(buffer: mutable byte[]) =
+        {
+            Hash = HashSet()
+            Buffer = buffer
+        }
+
+internal class SequenceBuffer =
+    field lookup: mutable uint16[] = zeroArray(256)
+    field entries: mutable PacketEntry[] = zeroArray(256)
+
+    TryGetValue(key: uint16, value: byref<PacketEntry>): bool =
+        let index = int32(key) % 256
+        let entry = this.entries[index]
+        if (entry === null)
+            false
+        else
+            let currentKey = this.lookup[index]
+            if (currentKey != key)
+                throw NetworkInvalidSequenceException()
+            value <- entry
+            true
+
+    set_Item(key: uint16, value: PacketEntry): () =
+        let index = int32(key) % 256
+        this.lookup[index] <- key
+        this.entries[index] <- value
+
+    Remove(key: uint16): () =
+        let index = int32(key) % 256
+        this.entries[index] <- null
+
+    Contains(key: uint16): bool =
+        let index = int32(key) % 256
+        this.entries[index] !== null
+
+    IsInvalid(key: uint16): bool =
+        let index = int32(key) % 256
+        let entry = this.entries[index]
+        if (entry === null)
+            true
+        else
+            let currentKey = this.lookup[index]
+            if (currentKey != key)
+                true
+            else
+                false
+
+    ContainsFragment(key: uint16, fragmentIndex: uint16): bool =
+        let index = int32(key) % 256
+        let entry = this.entries[index]
+        if (entry !== null)
+            entry.Hash.Contains(fragmentIndex)
+        else
+            false
+
+    IsLessThan(key: uint16): bool =
+        let index = int32(key) % 256
+        let currentKey = this.lookup[index]
+        SequenceGreaterThan(key, currentKey)

@@ -1,0 +1,9 @@
+#target "dotnet: net8"
+
+#load "*.oly"
+#load "Systems/*.oly"
+
+#reference "../../Physics/Evergreen.Physics.olyx"
+#reference "../../Collections/Evergreen.Collections.olyx"
+#reference "../../AssetManager/AssetManager.olyx"
+#reference "../../Audio/Evergreen.Audio.olyx"

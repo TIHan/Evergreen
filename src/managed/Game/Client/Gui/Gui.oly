@@ -1,0 +1,410 @@
+namespace Game.Client.Gui
+
+open System
+open System.IO
+open System.Numerics
+open System.Collections.Generic
+
+open Evergreen.Utilities
+open Evergreen.Window
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering
+open Evergreen.Graphics.Rendering.UI
+
+open Game.Client
+open static Game.AssetManager
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Views
+open static Game.Client.ViewModels
+open static Game.Client.Events
+open static Game.Client.RenderState
+
+//
+
+class EntityInfoOverlayPool =
+
+    field uiOverlayPool: List<(EntityInfoOverlayViewModel, WindowView)>
+    field mutable uiOverlayPoolCount: int32
+
+    TryNext(entInfoOverlay: byref<(EntityInfoOverlayViewModel, WindowView)>): bool =
+        if (this.uiOverlayPoolCount >= this.uiOverlayPool.Count)
+            false
+        else
+            entInfoOverlay <- this.uiOverlayPool[this.uiOverlayPoolCount]
+            this.uiOverlayPoolCount <- this.uiOverlayPoolCount + 1
+            true
+
+    Reset(): () =
+        this.uiOverlayPoolCount <- 0
+
+    new() =
+        let maxAmount = 1000
+        let uiOverlayPool = List<(EntityInfoOverlayViewModel, WindowView)>()
+
+        let mutable i = 0
+        while (i < maxAmount)
+            let vm = EntityInfoOverlayViewModel()
+            let v = CreateOverlay(vm)
+            uiOverlayPool.Add((vm, v))
+            i <- i + 1
+
+        {
+            uiOverlayPool = uiOverlayPool
+            uiOverlayPoolCount = 0
+        }
+
+enum GuiMenuState =
+    | None
+    | Main
+    | Loading
+
+class GuiEnv =
+
+    DisplayModes: DisplayMode[] get
+
+    NavigationStack: Stack<WindowView> get
+
+    Title: WindowView get
+
+    MainMenu: WindowView get
+    MainMenuModel: MainMenuViewModel get
+
+    MultiplayerMenu: WindowView get
+    MultiplayerMenuModel: MultiplayerMenuViewModel get
+
+    SettingsMenu: WindowView get
+    SettingsMenuModel: SettingsMenuViewModel get
+
+    Diagnostics: WindowView get
+    DiagnosticsModel: DiagnosticsViewModel get
+
+    Console: WindowView get
+    ConsoleModel: ConsoleViewModel get
+
+    Loading: WindowView get
+    LoadingModel: LoadingViewModel get
+
+    MessageDialog: WindowView get
+    MessageDialogModel: MessageDialogViewModel get
+
+    HashCodes: WindowView get
+
+    EntityInfoOverlayPool: EntityInfoOverlayPool get
+
+    Images: AssetManager<IGpuImage[]> get
+    Frames: AssetManager<GpuFrame> get
+
+    CurrentScreenSize: Vector2 get, set
+    CurrentMenuState: GuiMenuState get, set
+    CurrentUI: WindowView get, set
+
+    new(
+            engineHash: string,
+            screenSize: Vector2, 
+            displayModes: DisplayMode[], 
+            images: AssetManager<IGpuImage[]>, 
+            frames: AssetManager<GpuFrame>, 
+            clientEventPublisher: ClientEventPublisher) =
+        let mainMenuModel = MainMenuViewModel()
+        let multiplayerMenuModel = MultiplayerMenuViewModel()
+        let settingsMenuModel = SettingsMenuViewModel()
+        let diagnosticsModel = DiagnosticsViewModel()
+        let consoleModel = ConsoleViewModel()
+        let loadingModel = LoadingViewModel()
+        let messageDialogModel = MessageDialogViewModel()
+
+        {
+            DisplayModes = displayModes
+
+            NavigationStack = Stack()
+
+            Title = CreateTitle(images.Get("Freedoom/titlepic/freedm_title.png")[0])
+            MainMenu = CreateMainMenu(mainMenuModel, clientEventPublisher)
+            MultiplayerMenu = CreateMultiplayerMenu(multiplayerMenuModel, clientEventPublisher)
+            SettingsMenu = CreateSettingsMenu(settingsMenuModel, clientEventPublisher)
+            Diagnostics = CreateDiagnosticsOverlay(diagnosticsModel)
+            Console = CreateConsole(consoleModel, clientEventPublisher)
+            Loading = CreateLoadingView(loadingModel)
+            MessageDialog = CreateMessageDialogView(messageDialogModel)
+
+            HashCodes = CreateHashCodesOverlay(engineHash)
+
+            MainMenuModel = mainMenuModel
+            MultiplayerMenuModel = multiplayerMenuModel
+            SettingsMenuModel = settingsMenuModel
+            DiagnosticsModel = diagnosticsModel
+            ConsoleModel = consoleModel
+            LoadingModel = loadingModel
+            MessageDialogModel = messageDialogModel
+
+            EntityInfoOverlayPool = EntityInfoOverlayPool()
+
+            Images = images
+            Frames = frames
+
+            CurrentScreenSize = screenSize
+            CurrentMenuState = GuiMenuState.Main
+            CurrentUI = this.MainMenu
+        }
+
+module Gui =
+
+    ShowDialog(guiEnv: GuiEnv, title: string, msg: string): () =
+        guiEnv.MessageDialogModel.Title.Value <- title
+        guiEnv.MessageDialogModel.Text.Value <- msg
+        guiEnv.MessageDialogModel.IsVisible.Value <- true
+
+    PopulateStaticData(guiEnv: GuiEnv, gpu: Gpu, currentDisplayMode: DisplayMode): () =
+        let images = guiEnv.Images
+
+        let displayModes = guiEnv.DisplayModes
+        let defaultDisplayModeIndex =
+            tryFindIndex(displayModes, (i, x) -> x.Equals(currentDisplayMode))
+
+        let settingsVm = guiEnv.SettingsMenuModel
+        settingsVm.DisplayModes.Value <- map(displayModes, x -> DisplayModeItem(x.Width, x.Height, x.RefreshRate))
+        settingsVm.SelectedDisplayModeIndex.Value <- defaultDisplayModeIndex
+        settingsVm.OlyLogo.Value <- Some(images.Get("Logos/oly-dark.png")[0])
+        settingsVm.DotNetLogo.Value <- Some(images.Get("Logos/dotnet-bot.png")[0])      
+
+        let diagsVm = guiEnv.DiagnosticsModel
+        diagsVm.GpuDeviceName.Value <- gpu.GetName()
+        diagsVm.VRamText.Value <- gpu.GetVRamCapacityInGB().ToString("F2") + " GB"
+        diagsVm.CpuDeviceName.Value <- Machine.GetProcessorName() + " @ " + Machine.GetProcessorMaxClockSpeedInGHz().ToString("F2") + "GHz"
+        diagsVm.RamText.Value <- Machine.GetRamCapacityInGB().ToString("F2") + " GB"
+
+    UpdateDiagnostics(guiEnv: GuiEnv, deltaTime: float32, logicFrame: int32, logicFrametime: float32, serverBandwidth: uint64, clientInputLatency: int64, clientPing: int64): () =
+        if (guiEnv.SettingsMenuModel.ShowDiagnostics.Value)
+            let diagsVm = guiEnv.DiagnosticsModel
+
+            diagsVm.LogicFrametimes[logicFrame % diagsVm.LogicFrametimes.Length] <- logicFrametime
+            diagsVm.LogicFrametimeOffset.Value <- logicFrame % diagsVm.LogicFrametimes.Length
+            if (String.IsNullOrWhiteSpace(diagsVm.LogicFrametimeText.Value) || (diagsVm.LogicFrametimeTextUpdateTime >= 0.5))
+                diagsVm.LogicFrametimeTextUpdateTime <- 0
+                diagsVm.LogicFrametimeText.Value <- diagsVm.LogicFrametimes[logicFrame % diagsVm.LogicFrametimes.Length].ToString("F2") + " ms - (" + (1000 / diagsVm.LogicFrametimes[logicFrame % diagsVm.LogicFrametimes.Length]).ToString("F0") + " FPS)"
+            else
+                diagsVm.LogicFrametimeTextUpdateTime <- diagsVm.LogicFrametimeTextUpdateTime + deltaTime
+                
+            diagsVm.ServerUsages[logicFrame % diagsVm.ServerUsages.Length] <- float32(serverBandwidth) / 1024 * float32(GameLoop.FixedUpdateFramesPerSecond)
+            diagsVm.ServerUsageOffset.Value <- logicFrame % diagsVm.ServerUsages.Length
+            if (String.IsNullOrWhiteSpace(diagsVm.ServerUsageText.Value) || (diagsVm.ServerUsageTextUpdateTime >= 0.5))
+                diagsVm.ServerUsageTextUpdateTime <- 0
+                diagsVm.ServerUsageText.Value <- "~" + diagsVm.ServerUsages[logicFrame % diagsVm.ServerUsages.Length].ToString("F3") + " KB/s"
+            else
+                diagsVm.ServerUsageTextUpdateTime <- diagsVm.ServerUsageTextUpdateTime + deltaTime
+
+
+            diagsVm.ClientPings[logicFrame % diagsVm.ClientPings.Length] <- float32(TimeSpan.FromTicks(clientInputLatency).TotalMilliseconds)
+            diagsVm.ClientPingOffset.Value <- logicFrame % diagsVm.ClientPings.Length
+            if (String.IsNullOrWhiteSpace(diagsVm.ClientPingText.Value) || (diagsVm.ClientPingTextUpdateTime >= 0.5))
+                diagsVm.ClientPingTextUpdateTime <- 0
+                diagsVm.ClientPingText.Value <- diagsVm.ClientPings[logicFrame % diagsVm.ClientPings.Length].ToString("F1") + " ms"
+            else
+                diagsVm.ClientPingTextUpdateTime <- diagsVm.ClientPingTextUpdateTime + deltaTime
+
+            diagsVm.ServerPings[logicFrame % diagsVm.ServerPings.Length] <- float32(TimeSpan.FromTicks(clientPing).TotalMilliseconds)
+            diagsVm.ServerPingOffset.Value <- logicFrame % diagsVm.ServerPings.Length
+            if (String.IsNullOrWhiteSpace(diagsVm.ServerPingText.Value) || (diagsVm.ServerPingTextUpdateTime >= 0.5))
+                diagsVm.ServerPingTextUpdateTime <- 0
+                diagsVm.ServerPingText.Value <- diagsVm.ServerPings[logicFrame % diagsVm.ServerPings.Length].ToString("F1") + " ms"
+            else
+                diagsVm.ServerPingTextUpdateTime <- diagsVm.ServerPingTextUpdateTime + deltaTime
+
+    UpdateRenderClient(guiEnv: GuiEnv, renderWorld: RenderingWorld, clientEntId: EntityId, alpha: float32, windowViews: List<WindowView>): () =
+        let _ =
+            renderWorld.Database.TryGet<TransformLerp, Transform, CameraLerp, Camera>(clientEntId,
+                (transformLerp, transform, cameraLerp, camera) ->
+                    Gui.UpdateRenderPlayer(guiEnv,
+                        &transformLerp.Value,
+                        &transform,
+                        &cameraLerp.Value,
+                        &camera,
+                        renderWorld.Database,
+                        windowViews,
+                        alpha 
+                    )
+            )
+
+    UpdateRenderDiagnostics(guiEnv: GuiEnv, deltaTime: float32, frame: int32, renderTime: int64, lastRenderTime: int64, memoryUsage: int64): () =
+        if (guiEnv.SettingsMenuModel.ShowDiagnostics.Value)
+            let diagsVm = guiEnv.DiagnosticsModel
+
+            // diagnostics info
+            let timeS = float32(TimeSpan.FromTicks(renderTime).TotalSeconds)
+            let frametimeS = float32(TimeSpan.FromTicks(renderTime - lastRenderTime).TotalSeconds)
+
+            let frametimeMs = TimeSpan.FromTicks(renderTime - lastRenderTime).TotalMilliseconds
+            diagsVm.Frametimes[frame % diagsVm.Frametimes.Length] <- float32(frametimeMs)
+            diagsVm.FrametimeOffset.Value <- frame % diagsVm.Frametimes.Length
+            if (String.IsNullOrWhiteSpace(diagsVm.FrametimeText.Value) || (diagsVm.FrametimeTextUpdateTime >= 0.5))
+                diagsVm.FrametimeTextUpdateTime <- 0
+                diagsVm.FrametimeText.Value <- diagsVm.Frametimes[frame % diagsVm.Frametimes.Length].ToString("F2") + " ms - (" + (1000 / diagsVm.Frametimes[frame % diagsVm.Frametimes.Length]).ToString("F0") + " FPS)"
+            else
+                diagsVm.FrametimeTextUpdateTime <- diagsVm.FrametimeTextUpdateTime + deltaTime                   
+            diagsVm.RamUsages[frame % diagsVm.RamUsages.Length] <- float32(memoryUsage) / 1024 / 1024
+            diagsVm.RamUsageOffset.Value <- frame % diagsVm.RamUsages.Length
+            diagsVm.RamUsageText.Value <- diagsVm.RamUsages[frame % diagsVm.RamUsages.Length].ToString("F1") + " MB"
+
+    private UpdateRenderPlayer(guiEnv: GuiEnv, transformLerp: inref<Transform>, transform: inref<Transform>, cameraLerp: inref<Camera>, camera: inref<Camera>, db: EntityDatabase, windowViews: List<WindowView>, alpha: float32): () =
+        let uiOverlayPool = guiEnv.EntityInfoOverlayPool
+
+        let mutable transformLerp = transformLerp
+        let mutable transform = transform
+
+        let prevPosition = cameraLerp.GetPosition(transformLerp)
+        let currPosition = camera.GetPosition(transform)
+
+        let prevRotation = cameraLerp.Rotation
+        let currRotation = camera.Rotation
+
+        let projection = camera.Projection
+
+        // Debug Info
+        let windowSize = guiEnv.CurrentScreenSize
+        let prev = Transform(prevPosition, prevRotation, vec3.One)
+        let curr = Transform(currPosition, currRotation, vec3.One)
+        let view = Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
+        let viewProj = view * projection
+        uiOverlayPool.Reset()
+        db.ForEach<RigidBody, Transform, TransformLerp>(
+            (entId, physInfo, transform, transformLerp) ->
+                let mutable result = unchecked default
+                let pos = WorldToClip(viewProj, Vector3.Lerp(transformLerp.Value.Position, transform.Position, alpha))
+                if (pos.X < 1 && pos.X > -1 && pos.Y < 1 && pos.Y > -1 && pos.Z < 1 && pos.Z > -1)
+                    if (uiOverlayPool.TryNext(&result))
+                        let (vm, v) = result
+                        vm.Position.Value <- ClipToScreen(windowSize, pos)
+                        vm.Id.Value <- entId
+                        vm.InfoPosition.Value <- transform.Position
+                        vm.InfoRotation.Value <- transform.Rotation
+                        vm.InfoLinearVelocity.Value <- physInfo.LinearVelocity
+                        vm.InfoAngularVelocity.Value <- physInfo.AngularVelocity
+                        windowViews.Add(v)
+        )
+
+    RenderUpdate(guiEnv: GuiEnv, consoleBackgroundFrame: IGpuFrame, time: GameTime, consoleLog: System.Text.StringBuilder, uiWindows: List<WindowView>): () =
+        let currMenuState = guiEnv.CurrentMenuState
+        let currentUI = guiEnv.CurrentUI
+        
+        let consoleView = guiEnv.Console
+        let consoleVm = guiEnv.ConsoleModel
+        let settingsVm = guiEnv.SettingsMenuModel
+        let diagsVm = guiEnv.DiagnosticsModel
+
+        if (consoleVm.IsVisible.Value)
+            let mutable mustUpdate = false
+            if (consoleLog.Length > 8192)
+                let _ = consoleLog.Remove(0, consoleLog.Length - 8192)
+                mustUpdate <- true
+            if (consoleVm.Log.Value.Length != consoleLog.Length || mustUpdate)
+                // TODO: Umm, this crashed on consoleLog.ToString() with index out of range.. concurrency bug?
+                consoleVm.Log.Value <- consoleLog.ToString()
+            guiEnv.MessageDialogModel.IsVisible.Value <- false
+        uiWindows.Add(consoleView)
+
+        if (consoleVm.BackgroundImage.Value.IsNone)
+            consoleVm.BackgroundImage.Value <- Some(consoleBackgroundFrame.ColorImage)
+            
+        if (currentUI.IsVisible)
+            if (currMenuState == GuiMenuState.Main)
+                uiWindows.Add(guiEnv.Title)
+                uiWindows.Add(currentUI)
+                uiWindows.Add(guiEnv.HashCodes)
+            else
+                uiWindows.Add(currentUI)
+
+        if (guiEnv.MessageDialogModel.IsVisible.Value)
+            uiWindows.Add(guiEnv.MessageDialog)
+
+    ToggleMainMenu(guiEnv: GuiEnv): () =
+        if (guiEnv.CurrentMenuState == GuiMenuState.None)
+            guiEnv.CurrentMenuState <- GuiMenuState.Main
+        else if (guiEnv.CurrentMenuState == GuiMenuState.Main)
+            guiEnv.CurrentMenuState <- GuiMenuState.None
+
+    ToggleConsole(guiEnv: GuiEnv): () =
+        guiEnv.ConsoleModel.IsVisible.Value <- !guiEnv.ConsoleModel.IsVisible.Value
+
+    TryNavigateBack(guiEnv: GuiEnv): bool =
+        if (guiEnv.NavigationStack.Count > 0)
+            guiEnv.CurrentUI <- guiEnv.NavigationStack.Pop()
+            true
+        else
+            false
+
+    TryNavigateToMultiplayerMenu(guiEnv: GuiEnv): bool =
+        if (guiEnv.MainMenuModel.IsMultiplayerVisible.Value)
+            if (guiEnv.CurrentUI !== guiEnv.MultiplayerMenu)
+                guiEnv.NavigationStack.Push(guiEnv.CurrentUI)
+                guiEnv.CurrentUI <- guiEnv.MultiplayerMenu
+                true
+            else
+                false
+        else
+            false
+
+    TryNavigateToSettingsMenu(guiEnv: GuiEnv): bool =
+        if (guiEnv.CurrentUI !== guiEnv.SettingsMenu)
+            guiEnv.NavigationStack.Push(guiEnv.CurrentUI)
+            guiEnv.CurrentUI <- guiEnv.SettingsMenu
+            true
+        else
+            false
+
+    Update(guiEnv: GuiEnv, screenSize: Vector2): () =
+        guiEnv.CurrentScreenSize <- screenSize
+
+        guiEnv.MainMenuModel.IsVisible.Value <- false
+        let consoleVm = guiEnv.ConsoleModel
+        match (guiEnv.CurrentMenuState)
+        | GuiMenuState.Main =>
+            guiEnv.MainMenuModel.IsVisible.Value <- true
+            guiEnv.CurrentUI.IsVisible <- true
+        | GuiMenuState.Loading =>
+            if (guiEnv.CurrentUI !== guiEnv.Loading)
+                guiEnv.CurrentUI <- guiEnv.Loading
+            guiEnv.CurrentUI.IsVisible <- true
+            guiEnv.NavigationStack.Clear()
+        | _ => // GuiMenuState.None                 
+            guiEnv.CurrentUI.IsVisible <- false
+
+    IsCursorVisible(guiEnv: GuiEnv): bool =
+        match (guiEnv.CurrentMenuState)
+        | GuiMenuState.None
+        | GuiMenuState.Loading =>
+            guiEnv.ConsoleModel.IsVisible.Value
+        | _ =>
+            true
+
+    IsFullscreen(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.IsFullscreen.Value
+
+    SetIsFullscreen(guiEnv: GuiEnv, value: bool): () =
+        guiEnv.SettingsMenuModel.IsFullscreen.Value <- value
+
+    CanShowDiagnostics(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.ShowDiagnostics.Value
+
+    SetCanShowDiagnostics(guiEnv: GuiEnv, value: bool): () =
+        guiEnv.SettingsMenuModel.ShowDiagnostics.Value <- value
+
+    CanShowImGuiDemo(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.ShowImGuiDemo.Value
+
+    IsVerticalSyncEnabled(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.VerticalSync.Value
+
+    GetSuperSamplingAmount(guiEnv: GuiEnv): int32 =
+        match (guiEnv.SettingsMenuModel.AntiAliasing.Value)
+        | AntiAliasingKind.SSAAx4 => 4
+        | AntiAliasingKind.SSAAx2 => 2
+        | _ => 1
+
+    CanSimulateLatency(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.SimulateLatency.Value
+
+    CanSimulatePacketLoss(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.SimulatePacketLoss.Value

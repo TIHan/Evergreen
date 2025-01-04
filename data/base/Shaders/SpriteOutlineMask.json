@@ -1,0 +1,47 @@
+{
+    "Layouts": [
+        {
+            "Bindings": [
+                {
+                    "Kind": "Uniform",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Vertex"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Image",
+                    "Flags": "None",
+                    "StageFlags": "Vertex, Fragment"
+                }
+            ]
+        }
+    ],
+    
+    "Flags": "DepthTest, DepthWrite, FlipY",
+    "CullMode": "Back",
+    "FrontFace": "CounterClockwise",
+
+    "Vertex": "sprite_outline_mask.vert",
+    "Fragment": "sprite_outline_mask.frag"
+}

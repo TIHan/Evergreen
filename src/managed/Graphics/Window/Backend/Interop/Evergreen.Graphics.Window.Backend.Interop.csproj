@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <None Include="..\..\..\..\..\native\external\SDL\VisualC\x64\Debug\SDL3.dll" Link="SDL3.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\external\SDL\VisualC\x64\Debug\SDL3.pdb" Link="SDL3.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Debug\Evergreen.Graphics.Native.dll" Link="Evergreen.Graphics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Debug\Evergreen.Graphics.Native.pdb" Link="Evergreen.Graphics.Native.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+	
+  <ItemGroup Condition=" '$(Configuration)' == 'Release' ">
+    <None Include="..\..\..\..\..\native\external\SDL\VisualC\x64\Release\SDL3.dll" Link="SDL3.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Release\Evergreen.Graphics.Native.dll" Link="Evergreen.Graphics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

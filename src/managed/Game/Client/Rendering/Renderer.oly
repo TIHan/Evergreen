@@ -1,0 +1,1111 @@
+module Game.Client.Rendering.Module
+
+open System
+open System.Numerics
+open System.Text
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics
+open Evergreen.Graphics.Rendering
+
+open static Game.AssetManager
+
+open Game.Shared
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Shared.World
+
+open Game.Client.Systems
+open static Game.Client.Types
+open static Game.Client.Components
+
+alias DrawQueue = List<(RenderKey, int32, offset: int32, GpuDescriptorSet, int32)>
+alias DrawLookup = ConcurrentDictionary<RenderKey, (List<(ShaderInstance, ShaderInstance)>, AABB, GpuDescriptorSet, int32, DrawQueue)>
+alias ReadOnlyDrawQueue = IReadOnlyList<(RenderKey, count: int32, offset: int32, GpuDescriptorSet, int32)>
+
+struct RenderFrame =
+    Frame: GpuFrame get
+    FrameData: GpuBuffer<ShaderGlobals> get
+    FrameDataDescriptorSet: GpuDescriptorSet get
+    new(frame: GpuFrame, frameData: GpuBuffer<ShaderGlobals>, frameDataDS: GpuDescriptorSet) =
+        {
+            Frame = frame
+            FrameData = frameData
+            FrameDataDescriptorSet = frameDataDS
+        }
+
+    AddBeginFrameCommands(renv: RenderEnv, pipeline: GpuPipeline, cmds: GpuCommandList): () =
+        let frame = this.Frame
+
+        let mutable globals = renv.GlobalsBuffer.Array[0] // Default globals
+        globals.Resolution <- 
+            match (frame.SizeMode)
+            | GpuFrameSizeMode.Window
+            | GpuFrameSizeMode.WindowSuperSampled =>
+                globals.Resolution
+            | GpuFrameSizeMode.WindowDownscaledX3 =>
+                Vector2(globals.Resolution.X / 3, globals.Resolution.Y / 3)
+            | GpuFrameSizeMode.Custom =>
+                Vector2(float32(frame.CustomWidth), float32(frame.CustomHeight))
+            | _ =>
+                fail("invalid size mode")
+        globals.SuperSamplingAmount <- renv.Gpu.SuperSamplingAmount
+            
+        let globalsBuffer = this.FrameData
+        globalsBuffer.Array[0] <- globals
+        globalsBuffer.NeedsUpdate <- true
+        cmds.BeginFrame(frame)
+        cmds.BindPipeline(pipeline)
+        cmds.BindDescriptorSet(0, this.FrameDataDescriptorSet)
+
+struct ShaderGlobals =
+    public field mutable View: Matrix4x4 = Matrix4x4.Identity
+    public field mutable ViewInverse: Matrix4x4 = Matrix4x4.Identity
+    public field mutable Projection: Matrix4x4 = Matrix4x4.Identity
+    public field mutable ProjectionInverse: Matrix4x4 = Matrix4x4.Identity
+    public field mutable Resolution: Vector2 = Vector2.Zero
+    public field mutable Time: float32 = 0
+    public field mutable TimeDelta: float32 = 0
+    public field mutable FarZ: float32 = 0
+    public field mutable NearZ: float32 = 0
+    public field mutable _Padding0: float32 = 0
+    public field mutable _Padding1: float32 = 0
+    public field mutable MainCameraView: Matrix4x4 = Matrix4x4.Identity
+    public field mutable MainCameraViewInverse: Matrix4x4 = Matrix4x4.Identity
+    public field mutable MainCameraProjection: Matrix4x4 = Matrix4x4.Identity
+    public field mutable MainCameraProjectionInverse: Matrix4x4 = Matrix4x4.Identity
+    public field mutable LightViewProjection: Matrix4x4 = Matrix4x4.Identity
+    public field mutable Mouse: Vector4 = Vector4.Zero
+    public field mutable FrustumPlanes: FrustumPlanes = default
+    public field mutable Alpha: float32 = 0 // used for interpolation
+    public field mutable BackgroundAlpha: float32 = 1
+    public field mutable LightKind: int32 = 0 // 0 - Directional, 1 - Spot
+    public field mutable SuperSamplingAmount: int32 = 1
+
+struct ShaderLight =
+
+    public field mutable View: mat4 = mat4.Identity
+    public field mutable ViewInverse: mat4 = mat4.Identity
+    public field mutable Projection: mat4 = mat4.Identity
+    public field mutable ViewProjection: mat4 = mat4.Identity
+    public field mutable Direction: vec4 = Vector4(Vector3.Forward, 0)
+
+struct ShaderLights =
+    static MaxCount: int32 get = 8 // TODO: make this a constant
+
+    public field mutable Item1: ShaderLight = default
+    public field mutable Item2: ShaderLight = default
+    public field mutable Item3: ShaderLight = default
+    public field mutable Item4: ShaderLight = default
+    public field mutable Item5: ShaderLight = default
+    public field mutable Item6: ShaderLight = default
+    public field mutable Item7: ShaderLight = default
+    public field mutable Item8: ShaderLight = default
+    public field mutable Count: int32 = 0
+
+    mutable get_Item(index: int32): byref<ShaderLight> =
+        match (index)
+        | 0 => &this.Item1
+        | 1 => &this.Item2
+        | 2 => &this.Item3
+        | 3 => &this.Item4
+        | 4 => &this.Item5
+        | 5 => &this.Item6
+        | 6 => &this.Item7
+        | 8 => &this.Item8
+        | _ =>
+            throw IndexOutOfRangeException()
+            &this.Item1
+
+class ShaderTextures =
+
+    field lookup: Dictionary<IGpuImage, int32> = Dictionary()
+    Images: GpuInputArray get = GpuInputArray(GpuDescriptorKind.Image, GpuResourceKind.Image, 5000)
+
+    Count: int32 get() = this.Images.Count
+
+    Clear(): () =
+        this.Images.Count <- 0
+        this.lookup.Clear()
+
+    AddImage(image: IGpuImage): int32 =
+        let mutable index = -1
+        if (!this.lookup.TryGetValue(image, &index))
+            index <- this.Count
+            this.Images.Inputs[index] <- image
+            this.Images.Count <- index + 1
+            this.lookup[image] <- index
+        index
+
+struct ShaderInstance =
+    public field mutable Transform: Matrix4x4 = Matrix4x4.Identity
+    public field mutable TextureIndex: int32 = 0
+    field _padding0: int32 = 0
+    field _padding1: int32 = 0
+    field _padding2: int32 = 0
+
+class RenderFrameEnv =
+
+    Textures: ShaderTextures get
+
+    new() =
+        {
+            Textures = ShaderTextures()
+        }
+
+class RenderEnv =
+    Window: Evergreen.Window.IWindow get
+    Gpu: Gpu get
+    PipelineUI: GpuPipelineUI get
+
+    GlobalsBuffer: GpuBuffer<ShaderGlobals> get
+    GlobalsManager: AssetManager<GpuBuffer<ShaderGlobals>> get
+    FrameManager: AssetManager<GpuFrame> get
+    PipelineManager: AssetManager<GpuPipeline> get
+    MeshManager: AssetManager<RenderMeshGroup> get
+    ImageManager: AssetManager<IGpuImage[]> get
+
+    ShadowMaps: GpuFrame get
+    SpriteShadowMaps: GpuFrame get
+    ShadowMapCount: GpuBuffer<int32> get
+    ShadowMapGlobalsIds: Int32Id[] get
+    LightsBuffer: GpuBuffer<ShaderLights> get
+
+    private CubeMeshId: Int32Id get
+
+    GlobalsDescriptorSet: GpuDescriptorSet get
+    GlobalsComputeDescriptorSet: GpuDescriptorSet get
+    GlobalsVertexDescriptorSet: GpuDescriptorSet get
+    Lit_DescriptorSet: GpuDescriptorSet get
+
+    SetBackgroundAlpha(value: float32): () =
+        let gpuGlobals = this.GlobalsBuffer
+        let mutable gpuGlobalsSpan = Span(gpuGlobals.Array, 0, 1)
+        let globals = &gpuGlobalsSpan[0]
+        globals.BackgroundAlpha <- value
+        gpuGlobals.NeedsUpdate <- true
+
+    GetPipeline(pipelineId: Int32Id): GpuPipeline =
+        this.PipelineManager.Get(pipelineId)
+
+    GetImage(imageId: Int32Id): IGpuImage[] =
+        this.ImageManager.Get(imageId)
+
+    GetFrame(frameId: Int32Id): GpuFrame =
+        this.FrameManager.Get(frameId)
+
+    private PlaneRenderMeshId: Int32Id get
+    GetPlaneRenderMesh(): RenderMeshGroup = this.MeshManager.Get(this.PlaneRenderMeshId)
+    GetPlaneRenderMeshReference(): MeshReference = MeshReference(this.PlaneRenderMeshId)
+
+    private MaskPipelineId: Int32Id get
+    GetMaskPipeline(): GpuPipeline = this.GetPipeline(this.MaskPipelineId)
+
+    private SpriteMaskPipelineId: Int32Id get
+    GetSpriteMaskPipeline(): GpuPipeline = this.GetPipeline(this.SpriteMaskPipelineId)
+
+    private BeginBoxBlurPipelineId: Int32Id get
+    GetBeginBoxBlurPipeline(): GpuPipeline = this.GetPipeline(this.BeginBoxBlurPipelineId)
+
+    private EndBoxBlurPipelineId: Int32Id get
+    GetEndBoxBlurPipeline(): GpuPipeline = this.GetPipeline(this.EndBoxBlurPipelineId)
+
+    private ScreenPipelineId: Int32Id get
+    GetScreenPipeline(): GpuPipeline = this.GetPipeline(this.ScreenPipelineId)
+
+    private MaskFrameId: Int32Id get
+    GetMaskFrame(): GpuFrame = this.GetFrame(this.MaskFrameId)
+
+    private InverseOutlineMaskFrameId: Int32Id get
+    GetInverseOutlineMaskFrame(): GpuFrame = this.GetFrame(this.InverseOutlineMaskFrameId)
+
+    private BeginBoxBlurFrameId: Int32Id get
+    GetBeginBoxBlurFrame(): GpuFrame = this.GetFrame(this.BeginBoxBlurFrameId)
+
+    private EndBoxBlurFrameId: Int32Id get
+    GetEndBoxBlurFrame(): GpuFrame = this.GetFrame(this.EndBoxBlurFrameId)
+
+    private TransparencyFrameId: Int32Id get
+    GetTransparencyFrame(): GpuFrame = this.GetFrame(this.TransparencyFrameId)
+
+    private ScreenFrameId: Int32Id get
+    GetScreenFrame(): GpuFrame = this.GetFrame(this.ScreenFrameId)
+
+    private ConsoleBackgroundFrameId: Int32Id get
+    private ConsoleBackgroundFrameDataId: Int32Id get
+    private ConsoleBackgroundPipelineId: Int32Id get
+    private ConsoleBackgroundFrameDataDescriptorSet: GpuDescriptorSet get
+    GetConsoleBackgroundRenderFrame(): RenderFrame = 
+        RenderFrame(this.GetFrame(this.ConsoleBackgroundFrameId), this.GlobalsManager.Get(this.ConsoleBackgroundFrameDataId), this.ConsoleBackgroundFrameDataDescriptorSet)
+    GetConsoleBackgroundPipeline(): GpuPipeline = this.GetPipeline(this.ConsoleBackgroundPipelineId)
+
+    ScreenTransform: GpuBuffer<mat4> get
+    ScreenMesh: RenderMesh get
+
+    new(
+            r: Rendering,
+            globalsManager: AssetManager<GpuBuffer<ShaderGlobals>>,
+            frameManager: AssetManager<GpuFrame>,
+            pipelineManager: AssetManager<GpuPipeline>, 
+            meshManager: AssetManager<RenderMeshGroup>, 
+            imageManager: AssetManager<IGpuImage[]>,
+            shadowMaps: GpuFrame,
+            spriteShadowMaps: GpuFrame
+        ) =
+
+        let markerTy = DotNet.TypeOf<RenderEnv>
+        let fontPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(markerTy.Assembly.Location), "ProggyClean.ttf")
+    
+        let gpuPipelineUI = GpuPipelineUI(fontPath)
+
+        let lights =
+            GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, shadowMaps.LayerCount,
+                i -> ShaderLights()
+            )
+    
+        let globals =
+            GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1,
+                i -> ShaderGlobals()
+            )
+
+        let shadowMapCount = GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1, i -> 0)
+        let shadowMapGlobalsIds = initArray(shadowMaps.LayerCount, (mutable i) -> globalsManager.TryFindId("shadow_map" + i.ToString()))
+
+        let globalsDs =
+            GpuDescriptorSet(
+                GpuDescriptorSetLayout(
+                    [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)]
+                ),
+                [globals: IGpuInput]
+            )
+
+        let globalsComputeDs =
+            GpuDescriptorSet(
+                GpuDescriptorSetLayout(
+                    [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)]
+                ),
+                [globals: IGpuInput]
+            )
+
+        let globalsVertexDs =
+            GpuDescriptorSet(
+                GpuDescriptorSetLayout(
+                    [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)]
+                ),
+                [globals: IGpuInput]
+            )
+
+        let lit_descriptorSet = 
+            GpuDescriptorSet(
+                GpuImage.DescriptorSetLayout.AddBinding(
+                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Image, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)
+                ).AddBinding(
+                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Fragment)
+                ),
+                [shadowMaps.DepthImage: IGpuInput;spriteShadowMaps.DepthImage;shadowMapCount]
+            )
+
+        let maskFrameId = frameManager.FindId("mask")
+        let noOutlinesFrameId = frameManager.FindId("screen_no_outlines")
+        let transparencyFrameId = frameManager.FindId("transparency")
+    
+        let beginBoxBlurFrameId = frameManager.FindId("vertical_blur")
+        let endBoxBlurFrameId = frameManager.FindId("final_horizontal_blur")
+        let beginBoxBlurPipelineId = pipelineManager.FindId("ScreenVerticalBlur.json")
+        let endBoxBlurPipelineId = pipelineManager.FindId("ScreenHorizontalBlur.json")
+    
+        let screenPipelineId = pipelineManager.FindId("Screen.json")
+        let screenMesh = meshManager.Get(meshManager.FindId("plane.obj")).Meshes[0]
+        let screenFrameId = frameManager.FindId("screen")
+    
+        let screenTransform = Transform(Vector3.Zero, Quaternion.Identity, Vector3.One)
+        let screenTransform = GpuBuffer.Initialize<Matrix4x4>(GpuBufferKind.Storage, GpuMemoryKind.Local, 1, i -> screenTransform.Matrix)
+
+        {
+            Window = r.Window
+            Gpu = r.Gpu
+            PipelineUI = gpuPipelineUI
+                
+            GlobalsBuffer = globals
+            GlobalsManager = globalsManager
+            FrameManager = frameManager
+            PipelineManager = pipelineManager
+            MeshManager = meshManager
+            ImageManager = imageManager
+            CubeMeshId = meshManager.FindId("cube.obj")
+
+            ShadowMaps = shadowMaps
+            SpriteShadowMaps = spriteShadowMaps
+            ShadowMapCount = shadowMapCount
+            ShadowMapGlobalsIds = shadowMapGlobalsIds
+            LightsBuffer = lights
+
+            GlobalsDescriptorSet = globalsDs
+            GlobalsComputeDescriptorSet = globalsComputeDs
+            GlobalsVertexDescriptorSet = globalsVertexDs
+            Lit_DescriptorSet = lit_descriptorSet
+
+            PlaneRenderMeshId = meshManager.FindId("plane.obj")
+            MaskPipelineId = pipelineManager.TryFindId("OutlineMask.json")
+            BeginBoxBlurPipelineId = beginBoxBlurPipelineId
+            EndBoxBlurPipelineId = endBoxBlurPipelineId
+            ScreenPipelineId = screenPipelineId
+            ConsoleBackgroundPipelineId = pipelineManager.FindId("ConsoleBackground.json")
+            SpriteMaskPipelineId = pipelineManager.FindId("SpriteOutlineMask.json")
+
+            ScreenFrameId = screenFrameId
+            MaskFrameId = maskFrameId
+            InverseOutlineMaskFrameId = noOutlinesFrameId
+            BeginBoxBlurFrameId = beginBoxBlurFrameId
+            EndBoxBlurFrameId = endBoxBlurFrameId
+            TransparencyFrameId = transparencyFrameId
+                
+            ConsoleBackgroundFrameId = frameManager.FindId("console_background")
+            ConsoleBackgroundFrameDataId = globalsManager.FindId("console_background")
+            ConsoleBackgroundFrameDataDescriptorSet = 
+                let frameData = globalsManager.Get("console_background")
+                GpuDescriptorSet(
+                    GpuDescriptorSetLayout(
+                        [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)]
+                    ),
+                    [frameData: IGpuInput]
+                )
+            
+            ScreenTransform = screenTransform
+            ScreenMesh = screenMesh
+        }
+
+    GetCubeMesh(): RenderMesh =
+        this.MeshManager.Get(this.CubeMeshId).Meshes[0]
+
+    SetShadowMapCount(count: int32): () =
+        if (count < 0)
+            throw System.ArgumentOutOfRangeException("count")
+        this.ShadowMapCount.Array[0] <- count
+        this.ShadowMapCount.NeedsUpdate <- true
+
+struct MeshKey =
+    public field Id: Int32Id
+    public field Offset: int32
+    public field MaterialIndex: int32
+
+    new(id: Int32Id, offset: int32, materialIndex: int32) =
+        {
+            Id = id
+            Offset = offset
+            MaterialIndex = materialIndex         
+        }
+
+struct RenderKey =
+    public field PipelineId: Int32Id
+    public field Material: Material
+    public field MeshKey: MeshKey
+    public field Order: byte
+    new(pipelineId: Int32Id, meshKey: MeshKey, material: Material, order: byte) =
+        {
+            PipelineId = pipelineId
+            Material = material
+            MeshKey = meshKey
+            Order = order
+        }
+
+    static Comparer: IEqualityComparer<RenderKey> get =
+        internal class Impl = // TODO: language-bug, should not be able or have to use 'internal' access modifier in local declaration
+            implements IEqualityComparer<RenderKey>
+
+            GetHashCode(key: RenderKey): int32 = key.Material.ImageId.Value
+
+            Equals(key1: RenderKey, key2: RenderKey): bool =
+                (key1.MeshKey.Id.Value == key2.MeshKey.Id.Value) && 
+                    (key1.MeshKey.Offset == key2.MeshKey.Offset) && 
+                    (key1.MeshKey.MaterialIndex == key2.MeshKey.MaterialIndex) &&
+                    (key1.Material.Flags == key2.Material.Flags) &&
+                    (key1.Order == key2.Order) &&
+                    (key1.PipelineId.Value == key2.PipelineId.Value)
+        Impl()
+
+struct DrawBatchInfo =
+    public field Index: int32
+    public field BaseOffset: int32
+    new(index: int32, baseOffset: int32) =
+        {
+            Index = index
+            BaseOffset = baseOffset
+        }
+
+struct DrawLightInfo =
+    public field mutable PreviousCamera: Camera = default
+    public field mutable PreviousCameraPosition: vec3 = default
+    public field mutable Camera: Camera = default
+    public field mutable CameraPosition: vec3 = default
+    public field mutable Light: Light = default
+
+    GetPreviousCameraTransform(): Transform =
+        this.PreviousCamera.GetTransform(this.PreviousCameraPosition)
+
+    GetCameraTransform(): Transform =
+        this.Camera.GetTransform(this.CameraPosition)
+
+module DrawHelpers =
+
+    GetPipelineIdFromMaterial(renv: RenderEnv, isSprite: bool, material: inref<Material>): Int32Id =
+        let flags = material.Flags
+        if (material.CanAcceptLight)
+            ()
+            if (isSprite)
+                renv.PipelineManager.FindId("SpriteLit.json")
+            else
+                ()
+                if (material.IsTransparent)
+                    renv.PipelineManager.FindId("LitTransparent.json")
+                else
+                    renv.PipelineManager.FindId("Lit.json")
+        else
+            ()
+            if (isSprite)
+                throw NotSupportedException("unlit sprite")
+            renv.PipelineManager.FindId("Unlit.json")
+
+    PrepareDraw(
+            textures: ShaderTextures,
+            pipelineId: Int32Id,
+            isSprite: bool,
+            meshes: AssetManager<RenderMeshGroup>,
+            images: AssetManager<IGpuImage[]>,
+            previousTransform: inref<mat4>, 
+            transform: inref<mat4>, 
+            meshId: Int32Id, 
+            material: Material, 
+            outputInstances: GpuBuffer<ShaderInstance>,
+            drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>,
+            nextDrawCmdIndex: byref<int32>,
+            lookup: DrawLookup,
+            order: byte): (RenderKey, transformIndex: int32) =
+
+        let meshDataGroup = meshes.Get(meshId)
+        let meshes = meshDataGroup.Meshes
+
+        let mutable resultKey = default
+        let mutable resultInstanceIndex = -1
+
+        let images = images.Get(material.ImageId)
+
+        For(meshes.Length,
+            i ->
+                let mesh = meshes[i]
+                let meshKey = MeshKey(meshId, i, mesh.MaterialIndex)
+
+                if (meshKey.MaterialIndex < images.Length)
+                    let image = images[meshKey.MaterialIndex]
+                    let key = RenderKey(pipelineId, meshKey, material, order)           
+                    let (instanceList, aabb, gpuDescriptorSet, drawCmdIndex, drawQueue) =
+                        let mutable result = unchecked default
+                        if (lookup.TryGetValue(key, &result))
+                            result
+                        else
+                            let transformList = List()
+                            let gpuDescriptorSet = 
+                                GpuDescriptorSet(
+                                    GpuDescriptorSetLayout(
+                                        [
+                                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)
+                                        ]
+                                    ),
+                                    [outputInstances: IGpuInput]
+                                )
+
+                            let aabb =
+                                if (isSprite)
+                                    let value = float32(Math.Max(image.Width, image.Height))
+                                    let v = Vector3(value, value, value)
+                                    AABB(-v, v)
+                                else
+                                    mesh.AABB
+
+                            let result = (transformList, aabb, gpuDescriptorSet, nextDrawCmdIndex, List())
+
+                            drawCmds.Array[nextDrawCmdIndex] <-
+                                let mutable drawCmd = default: TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand
+                                drawCmd.indexCount <- uint32(mesh.Indices.Length)
+                                drawCmd
+                            drawCmds.NeedsUpdate <- true
+
+                            nextDrawCmdIndex <- nextDrawCmdIndex + 1
+                            lookup[key] <- result
+                            result
+
+                    let mutable prevTransform = previousTransform
+                    let mutable transform = transform
+
+                    if (isSprite)
+                        prevTransform.Translation <- prevTransform.Translation + Vector3(0, 0, (float32(image.Height) * 0.025))
+                        transform.Translation <- transform.Translation + Vector3(0, 0, (float32(image.Height) * 0.025))
+
+                    let textureIndex = textures.AddImage(image)
+
+                    let mutable prevInstance = ShaderInstance()
+                    prevInstance.Transform <- prevTransform
+                    prevInstance.TextureIndex <- textureIndex
+
+                    let mutable instance = ShaderInstance()
+                    instance.Transform <- transform
+                    instance.TextureIndex <- textureIndex
+                            
+                    resultKey <- key
+                    resultInstanceIndex <- instanceList.Count
+                    instanceList.Add((prevInstance, instance))
+        )
+
+        (resultKey, resultInstanceIndex)
+
+    PrepareDraw(
+            textures: ShaderTextures,
+            pipelineId: Int32Id,
+            isSprite: bool,
+            meshes: AssetManager<RenderMeshGroup>,
+            images: AssetManager<IGpuImage[]>,
+            transformLerp: inref<TransformLerp>, 
+            transform: inref<Transform>, 
+            meshRef: MeshReference, 
+            material: Material,
+            outputInstances: GpuBuffer<ShaderInstance>,
+            drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>,
+            nextDrawCmdIndex: byref<int32>,
+            lookup: DrawLookup,
+            order: byte): (RenderKey, transformIndex: int32) =
+
+        if (material.ImageId.IsValid && meshRef.MeshId.IsValid)
+            let transformLerp = transformLerp.Value.Matrix
+            let transform = transform.Matrix
+            PrepareDraw(textures, pipelineId, isSprite, meshes, images, &transformLerp, &transform, meshRef.MeshId, material, outputInstances, drawCmds, &nextDrawCmdIndex, lookup, order)
+        else
+            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
+
+    QueueDraw(memoryOffset: int32, mutable prevInstances: Memory<ShaderInstance>, mutable instances: Memory<ShaderInstance>, mutable aabbs: Memory<AABB>, mutable drawBatchIndices: Memory<DrawBatchInfo>, lookup: DrawLookup): int32 =
+        if (memoryOffset < 0)
+            throw ArgumentOutOfRangeException("memoryOffset")
+
+        let mutable count = memoryOffset
+
+        ForEach(lookup,
+            (mutable pair) ->
+                let key = pair.Key
+                let (instanceList, aabb, gpuDescriptorSet, drawCmdIndex, drawQueue) = pair.Value
+
+                if (instanceList.Count > 0)
+                    let offset = count
+                    let length = instanceList.Count
+
+                    gpuDescriptorSet.SetResourceRange(0, offset * DotNet.SizeOf<ShaderInstance>, length * DotNet.SizeOf<ShaderInstance>)
+
+                    drawQueue.Add((key, length, offset, gpuDescriptorSet, drawCmdIndex))
+
+                    let mutable i = 0
+                    while (i < length)
+                        let (prevInstance, instance) = instanceList[i]
+                        (prevInstances.Span[offset + i]) <- prevInstance
+                        (instances.Span[offset + i]) <- instance
+                        (aabbs.Span[offset + i]) <- aabb
+                        (drawBatchIndices.Span[offset + i]) <- DrawBatchInfo(drawCmdIndex, offset)
+                        i <- i + 1
+
+                    count <- count + length
+
+                    instanceList.Clear() // clear it
+        )
+
+        count - memoryOffset
+
+    Draw(
+            meshManager: AssetManager<RenderMeshGroup>,
+            drawQueue: ReadOnlyDrawQueue,
+            drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>,
+            globalsDs: GpuDescriptorSet,
+            gpuPipeline: GpuPipeline,
+            gpuCommands: GpuCommandList,
+            draw: scoped (RenderKey, instancesDs: GpuDescriptorSet, GpuCommandList) -> ()): () =
+
+        gpuCommands.BindPipeline(gpuPipeline)
+        gpuCommands.BindDescriptorSet(0, globalsDs)
+
+        let mutable i = 0
+        while (i < drawQueue.Count)
+            let (key, count, offset, ds, drawCmdIndex) = drawQueue[i]
+
+            let meshData = meshManager.Get(key.MeshKey.Id).Meshes[key.MeshKey.Offset]
+            let vertices = meshData.Vertices
+            let indices = meshData.Indices
+            draw(key, ds, gpuCommands)
+
+            let drawCmdSize = DotNet.SizeOf<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>
+            gpuCommands.DrawIndexedIndirectVulkan(vertices, indices, drawCmds,uint64(drawCmdIndex * drawCmdSize), 1, uint32(drawCmdSize))
+
+            i <- i + 1
+
+interface IRendererBehavior =
+
+    GetDepthPipeline(renv: RenderEnv): GpuPipeline
+
+    GetShadowMapPipeline(renv: RenderEnv): GpuPipeline
+
+    GetOutlineMaskPipeline(renv: RenderEnv): GpuPipeline
+
+    GetShadowMaps(renv: RenderEnv): IGpuFrame[]
+
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): ()
+
+    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): ()
+
+    DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): ()
+
+    DrawShadowMaps(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): ()
+
+
+class Renderer =
+
+    internal Behavior: IRendererBehavior get
+
+    field NoOutlineLookup: DrawLookup
+    field OutlineLookup: DrawLookup
+    field TransparencyLookup: DrawLookup
+
+    internal field Instances: GpuBuffer<ShaderInstance>
+    internal field PreviousInstances: GpuBuffer<ShaderInstance>
+    internal field LerpedInstances: GpuBuffer<ShaderInstance>
+    internal field FinalInstances: GpuBuffer<ShaderInstance>
+
+    internal field AABBs: GpuBuffer<AABB>
+    internal field AABBComputeDescriptorSet: GpuDescriptorSet
+
+    internal field DrawBatchIndices: GpuBuffer<DrawBatchInfo>
+    internal field mutable NextDrawCommandIndex: int32
+    internal field DrawCommands: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>
+
+    internal field LerpComputeDescriptorSet: GpuDescriptorSet
+    internal field FrustumCullingComputeDescriptorSet: GpuDescriptorSet
+
+    internal field mutable InstanceCount: int32
+
+    internal field FrustumCullingPipelineId: Int32Id
+
+    new(behavior: IRendererBehavior, frustumCullingPipelineId: Int32Id) =
+        let noOutlineLookup = ConcurrentDictionary(RenderKey.Comparer)
+        let outlineLookup = ConcurrentDictionary(RenderKey.Comparer)
+        let transparencyLookup = ConcurrentDictionary(RenderKey.Comparer)
+
+        let prevInstances =
+            GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+
+        let instances =
+            GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+
+        let lerpedInstances =
+            GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+
+        let finalInstances =
+            GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+
+        let drawBatchIndices =
+            GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+
+        let drawCmds = GpuBuffer.ZeroCreate<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+
+        let lerpComputeDescriptorSet =
+            GpuDescriptorSet(
+                GpuDescriptorSetLayout(
+                    [
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                    ]
+                ),
+                [prevInstances: IGpuInput; instances; lerpedInstances]
+            )
+
+        let frustumCullingComputeDescriptorSet =
+            GpuDescriptorSet(
+                GpuDescriptorSetLayout(
+                    [
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                    ]
+                ),
+                [lerpedInstances: IGpuInput; finalInstances; drawBatchIndices; drawCmds]
+            )
+
+        let aabbs = GpuBuffer.ZeroCreate<AABB>(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+        let aabbComputeDs =
+            GpuDescriptorSet(
+                GpuDescriptorSetLayout(
+                    [
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                    ]
+                ),
+                [aabbs: IGpuInput]
+            )  
+
+        {
+            FrustumCullingPipelineId = frustumCullingPipelineId
+            Behavior = behavior
+            NoOutlineLookup = noOutlineLookup
+            OutlineLookup = outlineLookup
+            TransparencyLookup = transparencyLookup
+            Instances = instances
+            PreviousInstances = prevInstances
+            LerpedInstances = lerpedInstances
+            FinalInstances = finalInstances
+            AABBs = aabbs
+            AABBComputeDescriptorSet = aabbComputeDs
+            LerpComputeDescriptorSet = lerpComputeDescriptorSet
+            FrustumCullingComputeDescriptorSet = frustumCullingComputeDescriptorSet
+            DrawBatchIndices = drawBatchIndices
+            NextDrawCommandIndex = 0
+            DrawCommands = drawCmds
+            InstanceCount = 0
+        }
+
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId): () =
+        ForEach(this.NoOutlineLookup, 
+            (mutable pair) -> 
+                let (_, _, _, _, drawQueue) = pair.Value
+                drawQueue.Clear()
+        )
+
+        ForEach(this.OutlineLookup, 
+            (mutable pair) -> 
+                let (_, _, _, _, drawQueue) = pair.Value
+                drawQueue.Clear()
+        )
+
+        ForEach(this.TransparencyLookup,
+            (mutable pair) -> 
+                let (_, _, _, _, drawQueue) = pair.Value
+                drawQueue.Clear()
+        )
+
+        let noOutlineLookup = this.NoOutlineLookup
+        let outlineLookup = this.OutlineLookup
+        let transparencyLookup = this.TransparencyLookup
+
+        let instances = this.Instances
+        let prevInstances = this.PreviousInstances
+        let lerpedInstances = this.LerpedInstances
+        let finalInstances = this.FinalInstances
+        let aabbs = this.AABBs
+        let drawCmds = this.DrawCommands
+        let drawBatchIndices = this.DrawBatchIndices
+
+        instances.UpdateRanges.Clear()
+        prevInstances.UpdateRanges.Clear()
+        lerpedInstances.UpdateRanges.Clear()
+        finalInstances.UpdateRanges.Clear()
+        aabbs.UpdateRanges.Clear()
+        drawCmds.UpdateRanges.Clear()
+        drawBatchIndices.UpdateRanges.Clear()
+
+        this.Behavior.Update(renv, rfenv, db, cameraEntId, finalInstances, drawCmds, &this.NextDrawCommandIndex, outlineLookup, noOutlineLookup, transparencyLookup)
+
+        let transformsMemory = Memory(instances.Array)
+        let previousTransformsMemory = Memory(prevInstances.Array)
+        let aabbsMemory = Memory(aabbs.Array)
+        let drawBatchIndicesMemory = Memory(drawBatchIndices.Array)
+        let mutable count = 0
+        count <- count + DrawHelpers.QueueDraw(count, previousTransformsMemory, transformsMemory, aabbsMemory, drawBatchIndicesMemory, noOutlineLookup)
+        count <- count + DrawHelpers.QueueDraw(count, previousTransformsMemory, transformsMemory, aabbsMemory, drawBatchIndicesMemory, outlineLookup)
+        count <- count + DrawHelpers.QueueDraw(count, previousTransformsMemory, transformsMemory, aabbsMemory, drawBatchIndicesMemory, transparencyLookup)
+
+        instances.UpdateRanges.Add((0, count))
+        prevInstances.UpdateRanges.Add((0, count))
+        lerpedInstances.UpdateRanges.Add((0, count))
+        finalInstances.UpdateRanges.Add((0, count))
+        aabbs.UpdateRanges.Add((0, count))
+        drawBatchIndices.UpdateRanges.Add((0, count))
+        drawCmds.UpdateRanges.Add((0, this.NextDrawCommandIndex))
+        this.InstanceCount <- count
+
+        instances.NeedsUpdate <- true
+        prevInstances.NeedsUpdate <- true
+        lerpedInstances.NeedsUpdate <- true
+        finalInstances.NeedsUpdate <- true
+        aabbs.NeedsUpdate <- true
+        drawBatchIndices.NeedsUpdate <- true
+        drawCmds.NeedsUpdate <- true
+
+    DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, gpuCommands: GpuCommandList): () =
+        let pipeline = this.Behavior.GetOutlineMaskPipeline(renv)
+        let outlineOccluderFrame = renv.GetInverseOutlineMaskFrame()
+
+        ForEach(this.OutlineLookup,
+            (mutable pair) ->
+                let (_, _, _, _, drawQueue) = pair.Value
+
+                if (drawQueue.Count > 0)
+                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, renv.GlobalsDescriptorSet, pipeline, gpuCommands,
+                        (key, instancesDs, gpuCommands) ->
+                            this.Behavior.DrawOutlineMask(renv, rfenv, key, instancesDs, outlineOccluderFrame.DepthImage.GetVertexDescriptorSet(), gpuCommands)
+                    )
+        )
+
+    DrawOutlineNoMask(renv: RenderEnv, rfenv: RenderFrameEnv, gpuCommands: GpuCommandList): () =
+        let pipeline = this.Behavior.GetDepthPipeline(renv)
+
+        ForEach(this.NoOutlineLookup,
+            (mutable pair) ->
+                let (_, _, _, _, drawQueue) = pair.Value
+
+                if (drawQueue.Count > 0)
+                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, renv.GlobalsVertexDescriptorSet, pipeline, gpuCommands,
+                        (key, instancesDs, gpuCommands) ->
+                            let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
+                            gpuCommands.BindDescriptorSet(1, instancesDs)
+                            gpuCommands.BindDescriptorSet(2, imageDs)
+                    )
+        )
+
+    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuPipeline: GpuPipeline, gpuCommands: GpuCommandList, draw: scoped (RenderKey, instancesDs: GpuDescriptorSet, GpuCommandList) -> ()): () =
+        ForEach(this.NoOutlineLookup,
+            (mutable pair) ->
+                let (_, _, _, _, drawQueue) = pair.Value
+                if (drawQueue.Count > 0)
+                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+        )
+        ForEach(this.OutlineLookup,
+            (mutable pair) ->
+                let (_, _, _, _, drawQueue) = pair.Value
+                if (drawQueue.Count > 0)
+                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+        )
+        ForEach(this.TransparencyLookup,
+            (mutable pair) ->
+                let (_, _, _, _, drawQueue) = pair.Value
+                if (drawQueue.Count > 0)
+                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+        )
+
+    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuCommands: GpuCommandList, draw: scoped (RenderKey, instancesDs: GpuDescriptorSet, GpuCommandList) -> ()): () =
+        ForEach(this.NoOutlineLookup,
+            (mutable pair) ->
+                let pipelineId = pair.Key.PipelineId
+                if (pipelineId.IsValid)
+                    let (_, _, _, _, drawQueue) = pair.Value
+                    if (drawQueue.Count > 0)
+                        let gpuPipeline = renv.PipelineManager.Get(pipelineId)
+                        DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+        )
+        ForEach(this.OutlineLookup,
+            (mutable pair) ->
+                let pipelineId = pair.Key.PipelineId
+                if (pipelineId.IsValid)
+                    let (_, _, _, _, drawQueue) = pair.Value
+                    if (drawQueue.Count > 0)
+                        let gpuPipeline = renv.PipelineManager.Get(pipelineId)
+                        DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+        )
+
+    DrawTransparency(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuCommands: GpuCommandList, draw: scoped (RenderKey, instancesDs: GpuDescriptorSet, GpuCommandList) -> ()): () =
+        ForEach(System.Linq.Enumerable.OrderBy(this.TransparencyLookup, (mutable x) -> x.Key.Order),
+            (mutable pair) ->
+                let pipelineId = pair.Key.PipelineId
+                if (pipelineId.IsValid)
+                    let (_, _, _, _, drawQueue) = pair.Value
+                    if (drawQueue.Count > 0)
+                        let gpuPipeline = renv.PipelineManager.Get(pipelineId)
+                        DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+        )
+
+    FreeResources(gpu: Gpu): () =
+        ForEach(this.NoOutlineLookup,
+            (mutable pair) ->
+                let (_, _, ds, _, drawQueue) = pair.Value
+                drawQueue.Clear()
+                gpu.Free(ds)
+        )
+        ForEach(this.OutlineLookup,
+            (mutable pair) ->
+                let (_, _, ds, _, drawQueue) = pair.Value
+                drawQueue.Clear()
+                gpu.Free(ds)
+        )
+        ForEach(this.TransparencyLookup,
+            (mutable pair) ->
+                let (_, _, ds, _, drawQueue) = pair.Value
+                drawQueue.Clear()
+                gpu.Free(ds)
+        )
+        this.NoOutlineLookup.Clear()
+        this.OutlineLookup.Clear()
+        this.TransparencyLookup.Clear()
+        this.InstanceCount <- 0
+        this.NextDrawCommandIndex <- 0
+        gpu.Free(this.Instances)
+        gpu.Free(this.PreviousInstances)
+        gpu.Free(this.LerpedInstances)
+        gpu.Free(this.FinalInstances)
+        gpu.Free(this.AABBs)
+        gpu.Free(this.AABBComputeDescriptorSet)
+        gpu.Free(this.DrawBatchIndices)
+        gpu.Free(this.DrawCommands)
+        gpu.Free(this.LerpComputeDescriptorSet)
+        gpu.Free(this.FrustumCullingComputeDescriptorSet)
+
+    module Logic =
+
+        Update(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, db: EntityDatabase, cameraEntId: EntityId, outLights: List<DrawLightInfo>): () =
+            db.ForEach<TransformLerp, Transform, CameraLerp, Camera>(
+                (entId, transformLerp, transform, cameraLerp, camera) ->
+                    transform.Rotation <- camera.RealRotation
+                    transformLerp.Value.Rotation <- cameraLerp.Value.RealRotation
+            )
+            
+            db.ForEach<TransformLerp, Transform>(
+                (entId, transformLerp, transform) ->
+                    let mutable seq = transform.Sequence
+                    let mutable prevSeq = transformLerp.Value.Sequence
+                    if (seq.IsNewerThan(prevSeq))
+                        Log("teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
+                        transformLerp.Value <- transform
+            )
+
+            ForEach(renderers,
+                renderer ->
+                    renderer.Update(renv, rfenv, db, cameraEntId)
+            )
+
+            outLights.Clear()
+            // TODO: Only gather the closest lights.
+            db.ForEach<Camera, CameraLerp, Light>(
+                (entId, camera, cameraLerp, light) ->
+                    if (outLights.Count < ShaderLights.MaxCount)
+                        let mutable info = default: DrawLightInfo
+                        info.PreviousCamera <- cameraLerp.Value
+                        info.Camera <- camera
+                        info.Light <- light
+                        outLights.Add(info)
+            )
+
+    module Passes =
+
+        Dispatch(renv: RenderEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
+            let computeLerp = renv.PipelineManager.Get("Compute/Interpolation.json") // TODO: replace with getting this pipeline by index
+
+            ForEach(renderers,
+                renderer ->
+                    // We never change the draw-commands array directly,
+                    // but forcing an update will force a reset on the draw commands.
+                    renderer.DrawCommands.NeedsUpdate <- true
+                    gpuCommands.BindPipeline(computeLerp)
+                    gpuCommands.BindDescriptorSet(0, renv.GlobalsComputeDescriptorSet)
+                    gpuCommands.BindDescriptorSet(1, renderer.LerpComputeDescriptorSet)
+                    gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
+            )
+
+            gpuCommands.PipelineBarrier(GpuPipelineBarrierKind.DispatchToDispatch)
+
+            ForEach(renderers,
+                renderer ->
+                    let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
+                    gpuCommands.BindPipeline(frustumCullingPipeline)
+                    gpuCommands.BindDescriptorSet(0, renv.GlobalsComputeDescriptorSet)
+                    gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
+                    gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
+                    gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
+            )
+
+            gpuCommands.PipelineBarrier(GpuPipelineBarrierKind.DispatchToDrawIndirect)
+
+        DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
+            ForEach(renderers,
+                renderer ->
+                    renderer.DrawOutlineMask(renv, rfenv, gpuCommands)
+            )
+
+        DrawOutlineNoMask(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
+            ForEach(renderers,
+                renderer ->
+                    renderer.DrawOutlineNoMask(renv, rfenv, gpuCommands)
+            )
+
+        DrawShadows(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, lights: IReadOnlyList<DrawLightInfo>, shadowMaps: IGpuFrame[], gpuCommands: GpuCommandList): () =
+            let mainGlobalsBuffer = renv.GlobalsBuffer
+            let sMainGlobals: inref<ShaderGlobals> = &mainGlobalsBuffer.Array[0]
+
+            let globalsManager = renv.GlobalsManager
+
+            let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
+    
+            let mutable shadowMapCount = 0
+            For(lights.Count,
+                i ->
+                    if (shadowMapCount < renv.ShadowMaps.LayerCount)
+                        let item = lights[i]
+    
+                        let shadowMapGlobals = globalsManager.Get(shadowMapGlobalsIds[shadowMapCount])
+                        let shadowMapFrame = shadowMaps[shadowMapCount]
+    
+                        let sGlobals = &shadowMapGlobals.Array[0]
+                        sGlobals <- sMainGlobals // Copy same information from main globals
+                        // now just update the relevant info unique to the shadow-map
+
+                        let camera = item.Camera
+
+                        // TODO: What about interpolation?
+                        if (item.Light.Kind == LightKind.Spot)
+                            sGlobals.LightKind <- 1
+                        else
+                            sGlobals.LightKind <- 0
+                            
+                        sGlobals.View <- item.GetCameraTransform().WorldToLocalMatrix
+                        sGlobals.Projection <- camera.Projection
+                        sGlobals.Resolution <- shadowMapFrame.Size
+                        sGlobals.SuperSamplingAmount <- 1
+                        sGlobals.FrustumPlanes <- (sGlobals.View * sGlobals.Projection).GetFrustumPlanes()
+                        if (!Matrix4x4.Invert(sGlobals.View, &sGlobals.ViewInverse))
+                            sGlobals.ViewInverse <- Matrix4x4.Identity
+                            LogClientWarning("View matrix was unable to be inverted")
+                        if (!Matrix4x4.Invert(sGlobals.Projection, &sGlobals.ProjectionInverse))
+                            sGlobals.ProjectionInverse <- Matrix4x4.Identity
+                            LogClientWarning("Projection matrix was unable to be inverted")
+
+                        shadowMapGlobals.NeedsUpdate <- true
+    
+                        ForEach(renderers,
+                            renderer ->
+                                let shadowMapFrame = renderer.Behavior.GetShadowMaps(renv)[shadowMapCount]
+                                let program = renderer.Behavior.GetShadowMapPipeline(renv)
+
+                                gpuCommands.BeginFrame(shadowMapFrame)
+                                renderer.Draw(renv, rfenv, shadowMapGlobals.GetVertexDescriptorSet(), program, gpuCommands,
+                                    (key, instancesDs, gpuCommands) ->
+                                        renderer.Behavior.DrawShadowMaps(renv, rfenv, key, instancesDs, gpuCommands)
+                                )
+                                gpuCommands.EndFrame()
+                        )
+    
+                        shadowMapCount <- shadowMapCount + 1
+            )
+    
+            renv.SetShadowMapCount(shadowMapCount)
+
+        Draw(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
+            ForEach(renderers,
+                renderer ->
+                    renderer.Draw(renv, rfenv, renv.GlobalsDescriptorSet, gpuCommands,
+                        (key, instancesDs, gpuCommands) ->
+                            renderer.Behavior.Draw(renv, rfenv, key, instancesDs, gpuCommands)
+                        )
+            )
+
+        DrawTransparency(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
+            ForEach(renderers,
+                renderer ->
+                    renderer.DrawTransparency(renv, rfenv, renv.GlobalsDescriptorSet, gpuCommands,
+                        (key, instancesDs, gpuCommands) ->
+                            renderer.Behavior.Draw(renv, rfenv, key, instancesDs, gpuCommands)
+                        )
+            )

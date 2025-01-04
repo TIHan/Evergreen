@@ -1,0 +1,35 @@
+
+namespace Game.Shared
+
+open System
+open System.IO
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics
+open Evergreen.Graphics.Rendering
+open Evergreen.Audio
+open static Game.AssetManager
+
+class GameEnv =
+    ConnectionKey: string get
+    EngineHash: string get
+    Maps: AssetManager<Stream> get
+    MeshManager: AssetManager<RenderMeshGroup> get
+    Pipelines: AssetManager<GpuPipeline> get
+    Images: AssetManager<IGpuImage[]> get
+    SoundManager: AssetManager<Sound> get
+
+    ConsoleWriter: StringWriter get
+
+    new(connectionKey: string, engineHash: string, maps: AssetManager<Stream>, meshManager: AssetManager<RenderMeshGroup>, soundManager: AssetManager<Sound>, pipelines: AssetManager<GpuPipeline>, images: AssetManager<IGpuImage[]>) =
+        {
+            ConnectionKey = connectionKey
+            EngineHash = engineHash
+            Maps = maps
+            MeshManager = meshManager
+            SoundManager = soundManager
+            Pipelines = pipelines
+            Images = images
+
+            ConsoleWriter = StringWriter()
+        }

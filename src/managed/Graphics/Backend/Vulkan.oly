@@ -1,0 +1,2901 @@
+namespace Evergreen.Graphics.Backend.Vulkan
+
+open System
+open System.Text
+open System.Numerics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Runtime.CompilerServices
+open System.Diagnostics
+open TerraFX.Interop.Vulkan
+open static TerraFX.Interop.Vulkan.Vulkan
+open Evergreen.Utilities
+open static Evergreen.Graphics.Backend.Interop.VulkanMemoryAllocator
+
+private alias Unsafe = OlyPrelude.Unsafe
+
+alias VkExtent2D = TerraFX.Interop.Vulkan.VkExtent2D
+alias VkRect2D = TerraFX.Interop.Vulkan.VkRect2D
+alias VkViewport = TerraFX.Interop.Vulkan.VkViewport
+alias VkPipelineBindPoint = TerraFX.Interop.Vulkan.VkPipelineBindPoint
+alias VkImageLayout = TerraFX.Interop.Vulkan.VkImageLayout
+alias VkBufferUsageFlags = TerraFX.Interop.Vulkan.VkBufferUsageFlags
+alias VmaAllocationCreateFlags = Evergreen.Graphics.Backend.Interop.VulkanMemoryAllocator.VmaAllocationCreateFlags
+alias VkDescriptorType = TerraFX.Interop.Vulkan.VkDescriptorType
+alias VkShaderStageFlags = TerraFX.Interop.Vulkan.VkShaderStageFlags
+alias VkDescriptorSetLayout = TerraFX.Interop.Vulkan.VkDescriptorSetLayout
+alias VkDescriptorSet = TerraFX.Interop.Vulkan.VkDescriptorSet
+alias VkDescriptorPool = TerraFX.Interop.Vulkan.VkDescriptorPool
+alias VkPolygonMode = TerraFX.Interop.Vulkan.VkPolygonMode
+alias VkCullModeFlags = TerraFX.Interop.Vulkan.VkCullModeFlags
+alias VkFrontFace = TerraFX.Interop.Vulkan.VkFrontFace
+alias VkFormat = TerraFX.Interop.Vulkan.VkFormat
+alias VkImageUsageFlags = TerraFX.Interop.Vulkan.VkImageUsageFlags
+alias VkImageAspectFlags = TerraFX.Interop.Vulkan.VkImageAspectFlags
+alias VkFramebuffer = TerraFX.Interop.Vulkan.VkFramebuffer
+alias VkPipeline = TerraFX.Interop.Vulkan.VkPipeline
+alias VkPipelineLayout = TerraFX.Interop.Vulkan.VkPipelineLayout
+alias VkRenderPass = TerraFX.Interop.Vulkan.VkRenderPass
+alias VkShaderModule = TerraFX.Interop.Vulkan.VkShaderModule
+alias VkImage = TerraFX.Interop.Vulkan.VkImage
+alias VkImageView = TerraFX.Interop.Vulkan.VkImageView
+alias VkSampler = TerraFX.Interop.Vulkan.VkSampler
+alias VkVertexInputBindingDescription = TerraFX.Interop.Vulkan.VkVertexInputBindingDescription
+alias VkVertexInputAttributeDescription = TerraFX.Interop.Vulkan.VkVertexInputAttributeDescription
+alias VkSamplerAddressMode = TerraFX.Interop.Vulkan.VkSamplerAddressMode
+
+alias VkStencilOp = TerraFX.Interop.Vulkan.VkStencilOp
+alias VkStencilOpState = TerraFX.Interop.Vulkan.VkStencilOpState
+alias VkCompareOp = TerraFX.Interop.Vulkan.VkCompareOp
+alias VkFilter = TerraFX.Interop.Vulkan.VkFilter
+alias VkSamplerMipmapMode = TerraFX.Interop.Vulkan.VkSamplerMipmapMode
+alias VkAccessFlags = TerraFX.Interop.Vulkan.VkAccessFlags
+alias VkPipelineStageFlags = TerraFX.Interop.Vulkan.VkPipelineStageFlags
+
+enum VulkanGraphicsPipelineFlags =
+    | None          = 0b0000
+    | DepthTest     = 0b0001
+    | DepthWrite    = 0b0010
+    | StencilTest   = 0b0100
+
+class VulkanSwapChainOutOfDateException =
+    inherits Exception
+
+    internal new() = base()
+
+class VulkanSwapChainCreationFailedException =
+    inherits Exception
+
+    internal new() = base()
+
+class VulkanValidationException =
+    inherits Exception
+
+    internal new(msg: string) = base(msg)
+
+class VulkanApplication =
+    ValidationLayersEnabled: bool get
+    AsyncDrawEnabled: bool get
+    Instance: VkInstance get
+    Surface: VkSurfaceKHR get
+    PhysicalDevice: VkPhysicalDevice get
+    PhysicalDeviceProperties: VkPhysicalDeviceProperties get
+    Device: VkDevice get
+    GraphicsQueues: VkQueue[] get
+    GraphicsQueueFamilyIndex: uint32 get
+    GraphicsCommandPool: VkCommandPool get
+    ComputeQueue: VkQueue get
+    ComputeQueueFamilyIndex: uint32 get
+    ComputeCommandPool: VkCommandPool get
+    TransferQueues: VkQueue[] get
+    TransferQueueFamilyIndex: uint32 get
+    TransferCommandPool: VkCommandPool get
+    PresentQueue: VkQueue get
+    PresentQueueFamilyIndex: uint32 get
+    DebugMessenger: VkDebugUtilsMessengerEXT get
+    ImageAvailableSemaphores: VkSemaphore[] get
+    RenderFinishedSemaphores: VkSemaphore[] get
+    InFlightFences: VkFence[] get
+    Allocator: VmaAllocator get
+
+    internal field mutable currentFrame: int32
+    internal field mutable previousFrame: int32
+    internal field mutable currentSemaphoreIndex: int32
+    internal field mutable isOutOfDate: bool
+    internal field mutable lastImageIndex: uint32
+    internal field mutable hasDrawnOnce: bool
+
+    MaxFramesInFlight: int32 get() = this.InFlightFences.Length
+    CurrentFrame: int32 get() = this.currentFrame
+    PreviousFrame: int32 get() = this.previousFrame
+    LastImageIndex: int32 get() = int32(this.lastImageIndex)
+
+    GetDeviceName(): string =
+        let mutable deviceProperties = default
+        vkGetPhysicalDeviceProperties(this.PhysicalDevice, &&deviceProperties)
+        String(Unsafe.AsPointer(&&deviceProperties.deviceName): int8*)
+
+    GetDriverVersion(): uint32 =
+        let mutable deviceProperties = default
+        vkGetPhysicalDeviceProperties(this.PhysicalDevice, &&deviceProperties)
+        deviceProperties.driverVersion
+
+    GetApiVersion(): uint32 =
+        let mutable deviceProperties = default
+        vkGetPhysicalDeviceProperties(this.PhysicalDevice, &&deviceProperties)
+        deviceProperties.apiVersion
+
+    GetVRamCapacity(): uint64 =
+        let mutable deviceMemoryProperties = default
+        vkGetPhysicalDeviceMemoryProperties(this.PhysicalDevice, &&deviceMemoryProperties)
+        let mutable span = deviceMemoryProperties.memoryHeaps.AsSpan()
+        let mutable total = 0: uint64
+        For(span.Length,
+            i ->
+                let x = span[i]
+                if (x.flags.HasFlag(VkMemoryHeapFlags.VK_MEMORY_HEAP_DEVICE_LOCAL_BIT))
+                    total <- total + x.size
+        )
+        total
+
+    new(validationLayersEnabled: bool, asyncDrawEnabled: bool, instance: VkInstance, surface: VkSurfaceKHR, physicalDevice: VkPhysicalDevice, device: VkDevice, graphicsQueues: VkQueue[], graphicsQueueFamilyIndex: uint32, computeQueue: VkQueue, computeQueueFamilyIndex: uint32, transferQueues: VkQueue[], transferQueueFamilyIndex: uint32, presentQueue: VkQueue, presentQueueFamilyIndex: uint32, debugMessenger: VkDebugUtilsMessengerEXT, imageAvailableSemaphores: VkSemaphore[], renderFinishedSemaphores: VkSemaphore[], inFlightFences: VkFence[], allocator: VmaAllocator) =
+        let graphicsCommandPool = Vk.createCommandPool(device, graphicsQueueFamilyIndex)
+        let computeCommandPool = Vk.createCommandPool(device, computeQueueFamilyIndex)
+        let transferCommandPool = Vk.createCommandPool(device, transferQueueFamilyIndex)
+        {
+            ValidationLayersEnabled = validationLayersEnabled
+            AsyncDrawEnabled = asyncDrawEnabled
+            Instance = instance
+            Surface = surface
+            PhysicalDevice = physicalDevice
+            PhysicalDeviceProperties = Vk.getPhysicalDeviceProperties(physicalDevice)
+            Device = device
+            GraphicsQueues = graphicsQueues
+            GraphicsQueueFamilyIndex = graphicsQueueFamilyIndex
+            GraphicsCommandPool = graphicsCommandPool
+            ComputeQueue = computeQueue
+            ComputeQueueFamilyIndex = computeQueueFamilyIndex
+            ComputeCommandPool = computeCommandPool
+            TransferQueues = transferQueues
+            TransferQueueFamilyIndex = transferQueueFamilyIndex
+            TransferCommandPool = transferCommandPool
+            PresentQueue = presentQueue
+            PresentQueueFamilyIndex = presentQueueFamilyIndex
+            DebugMessenger = debugMessenger
+            ImageAvailableSemaphores = imageAvailableSemaphores
+            RenderFinishedSemaphores = renderFinishedSemaphores
+            InFlightFences = inFlightFences
+            currentFrame = 0
+            previousFrame = 0
+            currentSemaphoreIndex = 0
+            isOutOfDate = false
+            lastImageIndex = 0
+            hasDrawnOnce = false
+            Allocator = allocator
+        }
+
+class VulkanSwapChainSupportDetails =
+    public field Capabilities: VkSurfaceCapabilitiesKHR
+    Formats: VkSurfaceFormatKHR[] get
+    PresentModes: VkPresentModeKHR[] get
+
+    new(capabilities: VkSurfaceCapabilitiesKHR, formats: VkSurfaceFormatKHR[], presentModes: VkPresentModeKHR[]) =
+        {
+            Capabilities = capabilities
+            Formats = formats
+            PresentModes = presentModes
+        }
+
+class VulkanSwapChain =
+    SwapChain: VkSwapchainKHR get
+    Images: VkImage[] get
+    ImageViews: VkImageView[] get
+    DepthImages: VulkanImage[] get
+    DepthImageViews: VkImageView[] get
+    Extent: VkExtent2D get
+    Viewport: VkViewport get
+    Scissor: VkRect2D get
+    ImageFormat: VkFormat get
+    DepthImageFormat: VkFormat get
+    SupportDetails: VulkanSwapChainSupportDetails get
+
+    new(swapChain: VkSwapchainKHR, images: VkImage[], imageViews: VkImageView[], depthImages: VulkanImage[], depthImageViews: VkImageView[], extent: VkExtent2D, viewport: VkViewport, scissor: VkRect2D, imageFormat: VkFormat, depthImageFormat: VkFormat, supportDetails: VulkanSwapChainSupportDetails) =
+        {
+            SwapChain = swapChain
+            Images = images
+            ImageViews = imageViews
+            DepthImages = depthImages
+            DepthImageViews = depthImageViews
+            Extent = extent
+            Viewport = viewport
+            Scissor = scissor
+            ImageFormat = imageFormat
+            DepthImageFormat = depthImageFormat
+            SupportDetails = supportDetails
+        }
+
+#[Flags]
+enum VulkanValidationFlags =
+    | None          = 0b000
+    | Standard      = 0b001
+    | Full          = 0b011 // very expensive
+    | BestPractices = 0b101 // very hard to conform to
+
+class VulkanApplicationOptions =
+    ValidationFlags: VulkanValidationFlags set, get = VulkanValidationFlags.None
+
+    class VulkanDescriptorBindingInfo =
+        Binding: uint32 get
+        DescriptorType: VkDescriptorType get
+        StageFlags: VkShaderStageFlags get
+    
+        new(binding: uint32, descriptorType: VkDescriptorType, stageFlags: VkShaderStageFlags) =
+            {
+                Binding = binding
+                DescriptorType = descriptorType
+                StageFlags = stageFlags
+            }
+
+struct VulkanDescriptorSetLayoutBinding =
+    DescriptorType: VkDescriptorType get
+    StageFlags: VkShaderStageFlags get
+    Count: uint32 get
+    IsBindless: bool get
+
+    new(descriptorType: VkDescriptorType, stageFlags: VkShaderStageFlags, count: uint32, isBindless: bool) =
+        {
+            DescriptorType = descriptorType
+            StageFlags = stageFlags
+            Count = count
+            IsBindless = isBindless
+        }
+
+class VulkanBuffer =
+    Buffer: VkBuffer get
+    Allocation: VmaAllocation get
+    AllocationInfo: VmaAllocationInfo get
+    Size: uint64 get
+    Flags: VkMemoryPropertyFlags get
+
+    new(buffer: VkBuffer, allocation: VmaAllocation, allocInfo: VmaAllocationInfo, size: uint64, flags: VkMemoryPropertyFlags) =
+        {
+            Buffer = buffer
+            Allocation = allocation
+            AllocationInfo = allocInfo
+            Size = size
+            Flags = flags
+        }
+
+class VulkanImage =
+    Image: VkImage get
+    Allocation: VmaAllocation get
+    Width: uint32 get
+    Height: uint32 get
+    Format: VkFormat get
+    MipLevels: uint32 get
+
+    new(image: VkImage, allocation: VmaAllocation, width: uint32, height: uint32, format: VkFormat, mipLevels: uint32) =
+        {
+            Image = image
+            Allocation = allocation
+            Width = width
+            Height = height
+            Format = format
+            MipLevels = mipLevels
+        }
+
+/// Runtime alias for 'VkCommandBuffer'.
+newtype VulkanCommandBuffer =
+    public field CommandBuffer: VkCommandBuffer
+
+    Begin(): () =
+        let mutable beginInfo = default: VkCommandBufferBeginInfo
+        beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+        beginInfo.flags <- default // Optional
+        beginInfo.pInheritanceInfo <- nullptr // Optional
+
+        if (vkBeginCommandBuffer(this.CommandBuffer, &&beginInfo) != VkResult.VK_SUCCESS)
+            fail("Failed to begin recording command buffer.")
+
+    BeginRenderPass(renderPass: VkRenderPass, framebuffer: VkFramebuffer, extent: VkExtent2D, flags: VulkanRenderPassFlags): () =
+        let mutable renderPassInfo = default: VkRenderPassBeginInfo
+        renderPassInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
+        renderPassInfo.renderPass <- renderPass
+        renderPassInfo.framebuffer <- framebuffer
+        renderPassInfo.renderArea.offset.x <- 0
+        renderPassInfo.renderArea.offset.y <- 0
+        renderPassInfo.renderArea.extent <- extent
+
+        let mutable clearValue = default: VkClearValue
+        let mutable clearColorValue = default: VkClearColorValue
+
+        let clearColorValue0 = &clearColorValue.float32
+        let clearColorValue1 = &System.Runtime.CompilerServices.Unsafe.AddByteOffset(&clearColorValue0, nuint(4))
+        let clearColorValue2 = &System.Runtime.CompilerServices.Unsafe.AddByteOffset(&clearColorValue0, nuint(8))
+        let clearColorValue3 = &System.Runtime.CompilerServices.Unsafe.AddByteOffset(&clearColorValue0, nuint(12))
+
+        clearColorValue0.FixedElementField <- 0
+        clearColorValue1.FixedElementField <- 0
+        clearColorValue2.FixedElementField <- 0
+        clearColorValue3.FixedElementField <- 1
+
+        clearValue.color <- clearColorValue
+
+        let mutable clearDepthValue = default: VkClearValue
+        let mutable clearDepthStencilValue = default: VkClearDepthStencilValue
+
+        clearDepthStencilValue.depth <- 1
+        clearDepthStencilValue.stencil <- 0
+
+        clearDepthValue.depthStencil <- clearDepthStencilValue
+
+        // TODO: Fix GC allocation.
+        let clearValues = 
+            if (flags & VulkanRenderPassFlags.ClearAll == VulkanRenderPassFlags.ClearAll)
+                [clearValue;clearDepthValue]
+            else if (flags & VulkanRenderPassFlags.ClearDepthStencil == VulkanRenderPassFlags.ClearDepthStencil)
+                [clearDepthValue]
+            else if (flags & VulkanRenderPassFlags.ClearColor == VulkanRenderPassFlags.ClearColor)
+                [clearValue]
+            else
+                []
+
+        let mutable clearValuesHandle = fixed(clearValues)
+
+        renderPassInfo.clearValueCount <- uint32(clearValues.Length)
+        renderPassInfo.pClearValues <- Unsafe.AsPointer(clearValuesHandle.AddrOfPinnedObject())
+
+        vkCmdBeginRenderPass(this.CommandBuffer, &&renderPassInfo, VkSubpassContents.VK_SUBPASS_CONTENTS_INLINE)
+
+        clearValuesHandle.Free()
+
+    BindPipeline(pipeline: VkPipeline, pipelineBindPoint: VkPipelineBindPoint): () =
+        vkCmdBindPipeline(this.CommandBuffer, pipelineBindPoint, pipeline)
+
+    SetViewport(mutable viewport: VkViewport): () =
+        vkCmdSetViewport(this.CommandBuffer, 0, 1, &&viewport)
+
+    SetScissor(mutable scissor: VkRect2D): () =
+        vkCmdSetScissor(this.CommandBuffer, 0, 1, &&scissor)
+
+    Draw(vertexCount: uint32, instanceCount: uint32): () =
+        vkCmdDraw(this.CommandBuffer, vertexCount, instanceCount, 0, 0)
+
+    DrawIndexed(indexCount: uint32, instanceCount: uint32): () =
+        vkCmdDrawIndexed(this.CommandBuffer, indexCount, instanceCount, 0, 0, 0)
+
+    DrawIndexedIndirect(buffer: VkBuffer, offset: uint64, drawCount: uint32, stride: uint32): () =
+        vkCmdDrawIndexedIndirect(this.CommandBuffer, buffer, offset, drawCount, stride)
+
+    Dispatch(groupCountX: uint32, groupCountY: uint32, groupCountZ: uint32): () =
+        vkCmdDispatch(this.CommandBuffer, groupCountX, groupCountY, groupCountZ)
+
+    PipelineBarrier(srcAccessMask: VkAccessFlags, dstAccessMask: VkAccessFlags, srcStageMask: VkPipelineStageFlags, dstStageMask: VkPipelineStageFlags): () =
+        let mutable barrier = default: VkMemoryBarrier
+        barrier.sType <- VkStructureType.VK_STRUCTURE_TYPE_MEMORY_BARRIER
+        barrier.srcAccessMask <- srcAccessMask
+        barrier.dstAccessMask <- dstAccessMask
+
+        vkCmdPipelineBarrier(
+            this.CommandBuffer,
+            srcStageMask,
+            dstStageMask,
+            VkDependencyFlags.VK_DEPENDENCY_BY_REGION_BIT,
+            1,
+            &&barrier,
+            0,
+            nullptr,
+            0,
+            nullptr
+        )
+
+    ImageMemoryBarrier(srcAccessMask: VkAccessFlags, dstAccessMask: VkAccessFlags, srcStageMask: VkPipelineStageFlags, dstStageMask: VkPipelineStageFlags, oldLayout: VkImageLayout, newLayout: VkImageLayout, aspectFlags: VkImageAspectFlags, image: VulkanImage, layerCount: uint32): () =
+        let mutable barrier = default: VkImageMemoryBarrier
+        barrier.sType <- VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+        barrier.srcAccessMask <- srcAccessMask
+        barrier.dstAccessMask <- dstAccessMask
+        barrier.oldLayout <- oldLayout
+        barrier.newLayout <- newLayout
+        barrier.srcQueueFamilyIndex <- VK_QUEUE_FAMILY_IGNORED
+        barrier.dstQueueFamilyIndex <- VK_QUEUE_FAMILY_IGNORED
+        barrier.subresourceRange.aspectMask <- aspectFlags
+        barrier.subresourceRange.baseMipLevel <- 0
+        barrier.subresourceRange.levelCount <- image.MipLevels
+        barrier.subresourceRange.baseArrayLayer <- 0
+        barrier.subresourceRange.layerCount <- layerCount
+        barrier.image <- image.Image
+
+        vkCmdPipelineBarrier(
+            this.CommandBuffer,
+            srcStageMask,
+            dstStageMask,
+            VkDependencyFlags.VK_DEPENDENCY_BY_REGION_BIT,
+            0,
+            nullptr,
+            0,
+            nullptr,
+            1,
+            &&barrier
+        )
+
+    BindVertexBuffers(mutable rosVertexBuffers: ReadOnlySpan<VulkanBuffer>): () =
+        let vertexBuffers = zeroArray<VkBuffer>(rosVertexBuffers.Length)
+        let mutable i = 0
+        while (i < vertexBuffers.Length)
+            vertexBuffers[i] <- rosVertexBuffers[i].Buffer
+            i <- i + 1
+        let mutable vertexBuffersHandle = fixed(vertexBuffers)
+
+        let offsets = zeroArray<uint64>(rosVertexBuffers.Length)
+        let mutable i = 0
+        while (i < offsets.Length)
+            offsets[i] <- 0
+            i <- i + 1
+        let mutable offsetsHandle = fixed(offsets)
+
+        vkCmdBindVertexBuffers(this.CommandBuffer, 0, 1, Unsafe.AsPointer(vertexBuffersHandle.AddrOfPinnedObject()), Unsafe.AsPointer(offsetsHandle.AddrOfPinnedObject()))
+
+        // Cleanup
+        offsetsHandle.Free()
+        vertexBuffersHandle.Free()
+
+    BindVertexBuffers(vertexBuffers: mutable VulkanBuffer[]): () =
+        this.BindVertexBuffers(ReadOnlySpan(vertexBuffers))
+
+    BindVertexBuffers(vertexBuffers: VulkanBuffer[]): () =
+        this.BindVertexBuffers(ReadOnlySpan(Unsafe.AsMutable(vertexBuffers)))
+
+    BindVertexBuffer(vertexBuffer: VulkanBuffer): () =
+        this.BindVertexBuffers([vertexBuffer])
+
+    BindIndexBuffer(indexBuffer: VulkanBuffer): () =
+        vkCmdBindIndexBuffer(this.CommandBuffer, indexBuffer.Buffer, 0, VkIndexType.VK_INDEX_TYPE_UINT32)
+
+    BindDescriptorSets(pipelineBindPoint: VkPipelineBindPoint, layout: VkPipelineLayout, firstSet: uint32, descriptorSets: VkDescriptorSet[], descriptorSetCount: int32): () =
+        let mutable descriptorSetsHandle = fixed(descriptorSets)
+        vkCmdBindDescriptorSets(this.CommandBuffer, pipelineBindPoint, layout, firstSet, uint32(descriptorSetCount), Unsafe.AsPointer(descriptorSetsHandle.AddrOfPinnedObject()), 0, nullptr)
+        descriptorSetsHandle.Free()
+
+    EndRenderPass(): () =
+        vkCmdEndRenderPass(this.CommandBuffer)
+
+    End(): () =
+        if (vkEndCommandBuffer(this.CommandBuffer) != VkResult.VK_SUCCESS)
+            fail("Failed to record command buffer.")
+
+//
+
+struct VulkanImageCreateInfo =
+    Width: uint32 get
+    Height: uint32 get
+    Format: VkFormat get
+    UsageFlags: VkImageUsageFlags get
+
+    MipLevels: uint32 get, set
+    ArrayLayers: uint32 get, set
+
+    new(width: uint32, height: uint32, format: VkFormat, usageFlags: VkImageUsageFlags) =
+        {
+            Width = width
+            Height = height
+            Format = format
+            UsageFlags = VkImageUsageFlags.VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VkImageUsageFlags.VK_IMAGE_USAGE_TRANSFER_DST_BIT | VkImageUsageFlags.VK_IMAGE_USAGE_SAMPLED_BIT | usageFlags
+            MipLevels = 1
+            ArrayLayers = 1
+        }
+
+    new(width: uint32, height: uint32, format: VkFormat) =
+        VulkanImageCreateInfo(width, height, format, default)
+
+struct VulkanImageViewCreateInfo =
+    Image: VkImage get
+    Format: VkFormat get
+    AspectMask: VkImageAspectFlags get
+    LevelCount: uint32 get, set
+    LayerCount: uint32 get, set
+    BaseArrayLayer: uint32 get, set
+
+    new(image: VkImage, format: VkFormat, apsectMask: VkImageAspectFlags) =
+        {
+            Image = image
+            Format = format
+            AspectMask = apsectMask
+            LevelCount = 1
+            LayerCount = 1
+            BaseArrayLayer = 0
+        }
+
+    new(vulkanImage: VulkanImage, aspectMask: VkImageAspectFlags) =
+        {
+            Image = vulkanImage.Image
+            Format = vulkanImage.Format
+            AspectMask = aspectMask
+            LevelCount = vulkanImage.MipLevels
+            LayerCount = 1
+            BaseArrayLayer = 0
+        }
+
+struct VulkanFramebufferCreateInfo =
+    RenderPass: VkRenderPass get
+    Attachments: VkImageView[] get
+    Width: uint32 get
+    Height: uint32 get
+    Layers: uint32 get, set
+
+    new(renderPass: VkRenderPass, attachments: VkImageView[], width: uint32, height: uint32) =
+        {
+            RenderPass = renderPass
+            Attachments = attachments
+            Width = width
+            Height = height
+            Layers = 1
+        }
+
+struct VulkanDepthBiasOptions =
+    Enabled: bool get, set = false
+    ConstantFactor: float32 get, set = 0
+    SlopeFactor: float32 get, set = 0
+
+#[Flags]
+enum VulkanRenderPassFlags =
+    | None              = 0b000
+    | ClearColor        = 0b001
+    | ClearDepthStencil = 0b010
+    | ClearAll          = 0b011 
+
+module Vk =
+
+    // ---------------------------------------------------------------------
+
+    private validateOptions(options: VulkanApplicationOptions): () =
+        () // TODO
+
+    Initialize(hwnd: nint, hinstance: nint, options: VulkanApplicationOptions): VulkanApplication =
+        validateOptions(options)
+
+        let asyncDrawEnabled = false // TODO: Enable this when we figure out the bug with uploading fonts.
+
+        let maxFramesInFlight = 2 // double buffering - do not change
+        let enableValidationLayers = options.ValidationFlags.HasFlag(VulkanValidationFlags.Standard)
+        
+        let validationLayers = if (enableValidationLayers) ["VK_LAYER_KHRONOS_validation"] else []
+
+        let instance = createInstance(options.ValidationFlags, validationLayers)
+
+        let mutable debugMessenger = default
+        setupDebugMessenger(enableValidationLayers, instance, &&debugMessenger)
+
+        let surface = createSurface(instance, hwnd, hinstance)
+
+        let physicalDevices = getPhysicalDevices(instance)
+        let physicalDevice = findSuitableDevice(physicalDevices)
+
+        let queueFamilyProperties = getPhysicalDeviceQueueFamilyProperties(physicalDevice)
+        let graphicsFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_GRAPHICS_BIT) == VkQueueFlags.VK_QUEUE_GRAPHICS_BIT)
+        let computeFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_COMPUTE_BIT) == VkQueueFlags.VK_QUEUE_COMPUTE_BIT)
+        let transferFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_TRANSFER_BIT) == VkQueueFlags.VK_QUEUE_TRANSFER_BIT)
+        let presentFamilyIndex = 
+            findIndex(queueFamilyProperties, 
+                // TODO-language-bug: should not have to do 'i: int32'. There is a bug with a scoped lambda.
+                (i: int32, x) ->
+                    let mutable isPresentSupported = VkBool32.FALSE
+                    if (vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, uint32(i), surface, &&isPresentSupported) != VkResult.VK_SUCCESS)
+                        fail("Failed to get physical device surface support.")
+                    isPresentSupported == VkBool32.TRUE
+            )
+            
+        // let transferFamilyIndex =
+        //     let result =
+        //         tryFindIndex(queueFamilyProperties,
+        //             (i, x) ->
+        //                 if (i != transferFamilyIndex)
+        //                     (x.queueFlags & VkQueueFlags.VK_QUEUE_TRANSFER_BIT) == VkQueueFlags.VK_QUEUE_TRANSFER_BIT
+        //                 else
+        //                     false
+        //         )
+        //     if (result == -1)
+        //         transferFamilyIndex
+        //     else
+        //         result
+
+        let maxQueueCount =
+            if (graphicsFamilyIndex == computeFamilyIndex && graphicsFamilyIndex == transferFamilyIndex && graphicsFamilyIndex == presentFamilyIndex)
+                int32(queueFamilyProperties[graphicsFamilyIndex].queueCount)
+            else
+                1
+
+        let maxQueueCount =
+            if (maxQueueCount >= (maxFramesInFlight + 4))
+                (maxFramesInFlight - 1) * 2 + 4 // the 2 represents graphics and transfer families
+            else
+                1
+
+        let maxQueueCount =
+            if (asyncDrawEnabled)
+                maxQueueCount
+            else
+                1
+
+        let asyncDrawEnabled = maxQueueCount != 1
+
+        let device = createDevice(enableValidationLayers, validationLayers, physicalDevice, graphicsFamilyIndex, computeFamilyIndex, transferFamilyIndex, presentFamilyIndex, maxQueueCount)
+
+        let mutable nextQueueIndex = 0
+
+        let graphicsQueues =
+            initArray(maxFramesInFlight,
+                i ->
+                    let mutable graphicsQueue = default
+                    vkGetDeviceQueue(device, uint32(graphicsFamilyIndex), uint32(nextQueueIndex), &&graphicsQueue)
+                    if (asyncDrawEnabled)
+                        nextQueueIndex <- nextQueueIndex + 1
+                    graphicsQueue
+            )
+
+        let mutable computeQueue = default
+        vkGetDeviceQueue(device, uint32(computeFamilyIndex), uint32(nextQueueIndex), &&computeQueue)
+        if (asyncDrawEnabled)
+            nextQueueIndex <- nextQueueIndex + 1
+
+        let transferQueues =
+            initArray(maxFramesInFlight,
+                i ->
+                    let mutable transferQueue = default
+                    vkGetDeviceQueue(device, uint32(transferFamilyIndex), uint32(nextQueueIndex), &&transferQueue)
+                    if (asyncDrawEnabled)
+                        nextQueueIndex <- nextQueueIndex + 1
+                    transferQueue
+            )
+
+        let mutable presentQueue = default
+        vkGetDeviceQueue(device, uint32(presentFamilyIndex), uint32(nextQueueIndex), &&presentQueue)
+
+        // Sync objects
+        let mutable semaphoreInfo = default: VkSemaphoreCreateInfo
+        semaphoreInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
+
+        let mutable fenceInfo = default: VkFenceCreateInfo
+        fenceInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
+        fenceInfo.flags <- VkFenceCreateFlags.VK_FENCE_CREATE_SIGNALED_BIT
+
+        let inFlightFences = zeroArray(maxFramesInFlight)
+        let imageAvailableSemaphores = zeroArray(inFlightFences.Length + 1)
+        let renderFinishedSemaphores = zeroArray(inFlightFences.Length + 1)
+
+        let mutable i = 0
+        while (i < inFlightFences.Length)
+            let inFlightFence = &inFlightFences[i]
+            if (vkCreateFence(device, &&fenceInfo, nullptr, &&inFlightFence) != VkResult.VK_SUCCESS)
+                fail("Failed to create fence.")
+
+            i <- i + 1
+
+        let mutable i = 0
+        while (i < imageAvailableSemaphores.Length)
+            let imageAvailableSemaphore = &imageAvailableSemaphores[i]
+            let renderFinishedSemaphore = &renderFinishedSemaphores[i]
+
+            if (vkCreateSemaphore(device, &&semaphoreInfo, nullptr, &&imageAvailableSemaphore) != VkResult.VK_SUCCESS)
+                fail("Failed to create semaphore.")
+
+            if (vkCreateSemaphore(device, &&semaphoreInfo, nullptr, &&renderFinishedSemaphore) != VkResult.VK_SUCCESS)
+                fail("Failed to create semaphore.")
+
+            i <- i + 1
+
+        let mutable vulkanFunctions = default: VmaVulkanFunctions
+        vulkanFunctions.vkGetInstanceProcAddr <- &&vkGetInstanceProcAddr
+        vulkanFunctions.vkGetDeviceProcAddr <- &&vkGetDeviceProcAddr
+
+        let mutable allocatorCreateInfo = default: VmaAllocatorCreateInfo
+        allocatorCreateInfo.vulkanApiVersion <- VK_API_VERSION_1_3
+        allocatorCreateInfo.physicalDevice <- physicalDevice
+        allocatorCreateInfo.device <- device
+        allocatorCreateInfo.instance <- instance
+        allocatorCreateInfo.pVulkanFunctions <- &&vulkanFunctions
+
+        let mutable allocator = default: VmaAllocator
+        if (vmaCreateAllocator(&&allocatorCreateInfo, &&allocator) != VkResult.VK_SUCCESS)
+            fail("Failed to create allocator.")
+
+        VulkanApplication(enableValidationLayers, asyncDrawEnabled, instance, surface, physicalDevice, device, graphicsQueues, uint32(graphicsFamilyIndex), computeQueue, uint32(computeFamilyIndex), transferQueues, uint32(transferFamilyIndex), presentQueue, uint32(presentFamilyIndex), debugMessenger, Unsafe.AsImmutable(imageAvailableSemaphores), Unsafe.AsImmutable(renderFinishedSemaphores), Unsafe.AsImmutable(inFlightFences), allocator)
+
+    TryCreateSwapChain(app: VulkanApplication, format: VkFormat, vsync: bool, swapChain: byref<VulkanSwapChain>): bool =
+        tryCreateSwapChain(app, format, vsync, &swapChain)
+
+    DestroySwapChain(app: VulkanApplication, swapChain: VulkanSwapChain): () =
+        let mutable i = 0
+        while (i < swapChain.ImageViews.Length)
+            vkDestroyImageView(app.Device, swapChain.ImageViews[i], nullptr)
+            i <- i + 1
+        let mutable i = 0
+        while (i < swapChain.DepthImageViews.Length)
+            vkDestroyImageView(app.Device, swapChain.DepthImageViews[i], nullptr)
+            i <- i + 1
+        let mutable i = 0
+        while (i < swapChain.DepthImages.Length)
+            DestroyImage(app, swapChain.DepthImages[i])
+            i <- i + 1
+        vkDestroySwapchainKHR(app.Device, swapChain.SwapChain, nullptr)
+
+    Destroy(app: VulkanApplication): () =
+
+        vmaDestroyAllocator(app.Allocator)
+
+        let mutable i = 0
+        while (i < app.InFlightFences.Length)
+            vkDestroyFence(app.Device, app.InFlightFences[i], nullptr)
+            i <- i + 1
+
+        let mutable i = 0
+        while (i < app.ImageAvailableSemaphores.Length)
+            vkDestroySemaphore(app.Device, app.ImageAvailableSemaphores[i], nullptr)
+            vkDestroySemaphore(app.Device, app.RenderFinishedSemaphores[i], nullptr)
+            i <- i + 1
+        
+        vkDestroyCommandPool(app.Device, app.GraphicsCommandPool, nullptr)
+        vkDestroyCommandPool(app.Device, app.ComputeCommandPool, nullptr)
+        vkDestroyCommandPool(app.Device, app.TransferCommandPool, nullptr)
+        vkDestroyDevice(app.Device, nullptr)
+
+        vkDestroySurfaceKHR(app.Instance, app.Surface, nullptr)
+
+        if (app.ValidationLayersEnabled)
+            destroyDebugUtilsMessengerEXT(app.Instance, app.DebugMessenger, nullptr)
+
+        vkDestroyInstance(app.Instance, nullptr)
+
+    CreateShaderModule(app: VulkanApplication, byteCode: ReadOnlySpan<byte>): VkShaderModule =
+        createShaderModule(app.Device, byteCode)
+
+    DestroyShaderModule(app: VulkanApplication, shaderModule: VkShaderModule): () =
+        vkDestroyShaderModule(app.Device, shaderModule, nullptr)
+
+    CreatePipelineLayout(app: VulkanApplication, setLayouts: VkDescriptorSetLayout[]): VkPipelineLayout =
+        createPipelineLayout(app.Device, setLayouts)
+
+    DestroyPipelineLayout(app: VulkanApplication, pipelineLayout: VkPipelineLayout): () =
+        vkDestroyPipelineLayout(app.Device, pipelineLayout, nullptr)
+
+    CreateRenderPass(app: VulkanApplication, swapChain: VulkanSwapChain): VkRenderPass =
+        createRenderPass(app.Device, swapChain.ImageFormat, swapChain.DepthImageFormat, VkImageLayout.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, true, VulkanRenderPassFlags.ClearAll)
+
+    CreateRenderPass(app: VulkanApplication, imageFormat: VkFormat, depthImageFormat: VkFormat, renderPassFlags: VulkanRenderPassFlags): VkRenderPass =
+        createRenderPass(app.Device, imageFormat, depthImageFormat, VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, false, renderPassFlags)
+
+    DestroyRenderPass(app: VulkanApplication, renderPass: VkRenderPass): () =
+        vkDestroyRenderPass(app.Device, renderPass, nullptr)
+
+    CreateComputePipeline(app: VulkanApplication, pipelineLayout: VkPipelineLayout, computeShaderModule: VkShaderModule): VkPipeline =
+        let stage = createShaderStageInfo(computeShaderModule, VkShaderStageFlags.VK_SHADER_STAGE_COMPUTE_BIT)
+        createComputePipeline(app.Device, pipelineLayout, stage, computeShaderModule)
+
+    CreateGraphicsPipeline(
+            app: VulkanApplication, 
+            vertexBindingDescriptions: VkVertexInputBindingDescription[], 
+            vertexAttributeDescriptions: VkVertexInputAttributeDescription[], 
+            pipelineLayout: VkPipelineLayout, 
+            renderPass: VkRenderPass, 
+            polygonMode: VkPolygonMode, 
+            cullMode: VkCullModeFlags, 
+            frontFace: VkFrontFace, 
+            vertexShaderModule: VkShaderModule, 
+            fragmentShaderModule: VkShaderModule, 
+            extent: VkExtent2D, 
+            flags: VulkanGraphicsPipelineFlags,
+            frontStencilOp: VkStencilOpState,
+            backStencilOp: VkStencilOpState,
+            depthBiasOptions: VulkanDepthBiasOptions,
+            flipY: bool,
+            isDepthOnly: bool,
+            isBlendEnabled: bool,
+            viewport: byref<VkViewport>, 
+            scissor: byref<VkRect2D>): VkPipeline =
+
+        if (vertexShaderModule == VkShaderModule.NULL)
+            fail("vertex shader is null")
+
+        let stages =
+            if (fragmentShaderModule == VkShaderModule.NULL)
+                mutable [
+                    createShaderStageInfo(vertexShaderModule, VkShaderStageFlags.VK_SHADER_STAGE_VERTEX_BIT)
+                ]
+            else
+                mutable [
+                    createShaderStageInfo(vertexShaderModule, VkShaderStageFlags.VK_SHADER_STAGE_VERTEX_BIT)
+                    createShaderStageInfo(fragmentShaderModule, VkShaderStageFlags.VK_SHADER_STAGE_FRAGMENT_BIT)
+                ]
+
+        createGraphicsPipeline(app.Device, pipelineLayout, renderPass, stages, polygonMode, cullMode, frontFace, vertexBindingDescriptions, vertexAttributeDescriptions, extent, flags, frontStencilOp, backStencilOp, depthBiasOptions, flipY, isDepthOnly, isBlendEnabled, &viewport, &scissor)
+
+    DestroyPipeline(app: VulkanApplication, pipeline: VkPipeline): () =
+        vkDestroyPipeline(app.Device, pipeline, nullptr)
+
+    CreateSwapChainFramebuffers(app: VulkanApplication, swapChain: VulkanSwapChain, renderPass: VkRenderPass): VkFramebuffer[] =
+        mapIndex(swapChain.ImageViews, 
+            (i, x) -> 
+                let attachments = [x;swapChain.DepthImageViews[i]]
+                createFramebuffer(app.Device, VulkanFramebufferCreateInfo(renderPass, attachments, swapChain.Extent.width, swapChain.Extent.height))
+        )
+
+    CreateFramebuffer(app: VulkanApplication, vulkanFramebufferCreateInfo: VulkanFramebufferCreateInfo): VkFramebuffer =
+        createFramebuffer(app.Device, vulkanFramebufferCreateInfo)
+
+    DestroyFramebuffer(app: VulkanApplication, framebuffer: VkFramebuffer): () =
+        vkDestroyFramebuffer(app.Device, framebuffer, nullptr)
+
+    DestroyFramebuffers(app: VulkanApplication, mutable framebuffers: ReadOnlySpan<VkFramebuffer>): () =
+        let mutable i = 0
+        while (i < framebuffers.Length)
+            DestroyFramebuffer(app, framebuffers[i])
+            i <- i + 1
+
+    DestroyFramebuffers(app: VulkanApplication, framebuffers: mutable VkFramebuffer[]): () =
+        DestroyFramebuffers(app, ReadOnlySpan(framebuffers))
+
+    DestroyFramebuffers(app: VulkanApplication, framebuffers: VkFramebuffer[]): () =
+        DestroyFramebuffers(app, Unsafe.AsMutable(framebuffers))
+
+    CreateGraphicsCommandBuffer(app: VulkanApplication): VulkanCommandBuffer =
+        VulkanCommandBuffer(createCommandBuffer(app.Device, app.GraphicsCommandPool))
+
+    CreateComputeCommandBuffer(app: VulkanApplication): VulkanCommandBuffer =
+        VulkanCommandBuffer(createCommandBuffer(app.Device, app.ComputeCommandPool))
+
+    CreateTransferCommandBuffer(app: VulkanApplication): VulkanCommandBuffer =
+        VulkanCommandBuffer(createCommandBuffer(app.Device, app.TransferCommandPool))
+
+    ResetCommandBuffer(app: VulkanApplication, commandBuffer: VulkanCommandBuffer): () =
+        if (vkResetCommandBuffer(commandBuffer.CommandBuffer, default) != VkResult.VK_SUCCESS)
+            fail("Failed to reset command buffer.!")
+
+    Refresh(app: VulkanApplication): () =
+        app.isOutOfDate <- true
+
+    CreateVertexBindingDescription<T>(binding: uint32, isInstance: bool): VkVertexInputBindingDescription where T: unmanaged =
+        createVertexInputBindingDescription<T>(binding, isInstance)
+
+    CreateVertexAttributeDescriptions<T>(binding: uint32): VkVertexInputAttributeDescription[] where T: unmanaged =
+        createVertexInputAttributeDescriptions<T>(binding)
+
+    CreateBuffer(app: VulkanApplication, size: uint64, mutable usage: VkBufferUsageFlags, flags: VmaAllocationCreateFlags): VulkanBuffer =
+        let size =
+            if (usage & VkBufferUsageFlags.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT == VkBufferUsageFlags.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+                if (size < app.PhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment)
+                    app.PhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment
+                else
+                    size
+            else if (usage & VkBufferUsageFlags.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT == VkBufferUsageFlags.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
+                if (size < app.PhysicalDeviceProperties.limits.minStorageBufferOffsetAlignment)
+                    app.PhysicalDeviceProperties.limits.minStorageBufferOffsetAlignment
+                else
+                    size
+            else
+                size 
+
+        let mutable allocInfo = default: VmaAllocationInfo
+        match (createBuffer(app.Allocator, size, usage, flags, &&allocInfo))
+        | (buffer, allocation) =>
+            let mutable memPropFlags = default: VkMemoryPropertyFlags
+            vmaGetAllocationMemoryProperties(app.Allocator, allocation, &&memPropFlags)
+            VulkanBuffer(buffer, allocation, allocInfo, size, memPropFlags)
+
+    UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, mutable bufferData: ReadOnlySpan<T>): () where T: unmanaged =
+        let memPropFlags = buffer.Flags
+        
+        if ((memPropFlags & VkMemoryPropertyFlags.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == VkMemoryPropertyFlags.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+            let mutable pData = buffer.AllocationInfo.pMappedData
+            let notMapped = nint(pData) == nint(0)
+
+            if (notMapped)
+                if (vmaMapMemory(app.Allocator, buffer.Allocation, &&pData) != VkResult.VK_SUCCESS)
+                    fail("Failed to map memory.")
+
+            bufferData.CopyTo(Span(pData, bufferData.Length))
+        
+            if (notMapped)
+                vmaUnmapMemory(app.Allocator, buffer.Allocation)
+        else
+            let mutable allocationInfo = default
+            let stagingBuffer = 
+                createBuffer(
+                    app.Allocator, 
+                    buffer.Size, 
+                    VkBufferUsageFlags.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+                    &&allocationInfo
+                )
+            match (stagingBuffer)
+            | (stagingBuffer, stagingAllocation) =>
+                let bufferSpan = Span<T>(allocationInfo.pMappedData, bufferData.Length)
+                bufferData.CopyTo(bufferSpan)
+                if (vmaFlushAllocation(app.Allocator, stagingAllocation, 0, VK_WHOLE_SIZE) != VkResult.VK_SUCCESS)
+                    fail("Failed to flush allocation.")
+                
+                let mutable bufferCopy = default: VkBufferCopy
+                bufferCopy.srcOffset <- 0
+                bufferCopy.dstOffset <- 0
+                bufferCopy.size <- uint64(DotNet.SizeOf<T> * bufferData.Length)
+
+                let mutable commandBuffer = createCommandBuffer(app.Device, app.TransferCommandPool)
+
+                let mutable beginInfo = default: VkCommandBufferBeginInfo
+                beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+                beginInfo.flags <- default // Optional
+                beginInfo.pInheritanceInfo <- nullptr // Optional
+
+                if (vkBeginCommandBuffer(commandBuffer, &&beginInfo) != VkResult.VK_SUCCESS)
+                    fail("Failed to begin command buffer.")
+
+                vkCmdCopyBuffer(commandBuffer, stagingBuffer, buffer.Buffer, 1, &&bufferCopy)
+
+                if (vkEndCommandBuffer(commandBuffer) != VkResult.VK_SUCCESS)
+                    fail("Failed to end command buffer.")
+                
+                let mutable submitInfo = default: VkSubmitInfo
+                submitInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO
+                submitInfo.commandBufferCount <- 1
+                submitInfo.pCommandBuffers <- &&commandBuffer
+
+                if (vkQueueSubmit(app.TransferQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+                    fail("Failed to submit queue.")
+
+                if (vkQueueWaitIdle(app.TransferQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+                    fail("Failed to wait for idle queue.")
+
+                vkFreeCommandBuffers(app.Device, app.TransferCommandPool, 1, &&commandBuffer)
+
+                vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+
+    UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, bufferData: mutable T[]): () where T: unmanaged =
+        UpdateBuffer<T>(app, buffer, ReadOnlySpan(bufferData))
+
+    UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, bufferData: T[]): () where T: unmanaged =
+        UpdateBuffer<T>(app, buffer, ReadOnlySpan<T>(Unsafe.AsMutable(bufferData)))
+
+    CopyBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, dst: mutable T[]): () where T: unmanaged =
+        if (dst.Length != 0)
+            let mutable pData = buffer.AllocationInfo.pMappedData
+            let notMapped = nint(pData) == nint(0)
+            
+            if (notMapped)
+                if (vmaMapMemory(app.Allocator, buffer.Allocation, &&pData) != VkResult.VK_SUCCESS)
+                    fail("Failed to map memory.")
+
+            let mutable mappedSpan = Span<T>(pData, dst.Length)
+            mappedSpan.CopyTo(dst.AsSpan())
+
+            if (notMapped)
+                vmaUnmapMemory(app.Allocator, buffer.Allocation)
+
+    DestroyBuffer(app: VulkanApplication, buffer: VulkanBuffer): () =
+        vmaDestroyBuffer(app.Allocator, buffer.Buffer, buffer.Allocation)
+
+    CreateImage(app: VulkanApplication, vulkanImageCreateInfo: VulkanImageCreateInfo): VulkanImage =
+        let mutable allocInfo = default: VmaAllocationInfo
+        match (createImage(app.Allocator, vulkanImageCreateInfo, VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, &&allocInfo))
+        | (image, allocation) =>
+            VulkanImage(image, allocation, vulkanImageCreateInfo.Width, vulkanImageCreateInfo.Height, vulkanImageCreateInfo.Format, vulkanImageCreateInfo.MipLevels)
+
+    CopyImage(app: VulkanApplication, srcImage: VkImage, srcFormat: VkFormat, srcLayout: VkImageLayout, width: uint32, height: uint32, vulkanDstBuffer: VulkanBuffer): () =
+        let mutable imageCopy = default: VkBufferImageCopy
+        imageCopy.bufferOffset <- 0
+        imageCopy.bufferRowLength <- 0
+        imageCopy.bufferImageHeight <- 0
+
+        imageCopy.imageSubresource.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+        imageCopy.imageSubresource.mipLevel <- 0
+        imageCopy.imageSubresource.baseArrayLayer <- 0
+        imageCopy.imageSubresource.layerCount <- 1
+
+        imageCopy.imageOffset <- default // {0, 0, 0}
+        imageCopy.imageExtent <-
+            let mutable extent = default: VkExtent3D
+            extent.width <- width
+            extent.height <- height
+            extent.depth <- 1
+            extent
+
+        let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPool)
+
+        let mutable beginInfo = default: VkCommandBufferBeginInfo
+        beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+        beginInfo.flags <- default // Optional
+        beginInfo.pInheritanceInfo <- nullptr // Optional
+
+        if (vkBeginCommandBuffer(commandBuffer, &&beginInfo) != VkResult.VK_SUCCESS)
+            fail("Failed to begin command buffer.")
+
+            
+        transitionImageLayout(commandBuffer, srcImage, srcFormat, srcLayout, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_REMAINING_MIP_LEVELS, 1)
+        vkCmdCopyImageToBuffer(commandBuffer, srcImage, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkanDstBuffer.Buffer, 1, &&imageCopy)
+
+        if (vkEndCommandBuffer(commandBuffer) != VkResult.VK_SUCCESS)
+            fail("Failed to end command buffer.")
+
+        let mutable submitInfo = default: VkSubmitInfo
+        submitInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO
+        submitInfo.commandBufferCount <- 1
+        submitInfo.pCommandBuffers <- &&commandBuffer
+
+        if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+            fail("Failed to submit queue.")
+
+        if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+            fail("Failed to wait for idle queue.")
+
+        vkFreeCommandBuffers(app.Device, app.GraphicsCommandPool, 1, &&commandBuffer)
+
+    TransitionImageLayout(app: VulkanApplication, image: VkImage, width: uint32, height: uint32, format: VkFormat, targetLayout: VkImageLayout, mipLevels: uint32, layerCount: uint32): () =
+        let size = uint64(width) * uint64(height) * 4 * uint64(layerCount)
+        let mutable allocationInfo = default
+        let stagingBuffer = 
+            createBuffer(
+                app.Allocator, 
+                size, 
+                VkBufferUsageFlags.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+                &&allocationInfo
+            )
+        match (stagingBuffer)
+        | (stagingBuffer, stagingAllocation) =>
+            let mutable imageCopy = default: VkBufferImageCopy
+            imageCopy.bufferOffset <- 0
+            imageCopy.bufferRowLength <- 0
+            imageCopy.bufferImageHeight <- 0
+
+            if (targetLayout == VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                imageCopy.imageSubresource.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT | VkImageAspectFlags.VK_IMAGE_ASPECT_STENCIL_BIT
+            else
+                imageCopy.imageSubresource.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+            imageCopy.imageSubresource.mipLevel <- 0
+            imageCopy.imageSubresource.baseArrayLayer <- 0
+            imageCopy.imageSubresource.layerCount <- layerCount
+
+            imageCopy.imageOffset <- default // {0, 0, 0}
+            imageCopy.imageExtent <-
+                let mutable extent = default: VkExtent3D
+                extent.width <- width
+                extent.height <- height
+                extent.depth <- 1
+                extent
+
+            let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPool)
+
+            let mutable beginInfo = default: VkCommandBufferBeginInfo
+            beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+            beginInfo.flags <- default // Optional
+            beginInfo.pInheritanceInfo <- nullptr // Optional
+
+            if (vkBeginCommandBuffer(commandBuffer, &&beginInfo) != VkResult.VK_SUCCESS)
+                fail("Failed to begin command buffer.")
+
+            let oldLayout = VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED
+            let newLayout = 
+                if (targetLayout == VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                    targetLayout
+                else
+                    VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+
+            transitionImageLayout(commandBuffer, image, format, oldLayout, newLayout, mipLevels, layerCount)
+
+            if (targetLayout != VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                vkCmdCopyBufferToImage(
+                    commandBuffer,
+                    stagingBuffer,
+                    image,
+                    newLayout,
+                    1,
+                    &&imageCopy
+                )
+                transitionImageLayout(commandBuffer, image, format, newLayout, targetLayout, mipLevels, layerCount)
+
+            if (vkEndCommandBuffer(commandBuffer) != VkResult.VK_SUCCESS)
+                fail("Failed to end command buffer.")
+
+            let mutable submitInfo = default: VkSubmitInfo
+            submitInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO
+            submitInfo.commandBufferCount <- 1
+            submitInfo.pCommandBuffers <- &&commandBuffer
+
+            if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+                fail("Failed to submit queue.")
+
+            if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+                fail("Failed to wait for idle queue.")
+
+            vkFreeCommandBuffers(app.Device, app.GraphicsCommandPool, 1, &&commandBuffer)
+
+            vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+
+    UpdateImage(app: VulkanApplication, image: VulkanImage, mutable imageData: ReadOnlySpan<byte>): () =
+        let mipLevels = image.MipLevels
+        let mutable memPropFlags = default: VkMemoryPropertyFlags
+        vmaGetAllocationMemoryProperties(app.Allocator, image.Allocation, &&memPropFlags)
+
+        if ((memPropFlags & VkMemoryPropertyFlags.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == VkMemoryPropertyFlags.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+            throw NotSupportedException("'VulkanImage' cannot use CPU/GPU shared memory.")
+        else
+            let size = uint64(image.Width) * uint64(image.Height) * 4
+            let mutable allocationInfo = default
+            let stagingBuffer = 
+                createBuffer(
+                    app.Allocator, 
+                    size, 
+                    VkBufferUsageFlags.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_MAPPED_BIT,
+                    &&allocationInfo
+                )
+            match (stagingBuffer)
+            | (stagingBuffer, stagingAllocation) =>
+                let imageSpan = Span<byte>(allocationInfo.pMappedData, imageData.Length)
+                imageData.CopyTo(imageSpan)
+                if (vmaFlushAllocation(app.Allocator, stagingAllocation, 0, VK_WHOLE_SIZE) != VkResult.VK_SUCCESS)
+                    fail("Failed to flush allocation.")
+
+                let mutable imageCopy = default: VkBufferImageCopy
+                imageCopy.bufferOffset <- 0
+                imageCopy.bufferRowLength <- 0
+                imageCopy.bufferImageHeight <- 0
+
+                imageCopy.imageSubresource.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+                imageCopy.imageSubresource.mipLevel <- 0
+                imageCopy.imageSubresource.baseArrayLayer <- 0
+                imageCopy.imageSubresource.layerCount <- 1
+
+                imageCopy.imageOffset <- default // {0, 0, 0}
+                imageCopy.imageExtent <-
+                    let mutable extent = default: VkExtent3D
+                    extent.width <- image.Width
+                    extent.height <- image.Height
+                    extent.depth <- 1
+                    extent
+
+                let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPool)
+
+                let mutable beginInfo = default: VkCommandBufferBeginInfo
+                beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+                beginInfo.flags <- default // Optional
+                beginInfo.pInheritanceInfo <- nullptr // Optional
+
+                if (vkBeginCommandBuffer(commandBuffer, &&beginInfo) != VkResult.VK_SUCCESS)
+                    fail("Failed to begin command buffer.")
+
+                let oldLayout = VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED
+                let newLayout = VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+
+                transitionImageLayout(commandBuffer, image.Image, image.Format, oldLayout, newLayout, mipLevels, /* layerCount */ 1)
+                vkCmdCopyBufferToImage(
+                    commandBuffer,
+                    stagingBuffer,
+                    image.Image,
+                    newLayout,
+                    1,
+                    &&imageCopy
+                )
+                generateMipMaps(commandBuffer, image.Image, int32(image.Width), int32(image.Height), mipLevels, /* layerCount */ 1)
+               // transitionImageLayout(commandBuffer, image.Image, image.Format, newLayout, VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels)
+              //  generateMipMaps(commandBuffer, image.Image, int32(image.Width), int32(image.Height), mipLevels)
+
+                if (vkEndCommandBuffer(commandBuffer) != VkResult.VK_SUCCESS)
+                    fail("Failed to end command buffer.")
+                
+                let mutable submitInfo = default: VkSubmitInfo
+                submitInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO
+                submitInfo.commandBufferCount <- 1
+                submitInfo.pCommandBuffers <- &&commandBuffer
+
+                if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+                    fail("Failed to submit queue.")
+
+                if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+                    fail("Failed to wait for idle queue.")
+
+                vkFreeCommandBuffers(app.Device, app.GraphicsCommandPool, 1, &&commandBuffer)
+
+                vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+
+    DestroyImage(app: VulkanApplication, image: VulkanImage): () =
+        vmaDestroyImage(app.Allocator, image.Image, image.Allocation)
+
+    CreateImageView(app: VulkanApplication, vulkanImageViewCreateInfo: VulkanImageViewCreateInfo): VkImageView =
+        createImageView(app.Device, vulkanImageViewCreateInfo)
+
+    DestroyImageView(app: VulkanApplication, imageView: VkImageView): () =
+        vkDestroyImageView(app.Device, imageView, nullptr)
+
+    CreateSampler(app: VulkanApplication, mipLevels: uint32, addressMode: VkSamplerAddressMode, magFilter: VkFilter, minFilter: VkFilter, mipmapMode: VkSamplerMipmapMode): VkSampler =
+        createSampler(app.Device, app.PhysicalDeviceProperties.limits.maxSamplerAnisotropy, mipLevels, addressMode, magFilter, minFilter, mipmapMode)
+
+    DestroySampler(app: VulkanApplication, sampler: VkSampler): () =
+        vkDestroySampler(app.Device, sampler, nullptr)
+
+    CreateDescriptorSetLayout(app: VulkanApplication, bindingInfos: ReadOnlySpan<VulkanDescriptorSetLayoutBinding>): VkDescriptorSetLayout =
+        createDescriptorSetLayout(app.Device, bindingInfos)
+
+    DestroyDescriptorSetLayout(app: VulkanApplication, descriptorSetLayout: VkDescriptorSetLayout): () =
+        vkDestroyDescriptorSetLayout(app.Device, descriptorSetLayout, nullptr)
+
+    CreateDescriptorPool(app: VulkanApplication, descriptorTypes: ReadOnlySpan<VkDescriptorType>, descriptorCount: uint32): VkDescriptorPool =
+        createDescriptorPool(app.Device, descriptorTypes, descriptorCount)
+
+    DestroyDescriptorPool(app: VulkanApplication, descriptorPool: VkDescriptorPool): () =
+        vkDestroyDescriptorPool(app.Device, descriptorPool, nullptr)
+
+    CreateDescriptorSets(app: VulkanApplication, descriptorPool: VkDescriptorPool, descriptorSetCount: uint32, setLayout: VkDescriptorSetLayout, counts: uint32[]): VkDescriptorSet[] =
+        createDescriptorSets(app.Device, descriptorPool, descriptorSetCount, setLayout, counts)
+
+    UpdateDescriptorSet(app: VulkanApplication, binding: uint32, descriptorSet: VkDescriptorSet, buffer: VkBuffer, offset: uint64, size: uint64, descriptorType: VkDescriptorType): () =
+        updateDescriptorSet(app.Device, binding, descriptorSet, buffer, offset, size, descriptorType)
+
+    UpdateDescriptorSet(app: VulkanApplication, binding: uint32, descriptorSet: VkDescriptorSet, imageLayout: VkImageLayout, imageView: VkImageView, sampler: VkSampler, descriptorType: VkDescriptorType): () =
+        updateDescriptorSet(app.Device, binding, descriptorSet, imageLayout, imageView, sampler, descriptorType)
+
+    UpdateDescriptorSet(app: VulkanApplication, binding: uint32, descriptorSet: VkDescriptorSet, imageLayout: VkImageLayout[], imageView: VkImageView[], sampler: VkSampler[], descriptorType: VkDescriptorType): () =
+        updateDescriptorSet(app.Device, binding, descriptorSet, imageLayout, imageView, sampler, descriptorType)
+
+    GetDepthImageFormat(app: VulkanApplication, isStencil: bool): VkFormat =
+        let formats =
+            if (isStencil)
+                [VkFormat.VK_FORMAT_D32_SFLOAT_S8_UINT]
+            else
+                [VkFormat.VK_FORMAT_D32_SFLOAT]
+        findSupportedFormat(
+            app.PhysicalDevice,
+          //  [VkFormat.VK_FORMAT_D32_SFLOAT;VkFormat.VK_FORMAT_D32_SFLOAT_S8_UINT;VkFormat.VK_FORMAT_D24_UNORM_S8_UINT],
+            formats,
+            VkImageTiling.VK_IMAGE_TILING_OPTIMAL,
+            VkFormatFeatureFlags.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+        )
+    
+    field mutable task: System.Threading.Tasks.Task<VkResult> = null
+
+    Draw(app: VulkanApplication, swapChain: VulkanSwapChain, acquireCommandBuffer: (framebufferIndex: int32, frame: int32) -> VulkanCommandBuffer): () =
+        let currentFrame = app.currentFrame
+        let currentSemaphoreIndex = app.currentSemaphoreIndex
+
+        let mutable inFlightFence = app.InFlightFences[currentFrame]
+        let imageAvailableSemaphore = app.ImageAvailableSemaphores[currentSemaphoreIndex]
+        let renderFinishedSemaphore = app.RenderFinishedSemaphores[currentSemaphoreIndex]
+
+        if (task !== null)
+            task.Wait()
+
+        if (app.isOutOfDate)
+            app.isOutOfDate <- false
+            if (app.hasDrawnOnce)
+                throw VulkanSwapChainOutOfDateException()
+
+        let mutable imageIndex = default
+        let result = vkAcquireNextImageKHR(app.Device, swapChain.SwapChain, uint64.MaxValue, imageAvailableSemaphore, VkFence.NULL, &&imageIndex)
+        
+        if (result != VkResult.VK_SUCCESS)
+            fail("Failed to acquire next image.")
+        else
+            ()
+            if (vkWaitForFences(app.Device, 1, &&inFlightFence, VkBool32.TRUE, uint64.MaxValue) != VkResult.VK_SUCCESS)
+                fail("Failed to wait for fences.")
+
+            if (vkResetFences(app.Device, 1, &&inFlightFence) != VkResult.VK_SUCCESS)
+                fail("Failed to reset fences.")
+
+            let commandBuffer = acquireCommandBuffer(int32(imageIndex), currentFrame)
+                
+            if (app.AsyncDrawEnabled)
+                task <-
+                    System.Threading.Tasks.Task.Run(
+                        () ->
+                            draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueue, commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+                    )
+            else
+                let result = draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueue, commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+                
+                // TODO: Remove the commented code below when we feel comfortable that we do not need it.
+                //if (result == VkResult.VK_ERROR_OUT_OF_DATE_KHR || result == VkResult.VK_SUBOPTIMAL_KHR || app.isOutOfDate)
+                //    app.isOutOfDate <- false
+                //    throw VulkanSwapChainOutOfDateException()
+                if (result != VkResult.VK_SUCCESS)
+                    fail("Failed to present.")
+
+            app.previousFrame <- currentFrame
+            app.currentFrame <- (app.currentFrame + 1) % app.InFlightFences.Length
+            app.currentSemaphoreIndex <- (app.currentSemaphoreIndex + 1) % app.ImageAvailableSemaphores.Length
+            app.lastImageIndex <- imageIndex
+            app.hasDrawnOnce <- true
+
+    WaitForIdle(app: VulkanApplication): () =
+        if (vkDeviceWaitIdle(app.Device) != VkResult.VK_SUCCESS)
+            fail("Failed to wait for idle on device.")
+
+    // ---------------------------------------------------------------------
+
+    private alias PFN_vkCreateDebugUtilsMessengerEXT = static blittable (VkInstance, VkDebugUtilsMessengerCreateInfoEXT*, VkAllocationCallbacks*, VkDebugUtilsMessengerEXT*) -> VkResult
+    private alias PFN_vkDestroyDebugUtilsMessengerEXT = static blittable (VkInstance, VkDebugUtilsMessengerEXT, VkAllocationCallbacks*) -> ()
+
+    private createDebugUtilsMessengerEXT(
+            instance: VkInstance, 
+            pCreateInfo: VkDebugUtilsMessengerCreateInfoEXT*,
+            pAllocator: VkAllocationCallbacks*,
+            pDebugMessenger: VkDebugUtilsMessengerEXT*
+            ): VkResult =
+
+        let pName = "vkCreateDebugUtilsMessengerEXT"
+        let mutable pNameHandle = fixedCopyUTF8(pName)
+        let func = nint(vkGetInstanceProcAddr(instance, Unsafe.AsPointer(pNameHandle.AddrOfPinnedObject())))
+        pNameHandle.Free()
+        if (func != nint(0))
+            let func: PFN_vkCreateDebugUtilsMessengerEXT = Unsafe.AsFunctionPointer(func)
+            func(instance, pCreateInfo, pAllocator, pDebugMessenger)
+        else
+            VkResult.VK_ERROR_EXTENSION_NOT_PRESENT
+
+    private destroyDebugUtilsMessengerEXT(instance: VkInstance, debugMessenger: VkDebugUtilsMessengerEXT, pAllocator: VkAllocationCallbacks*): () =
+        let pName = "vkDestroyDebugUtilsMessengerEXT"
+        let mutable pNameHandle = fixedCopyUTF8(pName)
+        let func = nint(vkGetInstanceProcAddr(instance, Unsafe.AsPointer(pNameHandle.AddrOfPinnedObject())))
+        pNameHandle.Free()
+        if (func != nint(0))
+            let func: PFN_vkDestroyDebugUtilsMessengerEXT = Unsafe.AsFunctionPointer(func)
+            func(instance, debugMessenger, pAllocator)
+
+    private getRequiredExtensions(enableValidationLayers: bool): string[] =
+        if (enableValidationLayers)
+            [
+                Encoding.UTF8.GetString(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                Encoding.UTF8.GetString(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+                "VK_KHR_surface";
+                "VK_KHR_win32_surface"
+            ]
+        else
+            [
+                "VK_KHR_surface";
+                "VK_KHR_win32_surface"
+            ]
+
+    private getRequiredDeviceExtensions(): string[] =
+        [
+            "VK_KHR_swapchain"
+        ]
+
+    #[blittable]
+    #[UnmanagedCallersOnly(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+    #[DebuggerHidden]
+    private debugCallback(messageSeverity: VkDebugUtilsMessageSeverityFlagsEXT, messageType: VkDebugUtilsMessageTypeFlagsEXT, pCallbackData: VkDebugUtilsMessengerCallbackDataEXT*, pUserData: void*): VkBool32 =
+        if ((messageSeverity & VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) == VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+            let callback = *pCallbackData
+            let str = String(callback.pMessage)
+            throw VulkanValidationException(str)
+
+        let callback = *pCallbackData
+        let str = String(callback.pMessage)
+        if ((messageSeverity & VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) == VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+            if (str.Contains("UNASSIGNED-CoreValidation-Shader-OutputNotConsumed"))
+                throw VulkanValidationException(str)
+            else
+                LogWarning("Vulkan Validation Layer: " + str)
+        else
+            Log("Vulkan Validation Layer: " + str)
+        VkBool32.FALSE
+
+    private populateDebugMessengerCreateInfo(createInfo: byref<VkDebugUtilsMessengerCreateInfoEXT>): () =
+        createInfo <- default
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT
+        createInfo.messageSeverity <- VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+        createInfo.messageType <- VkDebugUtilsMessageTypeFlagsEXT.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VkDebugUtilsMessageTypeFlagsEXT.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VkDebugUtilsMessageTypeFlagsEXT.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
+        createInfo.pfnUserCallback <- &&debugCallback
+
+    private setupDebugMessenger(enableValidationLayers: bool, instance: VkInstance, debugMessenger: VkDebugUtilsMessengerEXT*): () =
+        if (enableValidationLayers)
+            let mutable createInfo = default: VkDebugUtilsMessengerCreateInfoEXT
+            populateDebugMessengerCreateInfo(&createInfo)
+
+            if (createDebugUtilsMessengerEXT(instance, &&createInfo, nullptr, debugMessenger) != VkResult.VK_SUCCESS)
+                fail("Failed to set up debug messenger.")
+
+    private createInstance(vulkanValidationFlags: VulkanValidationFlags, validationLayers: string[]): VkInstance =
+        if (vulkanValidationFlags.HasFlag(VulkanValidationFlags.Standard) && !checkValidationLayerSupport(validationLayers))
+            fail("Validation layers were requested, but not available.")
+
+        let appName = "Vulkan Application"
+        let engineName = "Vulkan Engine"
+
+        let mutable appNameHandle = fixed(appName)
+        let mutable engineNameHandle = fixed(engineName)
+
+        let mutable appInfo = default: VkApplicationInfo
+        appInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_APPLICATION_INFO
+        appInfo.pApplicationName <- Unsafe.AsPointer(appNameHandle.AddrOfPinnedObject())
+        appInfo.applicationVersion <- VK_MAKE_VERSION(1, 0, 0)
+        appInfo.pEngineName <- Unsafe.AsPointer(engineNameHandle.AddrOfPinnedObject())
+        appInfo.engineVersion <- VK_MAKE_VERSION(1, 0, 0)
+        appInfo.apiVersion <- VK_API_VERSION_1_3
+        
+        if (vulkanValidationFlags.HasFlag(VulkanValidationFlags.Full))
+            Environment.SetEnvironmentVariable("VK_KHRONOS_VALIDATION_VALIDATE_SYNC", "true")
+            Environment.SetEnvironmentVariable("VK_KHRONOS_VALIDATION_SYNCVAL_SHADER_ACCESSES_HEURISTIC", "true")
+     //      Environment.SetEnvironmentVariable("VK_LAYER_ENABLES", "VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT")
+
+        let mutable enables = VkValidationFeatureEnableEXT.VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT
+        let mutable features = default: VkValidationFeaturesEXT
+        if (vulkanValidationFlags.HasFlag(VulkanValidationFlags.BestPractices))           
+            features.sType <- VkStructureType.VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT
+            features.enabledValidationFeatureCount <- 1
+            features.pEnabledValidationFeatures <- &&enables
+
+        let mutable createInfo = default: VkInstanceCreateInfo
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO
+        createInfo.pApplicationInfo <- &&appInfo
+
+        if (vulkanValidationFlags.HasFlag(VulkanValidationFlags.BestPractices))
+            createInfo.pNext <- Unsafe.AsPointer(&&features)
+
+        let extensions = getRequiredExtensions(vulkanValidationFlags.HasFlag(VulkanValidationFlags.Standard))
+        let extensionsHandle = fixedCopyUTF8(extensions)
+        let validationLayersHandle = fixedCopyUTF8(validationLayers)
+
+        createInfo.enabledExtensionCount <- uint32(extensions.Length)
+        createInfo.ppEnabledExtensionNames <- Unsafe.AsPointer(extensionsHandle.Pointer)
+
+        if (vulkanValidationFlags.HasFlag(VulkanValidationFlags.Standard))
+            createInfo.enabledLayerCount <- uint32(validationLayers.Length)
+            createInfo.ppEnabledLayerNames <- Unsafe.AsPointer(validationLayersHandle.Pointer)
+
+            let mutable debugCreateInfo = default: VkDebugUtilsMessengerCreateInfoEXT
+            populateDebugMessengerCreateInfo(&debugCreateInfo)
+            createInfo.pNext <- Unsafe.AsPointer(&&debugCreateInfo)
+        else
+            createInfo.enabledLayerCount <- 0
+            createInfo.pNext <- nullptr
+
+        let mutable instance = default
+
+        if (vkCreateInstance(&&createInfo, nullptr, &&instance) != VkResult.VK_SUCCESS)
+            fail("Failed to create instance.")
+
+        // Cleanup
+        appNameHandle.Free()
+        engineNameHandle.Free()
+        validationLayersHandle.Dispose()
+        extensionsHandle.Dispose()
+
+        instance
+
+    private createSurface(instance: VkInstance, hwnd: nint, hinstance: nint): VkSurfaceKHR =
+        let mutable surface = default: VkSurfaceKHR
+
+        let mutable createInfo = default: VkWin32SurfaceCreateInfoKHR
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR
+        createInfo.hwnd <- hwnd
+        createInfo.hinstance <- hinstance
+
+        let mutable instanceImports = default: VkInstanceManualImports
+        let pName = "vkCreateWin32SurfaceKHR"
+        let mutable pNameHandle = fixedCopyUTF8(pName)
+        let func = nint(vkGetInstanceProcAddr(instance, Unsafe.AsPointer(pNameHandle.AddrOfPinnedObject())))
+        pNameHandle.Free()
+        if (func == nint(0))
+            fail("Failed to query instance function.")
+        instanceImports.vkCreateWin32SurfaceKHR <- Unsafe.AsFunctionPointer(func)
+        if (instanceImports.vkCreateWin32SurfaceKHR(instance, &&createInfo, nullptr, &&surface) != VkResult.VK_SUCCESS)
+            fail("Failed to create window surface.")
+        surface
+
+    private createDevice(enableValidationLayers: bool, validationLayers: string[], physicalDevice: VkPhysicalDevice, graphicsFamilyIndex: int32, computeFamilyIndex: int32, transferFamilyIndex: int32,  presentFamilyIndex: int32, maxQueueCount: int32): VkDevice =
+        // Graphics Queue
+        let mutable graphicsQueuePriorities = initArray(maxQueueCount, i -> 1.0: float32)
+        let mutable graphicsQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        let mutable graphicsQueuePrioritiesHandle = fixed(graphicsQueuePriorities)
+        graphicsQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+        graphicsQueueCreateInfo.queueFamilyIndex <- uint32(graphicsFamilyIndex)
+        graphicsQueueCreateInfo.queueCount <- uint32(maxQueueCount)
+        graphicsQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(graphicsQueuePrioritiesHandle.AddrOfPinnedObject())
+
+        // Compute Queue
+        let mutable computeQueuePriority = 1.0: float32
+        let mutable computeQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        computeQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+        computeQueueCreateInfo.queueFamilyIndex <- uint32(computeFamilyIndex)
+        computeQueueCreateInfo.queueCount <- 1
+        computeQueueCreateInfo.pQueuePriorities <- &&computeQueuePriority
+
+        // Transfer Queue
+        let mutable transferQueuePriority = 1.0: float32
+        let mutable transferQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        transferQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+        transferQueueCreateInfo.queueFamilyIndex <- uint32(transferFamilyIndex)
+        transferQueueCreateInfo.queueCount <- 1
+        transferQueueCreateInfo.pQueuePriorities <- &&transferQueuePriority
+
+        // Present Queue
+        let mutable presentQueuePriority = 1.0: float32
+        let mutable presentQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        presentQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+        presentQueueCreateInfo.queueFamilyIndex <- uint32(presentFamilyIndex)
+        presentQueueCreateInfo.queueCount <- 1
+        presentQueueCreateInfo.pQueuePriorities <- &&presentQueuePriority
+
+        // TODO: We need to query these to ensure they are actually supported.
+        let mutable deviceFeatures = default: VkPhysicalDeviceFeatures2
+        deviceFeatures.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2
+        deviceFeatures.features.samplerAnisotropy <- VkBool32.TRUE // TODO: Device technically may not support this, but it would be rare!
+        deviceFeatures.features.fillModeNonSolid <- VkBool32.TRUE
+        deviceFeatures.features.logicOp <- VkBool32.TRUE
+
+        let mutable deviceFeaturesVulkan13 = default: VkPhysicalDeviceVulkan13Features
+        deviceFeaturesVulkan13.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
+        deviceFeaturesVulkan13.synchronization2 <- VkBool32.TRUE
+       // deviceFeaturesVulkan13.samplerMirrorClampToEdge <- VkBool32.TRUE
+
+        let mutable deviceFeaturesVulkan11 = default: VkPhysicalDeviceVulkan11Features
+        deviceFeaturesVulkan11.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
+        //deviceFeaturesVulkan11.variablePointers <- VkBool32.TRUE
+        //deviceFeaturesVulkan11.variablePointersStorageBuffer <- VkBool32.TRUE
+
+        let mutable descriptorIndexingFeatures = default: VkPhysicalDeviceDescriptorIndexingFeatures
+        descriptorIndexingFeatures.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES
+
+        // Enable non-uniform indexing
+        descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing <- VkBool32.TRUE
+        descriptorIndexingFeatures.runtimeDescriptorArray <- VkBool32.TRUE
+        descriptorIndexingFeatures.descriptorBindingVariableDescriptorCount <- VkBool32.TRUE
+        descriptorIndexingFeatures.descriptorBindingPartiallyBound <- VkBool32.TRUE
+
+        deviceFeatures.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan11)
+        deviceFeaturesVulkan11.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan13)
+        deviceFeaturesVulkan13.pNext <- Unsafe.Cast(&&descriptorIndexingFeatures)
+
+        let mutable createInfo = default: VkDeviceCreateInfo
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
+
+        // Queues
+        let queueCreateInfos = [graphicsQueueCreateInfo;computeQueueCreateInfo;transferQueueCreateInfo;presentQueueCreateInfo]
+        let queueCreateInfos = distinctBy(queueCreateInfos, x -> x.queueFamilyIndex)
+        let mutable queueCreateInfosHandle = fixed(queueCreateInfos)
+        createInfo.queueCreateInfoCount <- uint32(queueCreateInfos.Length)
+        createInfo.pQueueCreateInfos <- Unsafe.AsPointer(queueCreateInfosHandle.AddrOfPinnedObject())
+       // createInfo.pEnabledFeatures <- &&deviceFeatures
+        createInfo.pNext <- Unsafe.Cast(&&deviceFeatures)
+
+        let validationLayersHandle = fixedCopyUTF8(validationLayers)
+        if (enableValidationLayers)
+            createInfo.enabledLayerCount <- uint32(validationLayers.Length)
+            createInfo.ppEnabledLayerNames <- Unsafe.AsPointer(validationLayersHandle.Pointer)
+        else
+            createInfo.enabledLayerCount <- 0
+
+        let deviceExtensions = getRequiredDeviceExtensions()
+        if (!checkExtensionsSupport(physicalDevice, deviceExtensions))
+            fail("Failed to validate device extensions.")
+        
+        createInfo.enabledExtensionCount <- uint32(deviceExtensions.Length)
+        let requiredDeviceExtensionsHandle = fixedCopyUTF8(deviceExtensions)
+        createInfo.ppEnabledExtensionNames <- Unsafe.AsPointer(requiredDeviceExtensionsHandle.Pointer)  
+
+        let mutable device = default
+        if (vkCreateDevice(physicalDevice, &&createInfo, nullptr, &&device) != VkResult.VK_SUCCESS)
+            fail("Failed to create device.")
+
+        // Cleanup
+        graphicsQueuePrioritiesHandle.Free()
+        queueCreateInfosHandle.Free()
+        requiredDeviceExtensionsHandle.Dispose()
+
+        device
+
+    private createSwapChainSupportDetails(device: VkPhysicalDevice, surface: VkSurfaceKHR): VulkanSwapChainSupportDetails =
+        let mutable capabilities = default: VkSurfaceCapabilitiesKHR
+        let throwAwayResult = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &&capabilities)
+
+        let mutable formatCount = 0: uint32
+
+        let throwAwayResult = vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &&formatCount, nullptr)
+
+        let formats = zeroArray<VkSurfaceFormatKHR>(int32(formatCount))
+        let mutable formatsHandle = fixed(formats)
+        let throwAwayResult = vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &&formatCount, Unsafe.AsPointer(formatsHandle.AddrOfPinnedObject()))
+        formatsHandle.Free()
+
+        let mutable presentModeCount = 0: uint32
+
+        let throwAwayResult = vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &&presentModeCount, nullptr)
+
+        let presentModes = zeroArray<VkPresentModeKHR>(int32(presentModeCount))
+        let mutable presentModesHandle = fixed(presentModes)
+        let throwAwayResult = vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &&presentModeCount, Unsafe.AsPointer(presentModesHandle.AddrOfPinnedObject()))
+        presentModesHandle.Free()
+
+        VulkanSwapChainSupportDetails(capabilities, Unsafe.AsImmutable(formats), Unsafe.AsImmutable(presentModes))
+
+    private findSwapSurfaceFormat(formats: VkSurfaceFormatKHR[], format: VkFormat): VkSurfaceFormatKHR =
+        find(formats, 
+            x ->
+                if (x.format == format)
+                    match (format)
+                    | VkFormat.VK_FORMAT_B8G8R8A8_SRGB =>
+                        x.colorSpace == VkColorSpaceKHR.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+                    | VkFormat.VK_FORMAT_B8G8R8A8_UNORM =>
+                        x.colorSpace == VkColorSpaceKHR.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
+                    | _ =>
+                        false
+                else
+                    false
+        )
+
+    private findSupportedFormat(physicalDevice: VkPhysicalDevice, formats: VkFormat[], tiling: VkImageTiling, features: VkFormatFeatureFlags): VkFormat =
+        find(formats, 
+            x -> 
+                let mutable props = default: VkFormatProperties
+                vkGetPhysicalDeviceFormatProperties(physicalDevice, x, &&props)
+
+                match (tiling)
+                | VkImageTiling.VK_IMAGE_TILING_LINEAR when ((props.linearTilingFeatures & features) == features) =>
+                    props.optimalTilingFeatures & VkFormatFeatureFlags.VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT == VkFormatFeatureFlags.VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT
+                | VkImageTiling.VK_IMAGE_TILING_OPTIMAL when ((props.optimalTilingFeatures & features) == features) =>
+                    props.optimalTilingFeatures & VkFormatFeatureFlags.VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT == VkFormatFeatureFlags.VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT
+                | _ =>
+                    false
+        )
+
+    private hasStencilComponent(format: VkFormat): bool =
+        format == VkFormat.VK_FORMAT_D32_SFLOAT_S8_UINT || format == VkFormat.VK_FORMAT_D24_UNORM_S8_UINT
+
+    private findSwapPresentMode(presentModes: VkPresentModeKHR[], vsync: bool): VkPresentModeKHR =
+        if (vsync)
+            // This is always supported.
+            VkPresentModeKHR.VK_PRESENT_MODE_FIFO_KHR
+        else
+            let index = tryFindIndex(presentModes, (i, x) -> x == VkPresentModeKHR.VK_PRESENT_MODE_MAILBOX_KHR)
+            if (index == -1)
+                let index = tryFindIndex(presentModes, (i, x) -> x == VkPresentModeKHR.VK_PRESENT_MODE_IMMEDIATE_KHR)
+                if (index == -1)
+                    // Fallback, this is the only mode that is always supported.
+                    VkPresentModeKHR.VK_PRESENT_MODE_FIFO_KHR
+                else
+                    presentModes[index]
+            else
+                presentModes[index]
+
+    private findSwapExtent(capabilities: inref<VkSurfaceCapabilitiesKHR>): VkExtent2D =
+        if (capabilities.currentExtent.width != uint32.MaxValue)
+            capabilities.currentExtent
+        else
+            fail("Invalid swap-extent.")
+    //     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+    //     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+    //         return capabilities.currentExtent;
+    //     } else {
+    //         int width, height;
+    //         glfwGetFramebufferSize(window, &width, &height);
+
+    //         VkExtent2D actualExtent = {
+    //             static_cast<uint32_t>(width),
+    //             static_cast<uint32_t>(height)
+    //         };
+
+    //         actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+    //         actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+    //         return actualExtent;
+    //     }
+    // }
+
+    private tryCreateSwapChain(app: VulkanApplication, format: VkFormat, vsync: bool, vulkanSwapChain: byref<VulkanSwapChain>): bool =
+        let physicalDevice = app.PhysicalDevice
+        let device = app.Device
+        let surface = app.Surface
+        let graphicsFamilyIndex = app.GraphicsQueueFamilyIndex
+        let presentFamilyIndex = app.PresentQueueFamilyIndex
+        let maxFramesInFlight = uint32(app.MaxFramesInFlight)
+
+        let details = createSwapChainSupportDetails(physicalDevice, surface)
+
+        let swapChainAdequate =
+            details.Formats.Length > 0 && details.PresentModes.Length > 0
+
+        if (!swapChainAdequate)
+            fail("Swap chain is not adequate.")
+
+        let surfaceFormat = findSwapSurfaceFormat(details.Formats, format)
+        let presentMode = findSwapPresentMode(details.PresentModes, vsync)
+        let extent = findSwapExtent(&details.Capabilities)
+
+        if (extent.height == 0 && extent.width == 0)
+            false
+        else
+
+            // Request at least more than one image.
+            let mutable imageCount = details.Capabilities.minImageCount + 1
+
+            if (details.Capabilities.maxImageCount > 0 && imageCount > details.Capabilities.maxImageCount)
+                imageCount <- details.Capabilities.maxImageCount   
+
+            imageCount <- Math.Max(imageCount, maxFramesInFlight)
+
+            if (imageCount > details.Capabilities.maxImageCount)
+                fail("'MaxFramesInFlight' exceeds maximum swap-chain images.")
+
+            let mutable createInfo = default: VkSwapchainCreateInfoKHR
+            createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR
+            createInfo.surface <- surface
+            createInfo.minImageCount <- imageCount
+            createInfo.imageFormat <- surfaceFormat.format
+            createInfo.imageColorSpace <- surfaceFormat.colorSpace
+            createInfo.imageExtent <- extent
+            createInfo.imageArrayLayers <- 1
+            createInfo.imageUsage <- VkImageUsageFlags.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VkImageUsageFlags.VK_IMAGE_USAGE_TRANSFER_DST_BIT | VkImageUsageFlags.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+
+            let queueFamilyIndices = [graphicsFamilyIndex;presentFamilyIndex]
+            let mutable queueFamilyIndicesHandle = fixed(queueFamilyIndices)
+            if (graphicsFamilyIndex != presentFamilyIndex)
+                createInfo.imageSharingMode <- VkSharingMode.VK_SHARING_MODE_CONCURRENT
+                createInfo.queueFamilyIndexCount <- 2
+                createInfo.pQueueFamilyIndices <- Unsafe.AsPointer(queueFamilyIndicesHandle.AddrOfPinnedObject())
+            else
+                createInfo.imageSharingMode <- VkSharingMode.VK_SHARING_MODE_EXCLUSIVE
+                createInfo.queueFamilyIndexCount <- 0 // Optional
+                createInfo.pQueueFamilyIndices <- nullptr // Optional
+
+            createInfo.preTransform <- details.Capabilities.currentTransform
+            createInfo.compositeAlpha <- VkCompositeAlphaFlagsKHR.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+
+            createInfo.presentMode <- presentMode
+            createInfo.clipped <- VkBool32.TRUE
+            createInfo.oldSwapchain <- VkSwapchainKHR.NULL
+
+            if (createInfo.preTransform == (default: VkSurfaceTransformFlagsKHR))
+                throw VulkanSwapChainCreationFailedException()
+
+            let mutable swapChain = default
+            if (vkCreateSwapchainKHR(device, &&createInfo, nullptr, &&swapChain) != VkResult.VK_SUCCESS)
+                fail("Failed to create swap chain.")
+
+            // Getting images
+            let images = getSwapChainImages(device, swapChain)
+            let imageViews = 
+                map(images, 
+                    x -> 
+                        let vulkanImageViewCreateInfo = VulkanImageViewCreateInfo(x, surfaceFormat.format, VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT)
+                        createImageView(device, vulkanImageViewCreateInfo)
+                )
+
+            let depthImageFormat = GetDepthImageFormat(app, true)
+
+            let depthImages = 
+                initArray(images.Length, 
+                    i -> 
+                        let vulkanImageCreateInfo = VulkanImageCreateInfo(extent.width, extent.height, depthImageFormat, VkImageUsageFlags.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                        CreateImage(app, vulkanImageCreateInfo)
+                )
+            let depthImageViews = 
+                map(depthImages, 
+                    x -> 
+                        let vulkanImageViewCreateInfo = VulkanImageViewCreateInfo(x, VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT)
+                        createImageView(device, vulkanImageViewCreateInfo)
+                )
+
+            let mutable viewport = default: VkViewport
+            viewport.x <- 0
+            viewport.y <- 0
+            viewport.width <- float32(extent.width)
+            viewport.height <- float32(extent.height)
+            viewport.minDepth <- 0
+            viewport.maxDepth <- 1
+
+            let mutable scissor = default: VkRect2D
+            scissor.offset <- default
+            scissor.extent <- extent
+
+            vulkanSwapChain <- VulkanSwapChain(swapChain, images, imageViews, depthImages, depthImageViews, extent, viewport, scissor, surfaceFormat.format, depthImageFormat, details)
+            true
+
+    private createImageView(device: VkDevice, vulkanImageViewCreateInfo: VulkanImageViewCreateInfo): VkImageView =
+        let mutable createInfo = default: VkImageViewCreateInfo
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
+        createInfo.image <- vulkanImageViewCreateInfo.Image
+        createInfo.viewType <- if (vulkanImageViewCreateInfo.LayerCount > 1) VkImageViewType.VK_IMAGE_VIEW_TYPE_2D_ARRAY else VkImageViewType.VK_IMAGE_VIEW_TYPE_2D
+        createInfo.format <- vulkanImageViewCreateInfo.Format
+        createInfo.components.r <- VkComponentSwizzle.VK_COMPONENT_SWIZZLE_IDENTITY
+        createInfo.components.g <- VkComponentSwizzle.VK_COMPONENT_SWIZZLE_IDENTITY
+        createInfo.components.b <- VkComponentSwizzle.VK_COMPONENT_SWIZZLE_IDENTITY
+        createInfo.components.a <- VkComponentSwizzle.VK_COMPONENT_SWIZZLE_IDENTITY
+
+        createInfo.subresourceRange.aspectMask <- vulkanImageViewCreateInfo.AspectMask
+        createInfo.subresourceRange.baseMipLevel <- 0
+        createInfo.subresourceRange.levelCount <- vulkanImageViewCreateInfo.LevelCount
+        createInfo.subresourceRange.baseArrayLayer <- vulkanImageViewCreateInfo.BaseArrayLayer
+        createInfo.subresourceRange.layerCount <- vulkanImageViewCreateInfo.LayerCount
+
+        let mutable imageView = default: VkImageView
+        if (vkCreateImageView(device, &&createInfo, nullptr, &&imageView) != VkResult.VK_SUCCESS)
+            fail("Failed to create image view.")
+        
+        imageView
+
+    private createShaderModule(device: VkDevice, mutable byteCode: ReadOnlySpan<byte>): VkShaderModule =
+        let byteCodeRef = &byteCode.GetPinnableReference()
+
+        let mutable createInfo = default: VkShaderModuleCreateInfo
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO
+        createInfo.codeSize <- nuint(byteCode.Length)
+        createInfo.pCode <- Unsafe.AsPointer(&&byteCodeRef)
+
+        let mutable shaderModule = default: VkShaderModule
+        if (vkCreateShaderModule(device, &&createInfo, nullptr, &&shaderModule) != VkResult.VK_SUCCESS)
+            fail("Failed to create shader module.")
+            
+        shaderModule
+
+    private createShaderStageInfo(shaderModule: VkShaderModule, stage: VkShaderStageFlags): VkPipelineShaderStageCreateInfo =
+        if (shaderModule == VkShaderModule.NULL)
+            fail("VkShaderModule is null.")
+            
+        let mutable shaderStageInfo = default: VkPipelineShaderStageCreateInfo
+        shaderStageInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+        shaderStageInfo.stage <- stage
+        shaderStageInfo.`module` <- shaderModule
+        shaderStageInfo
+
+    private createPipelineLayout(device: VkDevice, setLayouts: VkDescriptorSetLayout[]): VkPipelineLayout =
+        let mutable setLayoutsHandle = fixed(setLayouts)
+
+        let mutable pipelineLayoutInfo = default: VkPipelineLayoutCreateInfo
+        pipelineLayoutInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
+        pipelineLayoutInfo.setLayoutCount <- uint32(setLayouts.Length)
+        pipelineLayoutInfo.pSetLayouts <- Unsafe.AsPointer(setLayoutsHandle.AddrOfPinnedObject())
+        pipelineLayoutInfo.pushConstantRangeCount <- 0 // Optional
+        pipelineLayoutInfo.pPushConstantRanges <- nullptr // Optional
+
+        let mutable pipelineLayout = default
+        if (vkCreatePipelineLayout(device, &&pipelineLayoutInfo, nullptr, &&pipelineLayout) != VkResult.VK_SUCCESS)
+            fail("Failed to create pipeline layout.")
+
+        setLayoutsHandle.Free()
+
+        pipelineLayout
+
+    private createComputePipeline(
+            device: VkDevice,
+            pipelineLayout: VkPipelineLayout,
+            mutable stage: VkPipelineShaderStageCreateInfo,
+            computeShaderModule: VkShaderModule): VkPipeline =
+
+        let pName = "main"
+        let mutable pNameHandle = fixedCopyUTF8(pName)
+        stage.pName <- Unsafe.AsPointer(pNameHandle.AddrOfPinnedObject())
+
+        let mutable createInfo = default: VkComputePipelineCreateInfo
+        createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO
+        createInfo.layout <- pipelineLayout
+        createInfo.stage <- stage
+        
+        let mutable pipeline = default
+        if (vkCreateComputePipelines(device, VkPipelineCache.NULL, 1, &&createInfo, nullptr, &&pipeline) != VkResult.VK_SUCCESS)
+            fail("Failed to create compute pipeline")
+
+        // cleanup
+        pNameHandle.Free()
+
+        pipeline
+            
+    private createGraphicsPipeline(
+            device: VkDevice, 
+            pipelineLayout: VkPipelineLayout, 
+            renderPass: VkRenderPass, 
+            stages: mutable VkPipelineShaderStageCreateInfo[],
+            polygonMode: VkPolygonMode,
+            cullMode: VkCullModeFlags,
+            frontFace: VkFrontFace,
+            vertexBindingDescriptions: VkVertexInputBindingDescription[],
+            vertexAttributeDescriptions: VkVertexInputAttributeDescription[], 
+            extent: VkExtent2D,
+            flags: VulkanGraphicsPipelineFlags,
+            frontStencilOp: VkStencilOpState,
+            backStencilOp: VkStencilOpState,
+            depthBiasOptions: VulkanDepthBiasOptions,
+            flipY: bool,
+            isDepthOnly: bool,
+            isBlendEnabled: bool,
+            outViewport: byref<VkViewport>,
+            outScissor: byref<VkRect2D>): VkPipeline =
+
+        let isColorDisabled = stages.Length == 1
+
+        let dynamicStates =
+            [
+                VkDynamicState.VK_DYNAMIC_STATE_VIEWPORT;
+                VkDynamicState.VK_DYNAMIC_STATE_SCISSOR
+            ]
+
+        let mutable dynamicStatesHandle = fixed(dynamicStates)
+
+        let mutable dynamicState = default: VkPipelineDynamicStateCreateInfo
+        dynamicState.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+        dynamicState.dynamicStateCount <- uint32(dynamicStates.Length)
+        dynamicState.pDynamicStates <- Unsafe.AsPointer(dynamicStatesHandle.AddrOfPinnedObject())
+
+        let mutable vertexBindingDescriptionsHandle = fixed(vertexBindingDescriptions)
+        let mutable vertexAttributeDescriptionsHandle = fixed(vertexAttributeDescriptions)
+
+        let mutable vertexInputInfo = default: VkPipelineVertexInputStateCreateInfo
+        vertexInputInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+        vertexInputInfo.vertexBindingDescriptionCount <- uint32(vertexBindingDescriptions.Length)
+        vertexInputInfo.pVertexBindingDescriptions <- Unsafe.AsPointer(vertexBindingDescriptionsHandle.AddrOfPinnedObject())
+        vertexInputInfo.vertexAttributeDescriptionCount <- uint32(vertexAttributeDescriptions.Length)
+        vertexInputInfo.pVertexAttributeDescriptions <- Unsafe.AsPointer(vertexAttributeDescriptionsHandle.AddrOfPinnedObject())
+
+        let mutable inputAssembly = default: VkPipelineInputAssemblyStateCreateInfo
+        inputAssembly.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+        inputAssembly.topology <- VkPrimitiveTopology.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+        inputAssembly.primitiveRestartEnable <- VkBool32.FALSE
+
+        let mutable viewport = default: VkViewport
+        viewport.x <- 0
+        viewport.width <- float32(extent.width)
+        if (flipY)
+            viewport.y <- float32(extent.height)
+            viewport.height <- -float32(extent.height)
+        else
+            viewport.y <- 0
+            viewport.height <- float32(extent.height)
+        viewport.minDepth <- 0
+        viewport.maxDepth <- 1
+
+        let mutable scissor = default: VkRect2D
+        scissor.offset <- default
+        scissor.extent <- extent
+
+        let mutable viewportState = default: VkPipelineViewportStateCreateInfo
+        viewportState.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+        viewportState.viewportCount <- 1
+        viewportState.pViewports <- &&viewport
+        viewportState.scissorCount <- 1
+        viewportState.pScissors <- &&scissor
+
+        let mutable rasterizer = default: VkPipelineRasterizationStateCreateInfo
+        rasterizer.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+        rasterizer.depthClampEnable <- VkBool32.FALSE
+        rasterizer.rasterizerDiscardEnable <- VkBool32.FALSE
+        rasterizer.polygonMode <- polygonMode
+        rasterizer.lineWidth <- 1
+        rasterizer.cullMode <- cullMode
+        rasterizer.frontFace <- frontFace
+
+        rasterizer.depthBiasEnable <- if (depthBiasOptions.Enabled) VkBool32.TRUE else VkBool32.FALSE
+        rasterizer.depthBiasConstantFactor <- depthBiasOptions.ConstantFactor
+        rasterizer.depthBiasClamp <- 0 // Optional - but to use it, we must enable the feature
+        rasterizer.depthBiasSlopeFactor <- depthBiasOptions.SlopeFactor
+
+        let mutable multisampling = default: VkPipelineMultisampleStateCreateInfo
+        multisampling.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+        multisampling.sampleShadingEnable <- VkBool32.FALSE
+        multisampling.rasterizationSamples <- VkSampleCountFlags.VK_SAMPLE_COUNT_1_BIT
+        multisampling.minSampleShading <- 1 // Optional
+        multisampling.pSampleMask <- nullptr // Optional
+        multisampling.alphaToCoverageEnable <- VkBool32.FALSE // Optional
+        multisampling.alphaToOneEnable <- VkBool32.FALSE // Optional
+
+        let mutable colorBlendAttachment = default: VkPipelineColorBlendAttachmentState
+        colorBlendAttachment.colorWriteMask <- VkColorComponentFlags.VK_COLOR_COMPONENT_R_BIT | VkColorComponentFlags.VK_COLOR_COMPONENT_G_BIT | VkColorComponentFlags.VK_COLOR_COMPONENT_B_BIT | VkColorComponentFlags.VK_COLOR_COMPONENT_A_BIT
+        colorBlendAttachment.blendEnable <- if (isBlendEnabled) VkBool32.TRUE else VkBool32.FALSE
+        colorBlendAttachment.srcColorBlendFactor <- VkBlendFactor.VK_BLEND_FACTOR_SRC_ALPHA // Optional
+        colorBlendAttachment.dstColorBlendFactor <- VkBlendFactor.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA // Optional
+        colorBlendAttachment.colorBlendOp <- VkBlendOp.VK_BLEND_OP_ADD // Optional
+        colorBlendAttachment.srcAlphaBlendFactor <- VkBlendFactor.VK_BLEND_FACTOR_SRC_ALPHA // Optional
+        colorBlendAttachment.dstAlphaBlendFactor <- VkBlendFactor.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA // Optional
+        colorBlendAttachment.alphaBlendOp <- VkBlendOp.VK_BLEND_OP_ADD // Optional
+
+        let mutable colorBlending = default: VkPipelineColorBlendStateCreateInfo
+        colorBlending.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO
+        colorBlending.logicOpEnable <- VkBool32.FALSE
+        colorBlending.logicOp <- VkLogicOp.VK_LOGIC_OP_COPY // Optional
+        if (isDepthOnly)
+            colorBlending.attachmentCount <- 0
+            colorBlending.pAttachments <- nullptr
+        else
+            colorBlending.attachmentCount <- 1
+            colorBlending.pAttachments <- &&colorBlendAttachment
+
+        let colorBlendingValue0 = &colorBlending.blendConstants.FixedElementField
+        let colorBlendingValue1 = &System.Runtime.CompilerServices.Unsafe.AddByteOffset(&colorBlendingValue0, nuint(4))
+        let colorBlendingValue2 = &System.Runtime.CompilerServices.Unsafe.AddByteOffset(&colorBlendingValue0, nuint(8))
+        let colorBlendingValue3 = &System.Runtime.CompilerServices.Unsafe.AddByteOffset(&colorBlendingValue0, nuint(12))
+
+        colorBlendingValue0 <- 0 // Optional
+        colorBlendingValue1 <- 0 // Optional
+        colorBlendingValue2 <- 0 // Optional
+        colorBlendingValue3 <- 0 // Optional
+
+        let mutable depthStencil = default: VkPipelineDepthStencilStateCreateInfo
+        depthStencil.sType <- VkStructureType.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+        depthStencil.depthTestEnable <- if (flags.HasFlag(VulkanGraphicsPipelineFlags.DepthTest)) VkBool32.TRUE else VkBool32.FALSE
+        depthStencil.depthWriteEnable <- if (flags.HasFlag(VulkanGraphicsPipelineFlags.DepthWrite)) VkBool32.TRUE else VkBool32.FALSE
+        depthStencil.depthCompareOp <- VkCompareOp.VK_COMPARE_OP_LESS
+        depthStencil.depthBoundsTestEnable <- VkBool32.FALSE
+        depthStencil.minDepthBounds <- 0 // Optional
+        depthStencil.maxDepthBounds <- 1 // Optional
+        depthStencil.stencilTestEnable <- if (flags.HasFlag(VulkanGraphicsPipelineFlags.StencilTest)) VkBool32.TRUE else VkBool32.FALSE
+        depthStencil.front <- frontStencilOp
+        depthStencil.back <- backStencilOp
+
+        let pName = "main"
+        let mutable pNameHandle = fixedCopyUTF8(pName)
+        let stageCount = stages.Length
+        let mutable i = 0
+        while (i < stageCount)
+            stages[i].pName <- Unsafe.AsPointer(pNameHandle.AddrOfPinnedObject())
+            i <- i + 1
+        let mutable stagesHandle = fixed(stages)
+
+        let mutable pipelineInfo = default: VkGraphicsPipelineCreateInfo
+        pipelineInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
+        pipelineInfo.stageCount <- uint32(stageCount)
+        pipelineInfo.pStages <- Unsafe.AsPointer(stagesHandle.AddrOfPinnedObject())
+        pipelineInfo.pVertexInputState <- &&vertexInputInfo
+        pipelineInfo.pInputAssemblyState <- &&inputAssembly
+        pipelineInfo.pViewportState <- &&viewportState
+        pipelineInfo.pRasterizationState <- &&rasterizer
+        pipelineInfo.pMultisampleState <- &&multisampling
+        pipelineInfo.pDepthStencilState <- &&depthStencil
+        pipelineInfo.pColorBlendState <- &&colorBlending
+        pipelineInfo.pDynamicState <- &&dynamicState
+        pipelineInfo.layout <- pipelineLayout
+        pipelineInfo.renderPass <- renderPass
+        pipelineInfo.subpass <- 0
+        pipelineInfo.basePipelineHandle <- VkPipeline.NULL // Optional
+        pipelineInfo.basePipelineIndex <- -1 // Optional
+
+        let mutable graphicsPipeline = default
+        if (vkCreateGraphicsPipelines(device, VkPipelineCache.NULL, 1, &&pipelineInfo, nullptr, &&graphicsPipeline) != VkResult.VK_SUCCESS)
+            fail("Failed to create graphics pipeline.")
+
+        // Cleanup
+        stagesHandle.Free()
+        pNameHandle.Free()
+        dynamicStatesHandle.Free()
+
+        outViewport <- viewport
+        outScissor <- scissor
+        
+        graphicsPipeline
+
+    private createRenderPass(device: VkDevice, imageFormat: VkFormat, depthImageFormat: VkFormat, finalLayout: VkImageLayout, isSwapChain: bool, flags: VulkanRenderPassFlags): VkRenderPass =
+        let mutable colorAttachment = default: VkAttachmentDescription
+        colorAttachment.format <- imageFormat
+        colorAttachment.samples <- VkSampleCountFlags.VK_SAMPLE_COUNT_1_BIT
+        colorAttachment.loadOp <- VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR
+        colorAttachment.storeOp <- VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE
+        colorAttachment.stencilLoadOp <- VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE
+        colorAttachment.stencilStoreOp <- VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE
+        colorAttachment.initialLayout <- VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED
+        colorAttachment.finalLayout <- finalLayout
+
+        let mutable colorAttachmentRef = default: VkAttachmentReference
+        colorAttachmentRef.attachment <- 0
+        colorAttachmentRef.layout <- VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+
+        let mutable depthAttachment = default: VkAttachmentDescription
+        depthAttachment.format <- depthImageFormat
+        depthAttachment.samples <- VkSampleCountFlags.VK_SAMPLE_COUNT_1_BIT
+        depthAttachment.loadOp <- VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR
+        depthAttachment.storeOp <- VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE
+        depthAttachment.stencilLoadOp <- VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR
+        depthAttachment.stencilStoreOp <- VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE
+        depthAttachment.initialLayout <- VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED
+        depthAttachment.finalLayout <- VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+
+        let isColor = flags & VulkanRenderPassFlags.ClearColor != VulkanRenderPassFlags.None
+        let isDepth = flags & VulkanRenderPassFlags.ClearDepthStencil != VulkanRenderPassFlags.None
+        
+        let isColorOnly = isColor && !isDepth
+        let isDepthOnly = isDepth && !isColor
+
+        let mutable depthAttachmentRef = default: VkAttachmentReference
+        if (isDepthOnly)
+            depthAttachmentRef.attachment <- 0
+        else
+            depthAttachmentRef.attachment <- 1
+        depthAttachmentRef.layout <- VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+
+        let mutable subpass = default: VkSubpassDescription
+        subpass.pipelineBindPoint <- VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS
+        if (!isDepthOnly)
+            subpass.colorAttachmentCount <- 1
+            subpass.pColorAttachments <- &&colorAttachmentRef
+        subpass.pDepthStencilAttachment <- &&depthAttachmentRef
+
+        let dependencies =
+            if (true)//isSwapChain)
+                if (isDepthOnly)
+                    let mutable dependency = default: VkSubpassDependency
+                    dependency.srcSubpass <- VK_SUBPASS_EXTERNAL
+                    dependency.dstSubpass <- 0
+                    dependency.srcStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                    dependency.srcAccessMask <- default
+                    dependency.dstStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                    dependency.dstAccessMask <- VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                    [dependency]
+                else
+                    let mutable dependency = default: VkSubpassDependency
+                    dependency.srcSubpass <- VK_SUBPASS_EXTERNAL
+                    dependency.dstSubpass <- 0
+                    dependency.srcStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                    dependency.srcAccessMask <- default
+                    dependency.dstStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                    dependency.dstAccessMask <- VkAccessFlags.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                    [dependency]
+            else
+                let mutable dependency0 = default: VkSubpassDependency
+                dependency0.srcSubpass <- VK_SUBPASS_EXTERNAL
+                dependency0.dstSubpass <- 0
+                dependency0.srcStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                dependency0.dstStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                dependency0.srcAccessMask <- VkAccessFlags.VK_ACCESS_SHADER_READ_BIT
+                dependency0.dstAccessMask <- VkAccessFlags.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                dependency0.dependencyFlags <- VkDependencyFlags.VK_DEPENDENCY_BY_REGION_BIT
+
+                let mutable dependency1 = default: VkSubpassDependency
+                dependency1.srcSubpass <- 0
+                dependency1.dstSubpass <- VK_SUBPASS_EXTERNAL
+                dependency1.srcStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+                dependency1.dstStageMask <- VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                dependency1.srcAccessMask <- VkAccessFlags.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+                dependency1.dstAccessMask <- VkAccessFlags.VK_ACCESS_SHADER_READ_BIT
+                dependency1.dependencyFlags <- VkDependencyFlags.VK_DEPENDENCY_BY_REGION_BIT
+
+                [dependency0;dependency1]
+
+        let attachments = 
+            if (isDepthOnly)
+                [depthAttachment]
+            else if (isColorOnly)
+                [colorAttachment]
+            else if (isColor && isDepth)
+                [colorAttachment;depthAttachment]
+            else
+                []
+
+        let mutable dependenciesHandle = fixed(dependencies)
+        let mutable attachmentsHandle = fixed(attachments)
+
+        let mutable renderPassInfo = default: VkRenderPassCreateInfo
+        renderPassInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO
+        renderPassInfo.attachmentCount <- uint32(attachments.Length)
+        renderPassInfo.pAttachments <- Unsafe.AsPointer(attachmentsHandle.AddrOfPinnedObject())
+        renderPassInfo.subpassCount <- 1
+        renderPassInfo.pSubpasses <- &&subpass
+        renderPassInfo.dependencyCount <- uint32(dependencies.Length)
+        renderPassInfo.pDependencies <- Unsafe.AsPointer(dependenciesHandle.AddrOfPinnedObject())
+
+        let mutable renderPass = default
+        if (vkCreateRenderPass(device, &&renderPassInfo, nullptr, &&renderPass) != VkResult.VK_SUCCESS)
+            fail("Failed to create render pass.")
+
+        dependenciesHandle.Free()
+        attachmentsHandle.Free()
+        
+        renderPass
+
+    private createFramebuffer(device: VkDevice, vulkanFramebufferCreateInfo: VulkanFramebufferCreateInfo): VkFramebuffer =
+        let attachments = vulkanFramebufferCreateInfo.Attachments
+        let mutable attachmentsHandle = fixed(attachments)
+
+        let mutable framebufferInfo = default: VkFramebufferCreateInfo
+        framebufferInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
+        framebufferInfo.renderPass <- vulkanFramebufferCreateInfo.RenderPass
+        framebufferInfo.attachmentCount <- uint32(attachments.Length)
+        framebufferInfo.pAttachments <- Unsafe.AsPointer(attachmentsHandle.AddrOfPinnedObject())
+        framebufferInfo.width <- vulkanFramebufferCreateInfo.Width
+        framebufferInfo.height <- vulkanFramebufferCreateInfo.Height
+        framebufferInfo.layers <- 1
+
+        let mutable framebuffer = default
+        if (vkCreateFramebuffer(device, &&framebufferInfo, nullptr, &&framebuffer) != VkResult.VK_SUCCESS)
+            fail("Failed to create framebuffer.")
+
+        attachmentsHandle.Free()
+        
+        framebuffer
+
+    internal createCommandPool(device: VkDevice, queueFamilyIndex: uint32): VkCommandPool =
+        let mutable poolInfo = default: VkCommandPoolCreateInfo
+        poolInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO
+        poolInfo.flags <- VkCommandPoolCreateFlags.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+        poolInfo.queueFamilyIndex <- queueFamilyIndex
+
+        let mutable commandPool = default
+        if (vkCreateCommandPool(device, &&poolInfo, nullptr, &&commandPool) != VkResult.VK_SUCCESS)
+            fail("Failed to create command pool.")
+
+        commandPool
+
+    private createCommandBuffer(device: VkDevice, commandPool: VkCommandPool): VkCommandBuffer =
+        let mutable allocInfo = default: VkCommandBufferAllocateInfo
+        allocInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO
+        allocInfo.commandPool <- commandPool
+        allocInfo.level <- VkCommandBufferLevel.VK_COMMAND_BUFFER_LEVEL_PRIMARY
+        allocInfo.commandBufferCount <- 1
+
+        let mutable commandBuffer = default
+        if (vkAllocateCommandBuffers(device, &&allocInfo, &&commandBuffer) != VkResult.VK_SUCCESS)
+            fail("Failed to allocate command buffer.")
+
+        commandBuffer
+
+    private createBuffer(allocator: VmaAllocator, size: uint64, usage: VkBufferUsageFlags, flags: VmaAllocationCreateFlags, pAllocationInfo: VmaAllocationInfo*): (VkBuffer, VmaAllocation) =
+        if (size == 0)
+            throw System.ArgumentOutOfRangeException("size")
+        let mutable bufferInfo = default: VkBufferCreateInfo
+        bufferInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+        bufferInfo.size <- size
+        bufferInfo.usage <- usage
+
+        let mutable allocInfo = default: VmaAllocationCreateInfo
+        allocInfo.usage <- VmaMemoryUsage.VMA_MEMORY_USAGE_AUTO
+        allocInfo.flags <- flags
+
+        let mutable buffer = default: VkBuffer
+        let mutable allocation = default: VmaAllocation
+        if (vmaCreateBuffer(allocator, &&bufferInfo, &&allocInfo, &&buffer, &&allocation, pAllocationInfo) != VkResult.VK_SUCCESS)
+            fail("Failed to create buffer.")
+
+        (buffer, allocation)
+
+    private createImage(allocator: VmaAllocator, vulkanImageCreateInfo: VulkanImageCreateInfo, allocFlags: VmaAllocationCreateFlags, pAllocationInfo: VmaAllocationInfo*): (VkImage, VmaAllocation) =
+        let mutable imageInfo = default: VkImageCreateInfo
+        imageInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
+        imageInfo.imageType <- VkImageType.VK_IMAGE_TYPE_2D
+        imageInfo.extent.width <- vulkanImageCreateInfo.Width
+        imageInfo.extent.height <- vulkanImageCreateInfo.Height
+        imageInfo.extent.depth <- 1
+        imageInfo.mipLevels <- vulkanImageCreateInfo.MipLevels
+        imageInfo.arrayLayers <- vulkanImageCreateInfo.ArrayLayers
+        imageInfo.format <- vulkanImageCreateInfo.Format
+        imageInfo.tiling <- VkImageTiling.VK_IMAGE_TILING_OPTIMAL
+        imageInfo.initialLayout <- VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED
+        imageInfo.usage <- vulkanImageCreateInfo.UsageFlags
+        imageInfo.samples <- VkSampleCountFlags.VK_SAMPLE_COUNT_1_BIT
+        imageInfo.sharingMode <- VkSharingMode.VK_SHARING_MODE_EXCLUSIVE
+
+        let mutable allocInfo = default: VmaAllocationCreateInfo
+        allocInfo.usage <- VmaMemoryUsage.VMA_MEMORY_USAGE_AUTO
+        allocInfo.flags <- allocFlags
+        allocInfo.priority <- 1
+
+        let mutable image = default: VkImage
+        let mutable allocation = default: VmaAllocation
+        if (vmaCreateImage(allocator, &&imageInfo, &&allocInfo, &&image, &&allocation, pAllocationInfo) != VkResult.VK_SUCCESS)
+            fail("Failed to create image.")
+
+        (image, allocation)
+
+    private createVertexInputBindingDescription<T>(binding: uint32, isInstance: bool): VkVertexInputBindingDescription where T: unmanaged =
+        let mutable bindingDescription = default: VkVertexInputBindingDescription
+        bindingDescription.binding <- binding
+        bindingDescription.stride <- uint32(DotNet.SizeOf<T>)
+        bindingDescription.inputRate <- if (isInstance) VkVertexInputRate.VK_VERTEX_INPUT_RATE_INSTANCE else VkVertexInputRate.VK_VERTEX_INPUT_RATE_VERTEX
+        bindingDescription
+
+    private createVertexInputAttributeDescriptions<T>(binding: uint32): VkVertexInputAttributeDescription[] where T: unmanaged =
+        let ty = DotNet.TypeOf<T>
+        let size = DotNet.SizeOf<T>
+        let fields = Unsafe.AsImmutable(ty.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+        let fields = filter(fields, x -> !x.IsStatic)
+
+        let create(location, offset, fld: System.Reflection.FieldInfo) =
+            let mutable attributeDescription = default: VkVertexInputAttributeDescription
+            attributeDescription.binding <- binding
+            attributeDescription.location <- location
+            attributeDescription.offset <- offset
+
+            if (fld.FieldType === DotNet.TypeOf<Vector2>)
+                attributeDescription.format <- VkFormat.VK_FORMAT_R32G32_SFLOAT
+                (attributeDescription, uint32(DotNet.SizeOf<Vector2>))
+            else if (fld.FieldType === DotNet.TypeOf<Vector3>)
+                attributeDescription.format <- VkFormat.VK_FORMAT_R32G32B32_SFLOAT
+                (attributeDescription, uint32(DotNet.SizeOf<Vector3>))
+            else if (fld.FieldType === DotNet.TypeOf<Vector4>)
+                attributeDescription.format <- VkFormat.VK_FORMAT_R32G32B32A32_SFLOAT
+                (attributeDescription, uint32(DotNet.SizeOf<Vector4>))
+            else
+                throw NotSupportedException(fld.FieldType.ToString())
+
+        let attributeDescriptions = zeroArray(fields.Length)
+        let mutable i = 0
+        let mutable currentOffset = 0: uint32
+        while (i < fields.Length)
+            match (create(uint32(i), currentOffset, fields[i]))
+            | (attributeDescription, size) =>
+                currentOffset <- currentOffset + size
+                attributeDescriptions[i] <- attributeDescription
+            i <- i + 1
+        Unsafe.AsImmutable(attributeDescriptions)
+
+    private createDescriptorSetLayout(device: VkDevice, mutable bindingInfos: ReadOnlySpan<VulkanDescriptorSetLayoutBinding>): VkDescriptorSetLayout =
+
+        let layoutBindings = zeroArray(bindingInfos.Length)
+        let layoutBindingFlags = zeroArray(bindingInfos.Length)
+
+        let mutable i = 0
+        while (i < layoutBindings.Length)
+            let info = bindingInfos[i]
+
+            let mutable layoutBinding = default: VkDescriptorSetLayoutBinding
+            layoutBinding.binding <- uint32(i)
+            layoutBinding.descriptorType <- info.DescriptorType
+            layoutBinding.descriptorCount <- info.Count
+            layoutBinding.stageFlags <- info.StageFlags
+            layoutBinding.pImmutableSamplers <- nullptr
+
+            layoutBindings[i] <- layoutBinding
+
+            if (info.IsBindless)
+                layoutBindingFlags[i] <- VkDescriptorBindingFlags.VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT | VkDescriptorBindingFlags.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
+            else
+                layoutBindingFlags[i] <- default
+            i <- i + 1
+
+        let mutable layoutBindingsHandle = fixed(layoutBindings)
+        let mutable layoutBindingFlagsHandle = fixed(layoutBindingFlags)
+
+        let mutable setLayoutBindingFlagsCreateInfo = default: VkDescriptorSetLayoutBindingFlagsCreateInfo
+        setLayoutBindingFlagsCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO
+        setLayoutBindingFlagsCreateInfo.bindingCount <- uint32(layoutBindings.Length)
+        setLayoutBindingFlagsCreateInfo.pBindingFlags <- Unsafe.AsPointer(layoutBindingFlagsHandle.AddrOfPinnedObject())
+
+        let mutable layoutInfo = default: VkDescriptorSetLayoutCreateInfo
+        layoutInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
+        layoutInfo.bindingCount <- uint32(layoutBindings.Length)
+        layoutInfo.pBindings <- Unsafe.AsPointer(layoutBindingsHandle.AddrOfPinnedObject())
+        layoutInfo.pNext <- Unsafe.Cast(&&setLayoutBindingFlagsCreateInfo)
+
+        let mutable descriptorSetLayout = default: VkDescriptorSetLayout
+        if (vkCreateDescriptorSetLayout(device, &&layoutInfo, nullptr, &&descriptorSetLayout) != VkResult.VK_SUCCESS)
+            fail("Failed to create descriptor set layout.")
+
+        layoutBindingFlagsHandle.Free()
+        layoutBindingsHandle.Free()
+
+        descriptorSetLayout
+
+    private createDescriptorPool(device: VkDevice, mutable descriptorTypes: ReadOnlySpan<VkDescriptorType>, descriptorCount: uint32): VkDescriptorPool =
+
+        let poolSizes = zeroArray(descriptorTypes.Length)
+
+        let mutable i = 0
+        while (i < poolSizes.Length)
+            let descriptorType = descriptorTypes[i]
+
+            let mutable poolSize = default: VkDescriptorPoolSize
+            poolSize.`type` <- descriptorType
+            poolSize.descriptorCount <- descriptorCount
+
+            poolSizes[i] <- poolSize
+            i <- i + 1
+
+        let mutable poolSizesHandle = fixed(poolSizes)
+
+        let mutable poolInfo = default: VkDescriptorPoolCreateInfo
+        poolInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+        poolInfo.poolSizeCount <- uint32(poolSizes.Length)
+        poolInfo.pPoolSizes <- Unsafe.AsPointer(poolSizesHandle.AddrOfPinnedObject())
+        poolInfo.maxSets <- descriptorCount
+
+        let mutable descriptorPool = default: VkDescriptorPool
+        if (vkCreateDescriptorPool(device, &&poolInfo, nullptr, &&descriptorPool) != VkResult.VK_SUCCESS)
+            fail("Failed to create descriptor pool.")
+
+        poolSizesHandle.Free()
+
+        descriptorPool
+
+    private createDescriptorSets(device: VkDevice, descriptorPool: VkDescriptorPool, descriptorSetCount: uint32, setLayout: VkDescriptorSetLayout, counts: uint32[]): VkDescriptorSet[] =
+        let setLayouts = initArray(int32(descriptorSetCount), i -> setLayout)
+        let mutable setLayoutsHandle = fixed(setLayouts)       
+        let mutable countsHandle = fixed(counts)
+        
+        let mutable setCounts = default: VkDescriptorSetVariableDescriptorCountAllocateInfo
+        setCounts.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO
+        setCounts.descriptorSetCount <- descriptorSetCount
+        setCounts.pDescriptorCounts <- Unsafe.AsPointer(countsHandle.AddrOfPinnedObject()) // TODO-language-bug: 'Unsafe.AsPointer(&&countsHandle.AddrOfPinnedObject())' should fail
+
+        let mutable allocInfo = default: VkDescriptorSetAllocateInfo
+        allocInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+        allocInfo.descriptorPool <- descriptorPool
+        allocInfo.descriptorSetCount <- descriptorSetCount
+        allocInfo.pSetLayouts <- Unsafe.AsPointer(setLayoutsHandle.AddrOfPinnedObject())
+        allocInfo.pNext <- Unsafe.AsPointer(&&setCounts)
+
+        let mutable descriptorSets = zeroArray<VkDescriptorSet>(int32(descriptorSetCount))
+        let mutable descriptorSetsHandle = fixed(descriptorSets)
+        let descriptorSetsPtr = Unsafe.AsPointer(descriptorSetsHandle.AddrOfPinnedObject())
+        if (vkAllocateDescriptorSets(device, &&allocInfo, descriptorSetsPtr) != VkResult.VK_SUCCESS)
+            fail("Failed to allocate descriptor sets.")
+
+        countsHandle.Free()
+        setLayoutsHandle.Free()
+        descriptorSetsHandle.Free()
+
+        Unsafe.AsImmutable(descriptorSets)
+
+    private updateDescriptorSet(device: VkDevice, binding: uint32, descriptorSet: VkDescriptorSet, buffer: VkBuffer, offset: uint64, size: uint64, descriptorType: VkDescriptorType): () =
+        let mutable bufferInfo = default: VkDescriptorBufferInfo
+        bufferInfo.offset <- offset
+        bufferInfo.buffer <- buffer
+        bufferInfo.range <- size
+
+        let mutable descriptorWrite = default: VkWriteDescriptorSet
+        descriptorWrite.sType <- VkStructureType.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+        descriptorWrite.dstSet <- descriptorSet
+        descriptorWrite.dstBinding <- binding
+        descriptorWrite.dstArrayElement <- 0
+
+        descriptorWrite.descriptorType <- descriptorType
+        descriptorWrite.descriptorCount <- 1
+
+        descriptorWrite.pBufferInfo <- &&bufferInfo
+        descriptorWrite.pImageInfo <- nullptr // Optional
+        descriptorWrite.pTexelBufferView <- nullptr // Optional
+
+        vkUpdateDescriptorSets(device, 1, &&descriptorWrite, 0, nullptr)
+
+    private updateDescriptorSet(device: VkDevice, binding: uint32, descriptorSet: VkDescriptorSet, imageLayout: VkImageLayout, imageView: VkImageView, sampler: VkSampler, descriptorType: VkDescriptorType): () =
+        let mutable imageInfo = default: VkDescriptorImageInfo
+        imageInfo.imageLayout <- imageLayout
+        imageInfo.imageView <- imageView
+        imageInfo.sampler <- sampler
+
+        let mutable descriptorWrite = default: VkWriteDescriptorSet
+        descriptorWrite.sType <- VkStructureType.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+        descriptorWrite.dstSet <- descriptorSet
+        descriptorWrite.dstBinding <- binding
+        descriptorWrite.dstArrayElement <- 0
+
+        descriptorWrite.descriptorType <- descriptorType
+        descriptorWrite.descriptorCount <- 1
+
+        descriptorWrite.pBufferInfo <- nullptr
+        descriptorWrite.pImageInfo <- &&imageInfo
+        descriptorWrite.pTexelBufferView <- nullptr
+
+        vkUpdateDescriptorSets(device, 1, &&descriptorWrite, 0, nullptr)
+
+    private updateDescriptorSet(device: VkDevice, binding: uint32, descriptorSet: VkDescriptorSet, imageLayout: VkImageLayout[], imageView: VkImageView[], sampler: VkSampler[], descriptorType: VkDescriptorType): () =
+        let count = imageLayout.Length
+
+        if (count > 0)
+            let imageInfos =
+                initMutableArray(count, 
+                    i ->
+                        let mutable imageInfo = default: VkDescriptorImageInfo
+                        imageInfo.imageLayout <- imageLayout[i]
+                        imageInfo.imageView <- imageView[i]
+                        imageInfo.sampler <- sampler[i]
+                        imageInfo
+                )
+
+            let mutable imageInfosHandle = fixed(imageInfos)
+
+            let descriptorWrites =
+                initArray(count,
+                    i ->
+                        let mutable descriptorWrite = default: VkWriteDescriptorSet
+                        descriptorWrite.sType <- VkStructureType.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+                        descriptorWrite.dstSet <- descriptorSet
+                        descriptorWrite.dstBinding <- binding
+                        descriptorWrite.dstArrayElement <- uint32(i)
+                
+                        descriptorWrite.descriptorType <- descriptorType
+                        descriptorWrite.descriptorCount <- 1
+                
+                        descriptorWrite.pBufferInfo <- nullptr
+                        descriptorWrite.pImageInfo <- Unsafe.AsPointer(&&imageInfos[i])
+                        descriptorWrite.pTexelBufferView <- nullptr 
+
+                        descriptorWrite
+                )
+
+            let mutable descriptorWritesHandle = fixed(descriptorWrites)
+
+            vkUpdateDescriptorSets(device, uint32(descriptorWrites.Length), Unsafe.AsPointer(descriptorWritesHandle.AddrOfPinnedObject()), 0, nullptr)
+
+            descriptorWritesHandle.Free()
+            imageInfosHandle.Free()
+
+    // -----------------------------------------------------------------------
+
+    private getInstanceLayerProperties(): VkLayerProperties[] =
+        let mutable layerCount = 0: uint32
+
+        if (vkEnumerateInstanceLayerProperties(&&layerCount, nullptr) != VkResult.VK_SUCCESS)
+            fail("Failed to enumerate instance layer properties.")
+
+        let availableLayers = zeroArray<VkLayerProperties>(int32(layerCount))
+        let mutable availableLayersHandle = fixed(availableLayers)
+        if (vkEnumerateInstanceLayerProperties(&&layerCount, Unsafe.AsPointer(availableLayersHandle.AddrOfPinnedObject())) != VkResult.VK_SUCCESS)
+            fail("Failed to enumerate instance layer properties.")
+        availableLayersHandle.Free()
+
+        Unsafe.AsImmutable(availableLayers)
+
+    private getPhysicalDevices(instance: VkInstance): VkPhysicalDevice[] =
+        let mutable deviceCount = 0: uint32
+
+        if (vkEnumeratePhysicalDevices(instance, &&deviceCount, nullptr) != VkResult.VK_SUCCESS)
+            fail("Failed to enumerate physical devices.")
+
+        let availableDevices = zeroArray<VkPhysicalDevice>(int32(deviceCount))
+        let mutable availableDevicesHandle = fixed(availableDevices)
+        if (vkEnumeratePhysicalDevices(instance, &&deviceCount, Unsafe.AsPointer(availableDevicesHandle.AddrOfPinnedObject())) != VkResult.VK_SUCCESS)
+            fail("Failed to enumerate physical devices.")
+        availableDevicesHandle.Free()
+
+        Unsafe.AsImmutable(availableDevices)
+
+    private getPhysicalDeviceQueueFamilyProperties(device: VkPhysicalDevice): VkQueueFamilyProperties[] =
+        let mutable queueFamilyCount = 0: uint32
+
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &&queueFamilyCount, nullptr)
+
+        let queueFamilies = zeroArray<VkQueueFamilyProperties>(int32(queueFamilyCount))
+        let mutable queueFamiliesHandle = fixed(queueFamilies)
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &&queueFamilyCount, Unsafe.AsPointer(queueFamiliesHandle.AddrOfPinnedObject()))
+        queueFamiliesHandle.Free()
+
+        Unsafe.AsImmutable(queueFamilies)
+
+    private getDeviceExtensionProperties(device: VkPhysicalDevice): VkExtensionProperties[] =
+        let mutable extensionCount = 0: uint32
+
+        let throwAwayResult = vkEnumerateDeviceExtensionProperties(device, nullptr, &&extensionCount, nullptr)
+
+        let extensions = zeroArray<VkExtensionProperties>(int32(extensionCount))
+        let mutable extensionsHandle = fixed(extensions)
+        let throwAwayResult = vkEnumerateDeviceExtensionProperties(device, nullptr, &&extensionCount, Unsafe.AsPointer(extensionsHandle.AddrOfPinnedObject()))
+        extensionsHandle.Free()
+
+        Unsafe.AsImmutable(extensions)
+
+    private getSwapChainImages(device: VkDevice, swapChain: VkSwapchainKHR): VkImage[] =
+        let mutable imageCount = 0: uint32
+        let throwAwayResult = vkGetSwapchainImagesKHR(device, swapChain, &&imageCount, nullptr)
+        
+        let images = zeroArray<VkImage>(int32(imageCount))
+        let mutable imagesHandle = fixed(images)
+        let throwAwayResult = vkGetSwapchainImagesKHR(device, swapChain, &&imageCount, Unsafe.AsPointer(imagesHandle.AddrOfPinnedObject()))
+        imagesHandle.Free()
+
+        Unsafe.AsImmutable(images)
+
+    // -----------------------------------------------------------------------
+
+    private findSuitableDevice(devices: VkPhysicalDevice[]): VkPhysicalDevice =
+        maxByUInt32(devices, getDeviceSuitableScore)
+
+    private getDeviceSuitableScore(device: VkPhysicalDevice): uint32 =
+        let mutable deviceProperties = default: VkPhysicalDeviceProperties
+        let mutable deviceFeatures = default: VkPhysicalDeviceFeatures
+
+        vkGetPhysicalDeviceProperties(device, &&deviceProperties)
+        vkGetPhysicalDeviceFeatures(device, &&deviceFeatures)
+
+        let score =
+            match (deviceProperties.deviceType)
+            | VkPhysicalDeviceType.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU when (deviceFeatures.geometryShader == VkBool32.TRUE) =>
+                1000 + deviceProperties.limits.maxImageDimension2D
+            | _ =>
+                0
+
+        score
+
+    internal getPhysicalDeviceProperties(device: VkPhysicalDevice): VkPhysicalDeviceProperties =
+        let mutable deviceProperties = default: VkPhysicalDeviceProperties
+        vkGetPhysicalDeviceProperties(device, &&deviceProperties)
+        deviceProperties
+
+    private checkValidationLayerSupport(validationLayers: string[]): bool =
+        if (validationLayers.Length == 0)
+            true
+        else
+            let availableLayers = getInstanceLayerProperties()
+
+            let mutable found = true
+
+            let mutable i = 0
+            while (i < validationLayers.Length)
+                let mutable foundLayer = false
+
+                let mutable j = 0
+                while (j < availableLayers.Length)
+                    let layerProperties = availableLayers[j]
+                    let layerName = String(Unsafe.AsPointer(&&layerProperties.layerName): int8*)
+                    if (layerName == validationLayers[i])
+                        foundLayer <- true
+                    j <- j + 1
+
+                if (!foundLayer)
+                    found <- false
+
+                i <- i + 1
+
+            found
+
+    private checkExtensionsSupport(device: VkPhysicalDevice, deviceExtensions: string[]): bool =
+        if (deviceExtensions.Length == 0)
+            true
+        else
+            let availableExtensions = getDeviceExtensionProperties(device)
+
+            let mutable found = true
+
+            let mutable i = 0
+            while (i < deviceExtensions.Length)
+                let mutable foundExtension = false
+
+                let mutable j = 0
+                while (j < availableExtensions.Length)
+                    let extensionProperties = availableExtensions[j]
+                    let extensionName = String(Unsafe.AsPointer(&&extensionProperties.extensionName): int8*)
+                    if (extensionName == deviceExtensions[i])
+                        foundExtension <- true
+                    j <- j + 1
+
+                if (!foundExtension)
+                    found <- false
+
+                i <- i + 1
+
+            found
+
+    private transitionImageLayout(commandBuffer: VkCommandBuffer, image: VkImage, format: VkFormat, oldLayout: VkImageLayout, newLayout: VkImageLayout, mipLevels: uint32, layerCount: uint32): () =
+        let mutable barrier = default: VkImageMemoryBarrier
+        barrier.sType <- VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+        barrier.oldLayout <- oldLayout
+        barrier.newLayout <- newLayout
+        barrier.srcQueueFamilyIndex <- VK_QUEUE_FAMILY_IGNORED
+        barrier.dstQueueFamilyIndex <- VK_QUEUE_FAMILY_IGNORED
+        barrier.image <- image
+        barrier.subresourceRange.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+        barrier.subresourceRange.baseMipLevel <- 0
+        barrier.subresourceRange.levelCount <- mipLevels
+        barrier.subresourceRange.baseArrayLayer <- 0
+        barrier.subresourceRange.layerCount <- layerCount
+
+        // Default transition
+        barrier.srcAccessMask <- default
+        barrier.dstAccessMask <- VkAccessFlags.VK_ACCESS_TRANSFER_WRITE_BIT
+        let mutable sourceStage = VkPipelineStageFlags.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+        let mutable destinationStage = VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT
+
+        match (newLayout)
+        | VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL =>
+            barrier.subresourceRange.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT
+        
+            if (hasStencilComponent(format))
+                barrier.subresourceRange.aspectMask <- barrier.subresourceRange.aspectMask | VkImageAspectFlags.VK_IMAGE_ASPECT_STENCIL_BIT
+        | _ =>
+            barrier.subresourceRange.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+
+        match (oldLayout, newLayout)
+        | VkImageLayout.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+        | VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL => ()
+
+        | VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED, VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL =>
+            barrier.dstAccessMask <- VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+            sourceStage <- VkPipelineStageFlags.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+            destinationStage <- VkPipelineStageFlags.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+
+        | VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL =>
+            barrier.srcAccessMask <- VkAccessFlags.VK_ACCESS_TRANSFER_WRITE_BIT
+            barrier.dstAccessMask <- VkAccessFlags.VK_ACCESS_SHADER_READ_BIT
+            sourceStage <- VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT
+            destinationStage <- VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+
+        | _ =>
+            fail("Invalid image layout transition.")
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            sourceStage, destinationStage,
+            default,
+            0, nullptr,
+            0, nullptr,
+            1, &&barrier
+        )
+
+    private createSampler(device: VkDevice, maxAnisotropy: float32, mipLevels: uint32, addressMode: VkSamplerAddressMode, magFilter: VkFilter, minFilter: VkFilter, mipmapMode: VkSamplerMipmapMode): VkSampler =
+        let mutable samplerInfo = default: VkSamplerCreateInfo
+        samplerInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
+        samplerInfo.magFilter <- magFilter
+        samplerInfo.minFilter <- minFilter
+        samplerInfo.addressModeU <- addressMode
+        samplerInfo.addressModeV <- addressMode
+        samplerInfo.addressModeW <- addressMode
+        samplerInfo.anisotropyEnable <- if (maxAnisotropy == 1) VkBool32.FALSE else VkBool32.TRUE
+        samplerInfo.maxAnisotropy <- maxAnisotropy
+        samplerInfo.borderColor <- VkBorderColor.VK_BORDER_COLOR_INT_OPAQUE_BLACK
+        samplerInfo.unnormalizedCoordinates <- VkBool32.FALSE
+        samplerInfo.compareEnable <- VkBool32.FALSE
+        samplerInfo.compareOp <- VkCompareOp.VK_COMPARE_OP_ALWAYS
+        samplerInfo.mipmapMode <- mipmapMode
+        samplerInfo.mipLodBias <- 0
+        samplerInfo.minLod <- 0
+        samplerInfo.maxLod <- float32(mipLevels)
+
+        let mutable sampler = default
+        if (vkCreateSampler(device, &&samplerInfo, nullptr, &&sampler) != VkResult.VK_SUCCESS)
+            fail("Failed to create sampler.")
+
+        sampler
+    // -----------------------------------------------------------------------
+
+    private draw(mutable swapChain: VkSwapchainKHR, graphicsQueue: VkQueue, presentQueue: VkQueue, commandBuffer: VkCommandBuffer, mutable imageIndex: uint32, imageAvailableSemaphore: VkSemaphore, renderFinishedSemaphore: VkSemaphore, inFlightFence: VkFence): VkResult =
+        let mutable submitInfo = default: VkSubmitInfo
+        submitInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO
+
+        let mutable waitSemaphore = imageAvailableSemaphore
+        let mutable waitStage = VkPipelineStageFlags.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+
+        submitInfo.waitSemaphoreCount <- 1
+        submitInfo.pWaitSemaphores <- &&waitSemaphore
+        submitInfo.pWaitDstStageMask <- &&waitStage
+        submitInfo.commandBufferCount <- 1
+        submitInfo.pCommandBuffers <- &&commandBuffer
+
+        let mutable signalSemaphore = renderFinishedSemaphore
+        
+        submitInfo.signalSemaphoreCount <- 1
+        submitInfo.pSignalSemaphores <- &&signalSemaphore
+
+        if (vkQueueSubmit(graphicsQueue, 1, &&submitInfo, inFlightFence) != VkResult.VK_SUCCESS)
+            fail("Failed to submit draw command buffer.")
+
+        let mutable presentInfo = default: VkPresentInfoKHR
+        presentInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR
+
+        presentInfo.waitSemaphoreCount <- 1
+        presentInfo.pWaitSemaphores <- &&signalSemaphore
+
+        presentInfo.swapchainCount <- 1
+        presentInfo.pSwapchains <- &&swapChain
+
+        presentInfo.pImageIndices <- &&imageIndex
+        presentInfo.pResults <- nullptr // Optional
+
+        vkQueuePresentKHR(presentQueue, &&presentInfo)
+
+    // REVIEW: This doesn't appear to be used, should we remove it?
+    private endAndSubmitCommands(device: VkDevice, commandPool: VkCommandPool, commandBuffer: VkCommandBuffer, queue: VkQueue): () =
+        if (vkEndCommandBuffer(commandBuffer) != VkResult.VK_SUCCESS)
+            fail("Failed to end command buffer.")
+        
+        let mutable submitInfo = default: VkSubmitInfo
+        submitInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_SUBMIT_INFO
+        submitInfo.commandBufferCount <- 1
+        submitInfo.pCommandBuffers <- &&commandBuffer
+
+        if (vkQueueSubmit(queue, 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+            fail("Failed to submit queue.")
+
+        if (vkDeviceWaitIdle(device) != VkResult.VK_SUCCESS)
+            fail("Failed to wait idle on device.")
+
+        vkFreeCommandBuffers(device, commandPool, 1, &&commandBuffer)
+
+    private generateMipMaps(commandBuffer: VkCommandBuffer, image: VkImage, width: int32, height: int32, mipLevels: uint32, layerCount: uint32): () =
+      //  let commandBuffer = createCommandBuffer(device, commandPool)
+
+        // let mutable beginInfo = default: VkCommandBufferBeginInfo
+        // beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
+        // beginInfo.flags <- default // Optional
+        // beginInfo.pInheritanceInfo <- nullptr // Optional
+
+        // if (vkBeginCommandBuffer(commandBuffer, &&beginInfo) != VkResult.VK_SUCCESS)
+        //     fail("Failed to begin command buffer.")
+
+        let mutable barrier = default: VkImageMemoryBarrier
+        barrier.sType <- VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+        barrier.image <- image
+        barrier.srcQueueFamilyIndex <- VK_QUEUE_FAMILY_IGNORED
+        barrier.dstQueueFamilyIndex <- VK_QUEUE_FAMILY_IGNORED
+        barrier.subresourceRange.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+        barrier.subresourceRange.layerCount <- layerCount
+        barrier.subresourceRange.levelCount <- 1
+
+        let mutable mipWidth = width
+        let mutable mipHeight = height
+
+        let mutable i = 1: uint32
+        while (i < mipLevels)
+
+            barrier.subresourceRange.baseMipLevel <- i - 1
+            barrier.oldLayout <- VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+            barrier.newLayout <- VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+            barrier.srcAccessMask <- VkAccessFlags.VK_ACCESS_TRANSFER_WRITE_BIT
+            barrier.dstAccessMask <- VkAccessFlags.VK_ACCESS_TRANSFER_READ_BIT
+
+            vkCmdPipelineBarrier(commandBuffer,
+                VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT, VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT, default,
+                0, nullptr,
+                0, nullptr,
+                1, &&barrier
+            )
+
+            let mutable blit = default: VkImageBlit
+            
+            blit.srcOffsets.e0 <- 
+                let mutable offset = default: VkOffset3D
+                offset.x <- 0
+                offset.y <- 0
+                offset.z <- 0
+                offset
+            blit.srcOffsets.e1 <- 
+                let mutable offset = default: VkOffset3D
+                offset.x <- mipWidth
+                offset.y <- mipHeight
+                offset.z <- 1
+                offset
+
+            blit.srcSubresource.mipLevel <- i - 1
+            blit.srcSubresource.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+            blit.srcSubresource.baseArrayLayer <- 0
+            blit.srcSubresource.layerCount <- 1
+
+            blit.dstOffsets.e0 <-
+                    let mutable offset = default: VkOffset3D
+                    offset.x <- 0
+                    offset.y <- 0
+                    offset.z <- 0
+                    offset
+            blit.dstOffsets.e1 <-
+                    let mutable offset = default: VkOffset3D
+                    offset.x <- if (mipWidth > 1) mipWidth / 2 else 1
+                    offset.y <- if (mipHeight > 1) mipHeight / 2 else 1
+                    offset.z <- 1
+                    offset
+                
+            blit.dstSubresource.mipLevel <- i
+            blit.dstSubresource.aspectMask <- VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT
+            blit.dstSubresource.baseArrayLayer <- 0
+            blit.dstSubresource.layerCount <- 1
+
+            vkCmdBlitImage(commandBuffer,
+                image, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                image, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &&blit,
+                VkFilter.VK_FILTER_LINEAR
+            )
+
+            barrier.oldLayout <- VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+            barrier.newLayout <- VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            barrier.srcAccessMask <- VkAccessFlags.VK_ACCESS_TRANSFER_READ_BIT
+            barrier.dstAccessMask <- VkAccessFlags.VK_ACCESS_SHADER_READ_BIT
+
+            vkCmdPipelineBarrier(commandBuffer,
+                VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT, VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, default,
+                0, nullptr,
+                0, nullptr,
+                1, &&barrier
+            )
+
+            if (mipWidth > 1) 
+                mipWidth <- mipWidth / 2
+            if (mipHeight > 1) 
+                mipHeight <- mipHeight / 2
+
+            i <- i + 1
+
+        barrier.subresourceRange.baseMipLevel <- mipLevels - 1
+        barrier.oldLayout <- VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+        barrier.newLayout <- VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        barrier.srcAccessMask <- VkAccessFlags.VK_ACCESS_TRANSFER_WRITE_BIT
+        barrier.dstAccessMask <- VkAccessFlags.VK_ACCESS_SHADER_READ_BIT
+
+        vkCmdPipelineBarrier(commandBuffer,
+            VkPipelineStageFlags.VK_PIPELINE_STAGE_TRANSFER_BIT, VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, default,
+            0, nullptr,
+            0, nullptr,
+            1, &&barrier
+        )
+
+     //   endAndSubmitCommands(device, commandPool, commandBuffer, queue)

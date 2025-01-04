@@ -1,0 +1,663 @@
+#target "dotnet: net8"
+
+#load "*.oly"
+#load "Systems/*.oly"
+#load "Rendering/*.oly"
+#load "Gui/*.oly"
+
+#reference "../Shared/Game.Shared.olyx"
+#reference "../../Graphics/Evergreen.Graphics.olyx"
+#reference "../../Window/Evergreen.Window.olyx"
+#reference "../../Network/Evergreen.Network.olyx"
+
+namespace Game.Client
+
+open System
+open System.IO
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open System.Threading
+open System.Threading.Tasks
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering
+open Evergreen.Network
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Window
+open Game.Shared
+open Game.Client.Internal
+open static Game.AssetManager
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.ViewModels
+open static Game.Client.Views
+open static Game.Client.RenderState
+open static Game.Client.Internal.Environment
+
+class ClientGame =
+    implements IDisposable
+
+    private Executing: bool get, set
+    private Env: ClientEnv get
+    private SceneTask: Option<Task<ClientScene>> get, set
+    private Scene: Option<ClientScene> get, set
+    private Sequence: ByteSequence get, set
+    private HasBegun: bool get, set
+
+    private CheckExecuting(): () =
+        if (this.Executing)
+            fail("Already executing! Concurrency issue!")
+
+    new(genv: GameEnv, clientEventPublisher: ClientEventPublisher) =
+        let env = ClientEnv(genv, clientEventPublisher) 
+        {
+            Executing = false
+            Env = env
+            SceneTask = None
+            Scene = None
+            Sequence = ByteSequence.Zero
+            HasBegun = false
+        }
+
+    ConnectionStatus: ConnectionStatus get() = this.Env.Connection.Status
+
+    InputLatency: int64
+        get() =
+            match (this.Scene)
+            | Some(scene) => scene.InputLatency
+            | _ => 0
+
+    Ping: int64
+        get() =
+            match (this.Scene)
+            | Some(scene) => scene.Ping
+            | _ => 0
+
+    Address: string get() = this.Env.Connection.Address
+    Port: int32 get() = this.Env.Connection.Port
+    HasScene: bool get() = this.Scene.IsSome
+
+    private DisconnectIfPossibleCore(): () =
+        if (this.Env.Connection.Status != ConnectionStatus.NotConnected)
+            this.Env.Connection.DisconnectIfPossible()
+
+    private DisposeSceneIfPossibleCore(): () =
+        match (this.Scene)
+        | Some(scene) =>
+            let sceneName = scene.Name
+            scene.Dispose()
+            this.Scene <- None
+            this.Env.ClientEventPublisher.SceneClosed(sceneName)
+        | _ =>
+            ()
+        match (this.SceneTask)
+        | Some(sceneTask) =>
+            let scene = sceneTask.Result
+            this.SceneTask <- None
+            scene.Dispose()
+        | _ =>
+            ()
+        this.HasBegun <- false
+
+    LoadScene(sceneName: string, snapshotSequence: ByteSequence): () =
+        this.CheckExecuting()
+        this.Executing <- true
+
+        this.DisposeSceneIfPossibleCore()
+        this.Sequence <- snapshotSequence
+        this.Env.Connection.OnSceneLoading(sceneName)
+        this.Env.ClientEventPublisher.SceneLoading(sceneName)
+        this.SceneTask <- 
+            Some(
+                Task.Factory.StartNew(
+                    () -> 
+                        Thread.Sleep(1000) // artificial delay
+                        ClientScene.Load(sceneName, this.Env.GameEnv)
+                )
+            )
+        
+        this.Executing <- false
+
+    DisposeSceneIfPossible(): () =
+        this.CheckExecuting()
+        this.Executing <- true
+        this.DisposeSceneIfPossibleCore()
+        this.Executing <- false
+
+    Connect(address: string, port: int32, connectionKey: string): () =
+        this.CheckExecuting()
+        this.Executing <- true
+        this.DisconnectIfPossibleCore()
+        this.Env.Connection.Connect(address, port, connectionKey)
+        this.Executing <- false
+
+    DisconnectIfPossible(): () =
+        this.CheckExecuting()
+        this.Executing <- true
+        this.DisconnectIfPossibleCore()
+        this.Executing <- false
+
+    FixedUpdate(time: GameTime, isCatchingUp: bool): () =
+        this.CheckExecuting()
+        this.Executing <- true
+
+        let connection = this.Env.Connection
+        if (connection.Status != ConnectionStatus.NotConnected)
+            connection.Heartbeat(time.DeltaTime)
+
+        match (this.SceneTask)
+        | Some(sceneTask) when (sceneTask.IsCompletedSuccessfully) =>
+            let scene = sceneTask.Result
+            sceneTask.Dispose()
+            this.Scene <- Some(scene)
+            this.SceneTask <- None
+            this.Env.ClientEventPublisher.SceneLoaded(scene.Name)
+            connection.SendSceneLoaded(this.Sequence)
+        | _ =>
+            ()
+
+        match (this.Scene)
+        | Some(scene) =>
+            let snapshotOpt =
+                let mutable snapshot = default
+                if (connection.Status == ConnectionStatus.Connected && connection.TryGetSnapshot(&snapshot))
+                    if (this.Sequence == snapshot.Sequence)
+                        if (!this.HasBegun)
+                            this.HasBegun <- true
+                            this.Env.ClientEventPublisher.SceneBegan(scene.Name)
+                        SomeStruct((snapshot, connection.ClientIndex))
+                    else
+                        NoneStruct
+                else
+                    NoneStruct
+
+            if (this.HasBegun)
+                scene.FixedUpdate(time, isCatchingUp, snapshotOpt)
+        | _ =>
+            ()
+        this.Executing <- false
+
+    UpdateInput(time: GameTime, input: CharacterInput): () =
+        this.CheckExecuting()
+        this.Executing <- true
+
+        match (this.Scene)
+        | Some(scene) when (this.HasBegun) =>
+            match (scene.UpdateInput(time, input))
+            | SomeStruct(clientInput) =>
+                this.Env.Connection.SendInput(clientInput)
+            | _ =>
+                ()
+        | _ =>
+            ()
+        this.Executing <- false
+
+    OptimizeStaticEnvironment(): () =
+        this.CheckExecuting()
+        this.Executing <- true
+        match (this.Scene)
+        | Some(scene) =>
+            scene.OptimizeStaticEnvironment()
+        | _ =>
+            ()
+        this.Executing <- false
+
+    ClientWorld: Option<ClientWorld>
+        get() =
+            match (this.Scene)
+            | Some(scene) => Some(scene.ClientWorld)
+            | _ => None
+
+    LocalPlayerId: EntityId // TODO: rename to 'LocalPlayerId'
+        get() = 
+            match (this.Scene)
+            | Some(scene) => scene.ClientEntityId
+            | _ => EntityId.Nil
+
+    ClientInputLatency: int64
+        get() =
+            match (this.Scene)
+            | Some(scene) => scene.InputLatency
+            | _ => 0
+
+    SetSimulateLatency(value: bool): () =
+        this.Env.Connection.CanSimulateLatency <- value
+
+    SetSimulatePacketLoss(value: bool): () =
+        this.Env.Connection.CanSimulatePacketLoss <- value
+
+    GetEntityAsJsonByIndex(index: int32): string =
+        this.CheckExecuting()
+        this.Executing <- true
+        let result =
+            match (this.Scene)
+            | Some(scene) =>
+                scene.GetEntityAsJsonByIndex(index)
+            | _ =>
+                string.Empty
+        this.Executing <- false
+        result
+
+    Dispose(): () =
+        this.CheckExecuting()
+        this.Executing <- true
+        this.DisposeSceneIfPossible()
+        this.Env.Dispose()
+        this.Executing <- false
+
+enum ClientCommandTag =
+    inherits byte
+
+    | Connect
+    | Disconnect
+    | OptimizeStaticEnvironment
+    | PrintEntity
+    | LoadScene
+    | DisposeScene
+    | SetPassword
+
+newtype ClientCommandBuffer =
+    public field Stream: ByteStream
+
+    Connect(address: string, port: int32, connectionKey: string): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.Connect)
+        stream.WriteSmallString(address)
+        stream.WriteInt32(port)
+        stream.WriteString(connectionKey)
+
+    Disconnect(): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.Disconnect)
+
+    OptimizeStaticEnvironment(): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.OptimizeStaticEnvironment)
+
+    PrintEntity(index: int32): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.PrintEntity)
+        stream.WriteInt32(index)
+
+    LoadScene(sceneName: string, snapshotSequence: ByteSequence): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.LoadScene)
+        stream.WriteSmallString(sceneName)
+        stream.WriteByte(ByteSequence.GetByte(snapshotSequence))
+
+    DisposeScene(): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.DisposeScene)
+
+    SetPassword(password: string): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.SetPassword)
+        stream.WriteSmallString(password)
+
+struct ClientCommandReader =
+    internal Tag: ClientCommandTag get
+    internal Stream: ByteStream get
+    new(stream: ByteStream) =
+        {
+            Tag = stream.Peek()
+            Stream = stream
+        }
+
+module ClientCommand =
+
+    private ConsumeTag(stream: ByteStream): () =
+        let _ = stream.ReadByte()
+
+    pattern Connect(reader: ClientCommandReader): (address: string, port: int32, connectionKey: string) when (reader.Tag == ClientCommandTag.Connect) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadSmallString(), stream.ReadInt32(), stream.ReadString())
+
+    pattern Disconnect(reader: ClientCommandReader): () when (reader.Tag == ClientCommandTag.Disconnect) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+
+    pattern OptimizeStaticEnvironment(reader: ClientCommandReader): () when (reader.Tag == ClientCommandTag.OptimizeStaticEnvironment) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+
+    pattern PrintEntity(reader: ClientCommandReader): int32 when (reader.Tag == ClientCommandTag.PrintEntity) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadInt32()
+
+    pattern LoadScene(reader: ClientCommandReader): (string, ByteSequence) when (reader.Tag == ClientCommandTag.LoadScene) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadSmallString(), ByteSequence(stream.ReadByte()))
+
+    pattern DisposeScene(reader: ClientCommandReader): () when (reader.Tag == ClientCommandTag.DisposeScene) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+
+    pattern SetPassword(reader: ClientCommandReader): string when (reader.Tag == ClientCommandTag.SetPassword) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.ReadSmallString()
+
+internal struct ClientState =
+    ConnectionStatus: ConnectionStatus get
+    LocalPlayerId: EntityId get
+    InputLatency: int64 get
+    Ping: int64 get
+    Address: string get
+    Port: int32 get
+    Password: string get
+
+    new(connectionStatus: ConnectionStatus, clientEntId: EntityId, inputLatency: int64, ping: int64, address: string, port: int32, password: string) =
+        {
+            ConnectionStatus = connectionStatus
+            LocalPlayerId = clientEntId
+            InputLatency = inputLatency
+            Ping = ping
+            Address = address
+            Port = port
+            Password = password
+        }
+
+    WithPassword(password: string): ClientState =
+        ClientState(
+            this.ConnectionStatus,
+            this.LocalPlayerId,
+            this.InputLatency,
+            this.Ping,
+            this.Address,
+            this.Port,
+            password
+        )
+
+internal module ClientGameHelpers =
+
+    UpdateLocalPlayerCharacterInput(clGame: ClientGameProxy, rGame: RenderGame, deltaTime: float32, callback: scoped (deltaTime: float32, byref<CharacterInput>) -> ()): () =
+        let playerId = clGame.LocalPlayerId
+
+        let mutable input = default
+        if (rGame.TryGetCharacterInput(playerId, &input))
+            callback(deltaTime, &input)
+            rGame.SetCharacterInput(deltaTime, playerId, &input)
+
+class LocalPlayer =
+
+    private CL: ClientGameProxy get
+    private R: RenderGame get
+
+    internal new(clGame: ClientGameProxy, rGame: RenderGame) =
+        {
+            CL = clGame
+            R = rGame
+        }
+
+    IsSpawned: bool
+        get() =
+            let localPlayerId = this.CL.LocalPlayerId
+            this.R.IsPlayerSpawned(localPlayerId)
+
+    MoveForward(time: GameTime, factor: float32): () =
+        let factor = clamp(0, 1, factor)
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetForward(factor != 0)
+                input.ForwardMovementFactor <- factor
+        )
+
+    MoveBackward(time: GameTime, factor: float32): () =
+        let factor = clamp(0, 1, factor)
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetBackward(factor != 0)
+                input.BackwardMovementFactor <- factor
+        )
+
+    MoveLeft(time: GameTime, factor: float32): () =
+        let factor = clamp(0, 1, factor)
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetLeft(factor != 0)
+                input.LeftMovementFactor <- factor
+        )
+
+    MoveRight(time: GameTime, factor: float32): () =
+        let factor = clamp(0, 1, factor)
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetForward(factor != 0)
+                input.ForwardMovementFactor <- factor
+        )
+
+    JumpUp(time: GameTime, value: bool): () =
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetJump(value)
+        )
+
+    ActivatePrimary(time: GameTime, value: bool): () =
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetPrimaryUse(value)
+        )
+
+    ActivateSpecial(time: GameTime, value: bool): () =
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                input.SetSpecial(value)
+        )
+
+    LookYawPitch(time: GameTime, value: Vector2): () =
+        ClientGameHelpers.UpdateLocalPlayerCharacterInput(this.CL, this.R, time.DeltaTime,
+            (deltaTime, input) ->
+                let yawAcc = value.X * 0.001 * 2
+                let pitchAcc = value.Y * 0.001 * 2
+            
+                input.Yaw <- input.Yaw - yawAcc
+                input.Pitch <- Math.Clamp(input.Pitch - pitchAcc, radians(-85), radians(85))
+        )
+
+class ClientGameProxy =
+    implements IDisposable
+
+    private ClientEventPublishers: DoubleBuffer<ClientEventPublisher> get
+    private BackgroundClientEventStream: ByteStream get
+    private ClientCommandStreams: DoubleBuffer<ByteStream> get
+
+    private CL: ClientGame get
+    private R: RenderGame get
+
+    private State: ClientState get, set
+
+    new(genv: GameEnv, renv: RenderEnv, clientEventPublisher: ClientEventPublisher) =
+        let backgroundClientEventStream = ByteStream()
+        {
+            ClientEventPublishers = DoubleBuffer(clientEventPublisher, ClientEventPublisher(backgroundClientEventStream))
+            BackgroundClientEventStream = backgroundClientEventStream
+            ClientCommandStreams = DoubleBuffer(ByteStream(), ByteStream())
+            CL = ClientGame(genv, this.ClientEventPublishers.Back)
+            R = RenderGame(renv)
+            State = ClientState(ConnectionStatus.NotConnected, EntityId.Nil, 0, 0, String.Empty, 0, String.Empty)
+            LocalPlayer = LocalPlayer(this, this.R)
+        }
+
+    /// Main-thread only
+    LocalPlayer: LocalPlayer get
+
+    ConnectionStatus: ConnectionStatus        get() = this.State.ConnectionStatus
+    LocalPlayerId: EntityId                   get() = this.State.LocalPlayerId
+    InputLatency: int64                       get() = this.State.InputLatency
+    Ping: int64                               get() = this.State.Ping
+    Address: string                           get() = this.State.Address
+    Port: int32                               get() = this.State.Port
+    Password: string                          get() = this.State.Password
+
+    RenderingWorld: Option<RenderingWorld> get() = this.R.RenderingWorld
+
+    /// Background-thread only
+    BackgroundProcessCommands(): () =
+        let cl = this.CL
+        let clCmdStream = this.ClientCommandStreams.Back
+    
+        clCmdStream.ResetPosition()
+        while (clCmdStream.Position.Index < clCmdStream.TotalCount)
+            match (ClientCommandReader(clCmdStream))
+
+            | ClientCommand.Connect(address, port, connectionKey) =>
+                cl.Connect(address, port, Hash.Pbkdf2(this.Password, connectionKey, 256))
+
+            | ClientCommand.Disconnect =>
+                cl.DisconnectIfPossible()
+
+            | ClientCommand.OptimizeStaticEnvironment =>
+                cl.OptimizeStaticEnvironment()
+
+            | ClientCommand.PrintEntity(index) =>
+                let json = cl.GetEntityAsJsonByIndex(index)
+
+                let mutable index = index
+                if (string.IsNullOrWhiteSpace(json))
+                    LogClientError("Entity '" + index.ToString() + "' is not valid.")
+                else
+                    Log(json)
+
+            | ClientCommand.LoadScene(sceneName, snapshotSequence) =>
+                cl.LoadScene(sceneName, snapshotSequence)
+
+            | ClientCommand.DisposeScene =>
+                cl.DisposeSceneIfPossible()
+
+            | ClientCommand.SetPassword(password) =>
+                this.State <- this.State.WithPassword(password)
+
+            | _ =>
+                fail("Unhandled or malformed client command.")
+
+    /// Background-thread only
+    BackgroundFixedUpdate(time: GameTime, isCatchingUp: bool): () =
+        let cl = this.CL
+
+        cl.FixedUpdate(time, isCatchingUp)
+
+        match (cl.ClientWorld)
+        | Some(clientWorld) =>
+            this.R.CopyToBackgroundIfPossible(clientWorld, cl.LocalPlayerId)
+        | _ =>
+            ()
+
+    /// Main-thread only
+    /// These need to be fast operations since this where we sync the main and background threads.
+    Sync(time: GameTime): () =
+        // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
+        // Background is halted at this point.
+        // So this is where we dispose the render scene.
+        if (this.CL.HasScene)
+            ()
+            if (!this.R.HasScene)
+                this.R.NewScene()
+        else
+            this.R.DisposeSceneIfPossible()
+
+        let mutable input = default
+        if (this.R.TryGetCharacterInput(this.CL.LocalPlayerId, &input))
+            this.CL.UpdateInput(time, input)
+
+        this.R.SwapState()
+
+        match (this.CL.ClientWorld)
+        | Some(clientWorld) =>
+            this.R.CopyInputResultFromClientIfPossible(clientWorld, this.CL.LocalPlayerId)
+        | _ =>
+            ()
+
+        // Update state
+        this.State <- 
+            ClientState(
+                this.CL.ConnectionStatus, 
+                this.CL.LocalPlayerId, 
+                this.CL.InputLatency, 
+                this.CL.Ping, 
+                this.CL.Address, 
+                this.CL.Port,
+                this.State.Password
+            )
+
+        this.ClientCommandStreams.Swap()
+        this.ClientCommandStreams.Front.Reset()
+
+        ClientEventPublisher.AppendPublisher(this.ClientEventPublishers.Front, this.ClientEventPublishers.Back)
+        this.BackgroundClientEventStream.Reset()
+        // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
+
+    /// Main-thread only
+    ResetPlayerInputActions(): () =
+        this.R.ResetCharacterInputActions(this.LocalPlayerId)
+
+    /// Main-thread only
+    UpdatePlayerInput(time: GameTime, inputSnapshot: InputSnapshot): () =
+        let localPlayerId = this.LocalPlayerId
+
+        let mutable input = default
+        if (this.R.TryGetCharacterInput(localPlayerId, &input))
+            InputHandling.UpdateCharacterInput(time.DeltaTime, inputSnapshot, &input)
+            this.R.SetCharacterInput(time.DeltaTime, localPlayerId, &input)
+
+    /// Main-thread only
+    Render(time: GameTime, alpha: float32, screenSize: Vector2, cont: scoped GpuCommandList -> ()): () =
+        this.R.Render(time, alpha, screenSize, this.LocalPlayerId, cont)
+
+    /// Main-thread only
+    SetSimulateLatency(value: bool): () =
+        this.CL.SetSimulateLatency(value)
+
+    /// Main-thread only
+    SetSimulatePacketLoss(value: bool): () =
+        this.CL.SetSimulatePacketLoss(value)
+
+    /// Main-thread only
+    PrintEntity(index: int32): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.PrintEntity(index)
+
+    /// Main-thread only
+    Connect(address: string, port: int32, connectionKey: string): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.Connect(address, port, connectionKey)
+
+    /// Main-thread only
+    Disconnect(): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.Disconnect()
+
+    /// Main-thread only
+    OptimizeStaticEnvironment(): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.OptimizeStaticEnvironment()
+
+    /// Main-thread only
+    LoadScene(sceneName: string, snapshotSequence: ByteSequence): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.LoadScene(sceneName, snapshotSequence)
+
+    /// Main-thread only
+    SetPassword(password: string): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.SetPassword(password)
+
+    /// Main-thread only
+    DisposeScene(): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.DisposeScene()
+
+    /// Main-thread only
+    Dispose(): () =
+        this.CL.Dispose()
+        this.R.Dispose()
+
+    // Player Actions

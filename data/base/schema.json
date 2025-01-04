@@ -1,0 +1,44 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "Entities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "#" : {
+                        "type": "string",
+                        "description": "Prefab",
+                        "defaultSnippets": [
+                            {
+                                "label": "Plane",
+                                "body": "Prefabs/Plane.json"
+                            },
+                            {
+                                "label": "Spot Light",
+                                "body": "Prefabs/SpotLight.json"
+                            },
+                            {
+                                "label": "Directional Light",
+                                "body": "Prefabs/DirectionalLight.json"
+                            },
+                            {
+                                "label": "Box Sensor",
+                                "body": "Prefabs/BoxSensor.json"
+                            },
+                            {
+                                "label": "Physics Box",
+                                "body": "Prefabs/PhysicsBox.json"
+                            },
+                            {
+                                "label": "Sprite",
+                                "body": "Prefabs/Sprite.json"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}

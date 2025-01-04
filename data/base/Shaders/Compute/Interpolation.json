@@ -1,0 +1,34 @@
+{
+    "Layouts": [
+        {
+            "Bindings": [
+                {
+                    "Kind": "Uniform",
+                    "Flags": "None",
+                    "StageFlags": "Compute"
+                }
+            ]
+        },
+        {
+            "Bindings": [
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Compute"
+                },
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Compute"
+                },
+                {
+                    "Kind": "Storage",
+                    "Flags": "None",
+                    "StageFlags": "Compute"
+                }
+            ]
+        }
+    ],
+    
+    "Compute": "lerp.comp"
+}

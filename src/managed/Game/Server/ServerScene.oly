@@ -1,0 +1,41 @@
+namespace Game.Server.Internal
+
+open System
+open System.Numerics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Network
+open Game.Shared
+open Game.Server
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Server.Events
+
+internal class ServerScene =
+    implements IDisposable
+
+    Name: string get
+    public field World: ServerWorld
+    field StagingWorld: World
+
+    private new(sceneName: string, world: ServerWorld) =
+        {
+            Name = sceneName
+            World = world
+            StagingWorld = World(EntityDatabaseKind.Server)
+        }
+
+    Update(time: GameTime): World =
+        this.World.Update(time)
+        this.World.CopyTo(this.StagingWorld)
+        this.StagingWorld
+
+    Dispose(): () =
+        this.World.Dispose()
+
+    static Load(sceneName: string, genv: GameEnv): ServerScene =
+        let world = ServerWorld.Load(sceneName, genv)
+        ServerScene(sceneName, world)

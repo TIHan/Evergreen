@@ -1,0 +1,122 @@
+namespace Game.Client.Rendering
+
+open System
+open System.Numerics
+open System.Collections.Generic
+open Evergreen.Utilities
+open Evergreen.Graphics.Rendering
+open Evergreen.Network
+open Evergreen.Collections
+open Evergreen.Window
+open Game.Shared
+open Game.Client
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.RenderState
+
+class RenderScene =
+    implements IDisposable
+
+    field Gpu: Gpu
+    field mutable WorldFront: RenderingWorld
+    field mutable WorldBack: RenderingWorld
+
+    RenderingWorld: RenderingWorld get() = this.WorldFront
+
+    new(renv: RenderEnv) =
+        {
+            Gpu = renv.Gpu
+            WorldFront = RenderingWorld(renv)
+            WorldBack = RenderingWorld(renv)
+        }
+
+    ResetCharacterInputActions(characterEntId: EntityId): () =
+        this.WorldFront.ResetCharacterInputActions(characterEntId)
+
+    SetCharacterInput(deltaTime: float32, characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+        this.WorldFront.SetCharacterInput(deltaTime, characterEntId, &newInput)
+
+    TryGetCharacterInput(characterEntId: EntityId, outInput: byref<CharacterInput>): bool =
+        let mutable input = default
+        let mutable hasInput =
+            this.WorldFront.Database.TryGet<CharacterInput>(characterEntId,
+                (playerInput) ->
+                    input <- playerInput
+            )
+
+        if (!hasInput)
+            hasInput <-
+                this.WorldBack.Database.TryGet<CharacterInput>(characterEntId,
+                    (playerInput) ->
+                        input <- playerInput
+                )
+        if (hasInput)
+            outInput <- input
+            true
+        else
+            false
+
+
+    SwapState(): () =
+        // swap -------------------
+        let front = this.WorldFront
+        let back = this.WorldBack
+        this.WorldFront <- back
+        this.WorldBack <- front
+        // ------------------------ 
+
+    Render(renv: RenderEnv, time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, preCont: scoped GpuCommandList -> (), cont: scoped GpuCommandList -> (), cmds: GpuCommandList): () =
+        this.WorldFront.Dispatch(renv, time, alpha, screenSize, cameraEntId, cmds)
+        if (this.WorldFront.Database.Has<Camera>(cameraEntId))
+            this.WorldFront.Draw(renv, preCont, cont, cmds)
+        else
+            preCont(cmds)
+            cmds.PipelineBarrier(GpuPipelineBarrierKind.BottomPipeToAllGraphics)
+            cmds.BeginSwapChainFrame()
+            cont(cmds)
+            cmds.EndFrame()
+
+    CopyToBackground(clientWorld: ClientWorld, renv: RenderEnv, localClientEntId: EntityId): () =
+        clientWorld.CopyTo(this.WorldBack)
+        this.WorldBack.Update(renv, localClientEntId)
+
+    CopyInputResultFrom(renv: RenderEnv, clientWorld: ClientWorld, localClientEntId: EntityId): () =
+        let mutable currentPlayerInput = default
+        let mutable currentCamera = default
+        let mutable currentCameraLerp = default
+        let mutable currentTransform = default
+        let mutable currentTransformLerp = default
+        let result =
+            clientWorld.Database.TryGet<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
+                (playerInput, camera, cameraLerp, transform, transformLerp) ->
+                    currentPlayerInput <- playerInput
+                    currentCamera <- camera
+                    currentCameraLerp <- cameraLerp
+                    currentTransform <- transform
+                    currentTransformLerp <- transformLerp
+            )
+        let result =
+            this.WorldFront.Database.TryGet<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
+                (playerInput, camera, cameraLerp, transform, transformLerp) ->
+                    transform <- currentTransform
+                    transformLerp <- currentTransformLerp
+                    playerInput <- currentPlayerInput
+                    camera <- currentCamera
+                    cameraLerp <- currentCameraLerp
+
+                    // Update transform so that the mesh can render with a rotation that matches the camera.
+                    transform.Rotation <- camera.Rotation
+
+                    transformLerp.Value.Rotation <- cameraLerp.Value.Rotation
+                    cameraLerp.Value <- camera
+            )
+
+    Dispose(): () =
+        this.Gpu.Wait()
+        this.WorldFront.FreeResources(this.Gpu)
+        this.WorldBack.FreeResources(this.Gpu)

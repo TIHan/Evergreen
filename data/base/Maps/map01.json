@@ -1,0 +1,210 @@
+{
+  "$schema": "../schema.json",
+  "Entities": [
+    {
+      "#": "Prefabs/PlayerSpawnPoint.json",
+      "Transform": {
+        "Position": {
+          "X": 0,
+          "Y": 0,
+          "Z": -10
+        }
+      }
+    },
+    {
+      "#": "Prefabs/SpotLight.json",
+      "Camera": {
+        "Pitch": -45
+      },
+      "MeshReference": {
+        "Mesh": "xyz.obj"
+      },
+      "Material": {
+        "Texture": "xyz.mtl",
+        "Flags": "None"
+      }
+    },
+    {
+      "#": "Prefabs/Plane.json",
+      "Transform": {
+        "Position": {
+          "Y": 6,
+          "Z": -8.3
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png",
+        "Flags": "Transparent, CastShadows, AcceptLight"
+      }
+    },
+    {
+      "#": "Prefabs/Plane.json",
+      "Transform": {
+        "Position": {
+          "X": 0.5,
+          "Y": 12,
+          "Z": -8.3
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/bos2a1.png",
+        "Flags": "Transparent, CastShadows, AcceptLight"
+      }
+    },
+    {
+      "#": "Prefabs/Plane.json",
+      "Transform": {
+        "Position": {
+          "X": 0.5,
+          "Y": 8,
+          "Z": -8.3
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/bos2a1.png",
+        "Flags": "Transparent, CastShadows, AcceptLight"
+      }
+    },
+    {
+      "#": "Prefabs/Sprite.json",
+      "Transform": {
+        "Position": {
+          "X": 5,
+          "Y": 10,
+          "Z": -10
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png"
+      },
+      "Outline": {}
+    },
+    {
+      "#": "Prefabs/Sprite.json",
+      "Transform": {
+        "Position": {
+          "Y": -10,
+          "Z": -10
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png"
+      }
+    },
+    {
+      "#": "Prefabs/Sprite.json",
+      "Transform": {
+        "Position": {
+          "X": -10,
+          "Z": -10
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png"
+      }
+    },
+    {
+      "#": "Prefabs/Sprite.json",
+      "Transform": {
+        "Position": {
+          "X": 10,
+          "Z": -10
+        },
+        "Rotation": {
+          "X": 90
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png"
+      },
+      "Outline": {}
+    },
+    {
+      "#": "Prefabs/PhysicsBox.json",
+      "Transform": {
+        "Position": {
+          "X": 4,
+          "Y": 10,
+          "Z": -9
+        }
+      },
+      "MeshReference": {
+        "Mesh": "xyz.obj"
+      },
+      "Material": {
+        "Texture": "xyz.mtl",
+        "Flags": "None"
+      },
+      "RigidBody": {
+        "Mass": 10
+      }
+    },
+    {
+      "#": "Prefabs/PhysicsBox.json",
+      "Transform": {
+        "Position": {
+          "X": -4,
+          "Y": 10,
+          "Z": -9
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/aqf063.png",
+        "Flags": "None"
+      },
+      "RigidBody": {
+        "Mass": 10
+      },
+      "Outline": {}
+    },
+    {
+      "#": "Prefabs/BoxSensor.json",
+      "Transform": {
+        "Position": {
+          "Z": -50
+        },
+        "Scale": {
+          "X": 100,
+          "Y": 100
+        }
+      },
+      "LogicOutput": {
+        "Target": "Activator",
+        "TargetFunction": "Destroy"
+      }
+    },
+    {
+      "#": "Prefabs/Plane.json",
+      "Transform": {
+        "Position": {
+          "Z": -10
+        },
+        "Scale": {
+          "X": 30,
+          "Y": 30
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/aqf063.png"
+      }
+    }
+  ]
+}

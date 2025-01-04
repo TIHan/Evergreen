@@ -1,0 +1,203 @@
+namespace Game
+
+open System
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open System.Text.RegularExpressions
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Window
+open Game.Client
+open Game.Client.Gui
+open Game.Server
+open Game.Shared
+open static Game.AssetManager
+open static Game.Shared.Types
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.ViewModels
+open static Game.Client.RenderState
+
+abstract class Command =
+    Tag: int32 get
+    Name: string get
+    new(tag: int32, name: string) = { Tag = tag; Name = name }
+
+class ActionCommand =
+    inherits Command
+    Action: () -> () get
+    new(name: string, action: () -> ()) = base(0, name) with { Action = action }
+
+    pattern Pattern(cmd: Command): (() -> ()) when (cmd.Tag == 0) =>
+        let cmd = Unsafe.Cast<ActionCommand>(cmd)
+        cmd.Action
+
+module ActionCommand<P1> =
+
+    class Impl =
+        inherits Command
+        Parameter1Name: string get
+        Parameter1Type: Type get
+        Action: P1 -> () get
+        new(name: string, par1Name: string, action: P1 -> ()) = base(1, name) with { Parameter1Name = par1Name; Parameter1Type = DotNet.TypeOf<P1>; Action = action }
+
+    pattern Pattern(cmd: Command): (string, Type, P1 -> ()) when (cmd.Tag == 1 && Unsafe.Cast<Impl>(cmd).Parameter1Type == DotNet.TypeOf<P1>) =>
+        let cmd = Unsafe.Cast<Impl>(cmd)
+        (cmd.Parameter1Name, cmd.Parameter1Type, cmd.Action)
+
+module FieldCommand<T> =
+
+    class Impl =
+        inherits Command
+        FieldType: Type get
+        Getter: () -> T get
+        Setter: T -> () get
+        new(name: string, getter: () -> T, setter: T -> ()) = base(10000, name) with { FieldType = DotNet.TypeOf<T>; Getter = getter; Setter = setter }
+
+    pattern Pattern(cmd: Command): (Type, getter: () -> T, setter: T -> ()) when (cmd.Tag == 10000 && Unsafe.Cast<Impl>(cmd).FieldType == DotNet.TypeOf<T>) =>
+        let cmd = Unsafe.Cast<Impl>(cmd)
+        (cmd.FieldType, cmd.Getter, cmd.Setter)
+
+class CommandProcessor =
+
+    private Initialize(svGame: ServerGameProxy, gameOpt: Option<ClientServerGame>, appendEvent: (scoped ClientEventPublisher -> ()) -> ()): string[] = // TODO-language-bug: returning 'IEnumerable<Command>' crashes in runtime emitter.
+        this.AddDef(ActionCommand(             "quit",                           () -> appendEvent(x -> x.QuitGameRequested())))
+        this.AddDef(ActionCommand<string>.Impl("echo", "value",                  x  -> Log(x)))
+        this.AddDef(ActionCommand(             "quick_save",                     () -> appendEvent(x -> x.SaveGameRequested("quick_save.json"))))
+        this.AddDef(ActionCommand(             "quick_load",                     () -> appendEvent(x -> x.LoadGameRequested("quick_save.json"))))
+        this.AddDef(ActionCommand(             "port",                           () -> LogCommandInfo("port: " + svGame.Port.ToString())))
+        this.AddDef(ActionCommand(             "disconnect",                     () -> appendEvent(x -> x.ExitGameRequested())))
+        this.AddDef(ActionCommand(             "clear",                          () -> appendEvent(x -> x.ClearConsoleRequested())))
+        this.AddDef(ActionCommand(             "benchmark",                      () -> appendEvent(x -> x.LoadGameRequested("benchmark.test"))))
+
+        this.AddDef(
+            FieldCommand<string>.Impl("sv_password", 
+                () -> svGame.Password, 
+                value -> 
+                    // TODO: This isn't quite right, we need to do this when parsing tokens.
+                    let matches = Regex.Matches(value, "\\\"(.*?)\\\"")
+                    if (matches.Count > 1)
+                        LogServerWarning("Invalid arguments for 'sv_password'.")
+                    else
+                        let value =
+                            if (matches.Count == 0)
+                                value
+                            else
+                                matches[0].Groups[1].Value
+                        if (value.Length > 64)
+                            LogServerWarning("Cannot set 'sv_password' as it is too long.")
+                        else
+                            svGame.SetPassword(value.Substring(0, Math.Min(64, value.Length)))
+            )
+        )
+
+        match (gameOpt)
+        | Some(game) =>
+            this.AddDef(ActionCommand<int32>.Impl("print_entity", "entity_index", x -> game.PrintClientEntity(x)))
+
+            this.AddDef(FieldCommand<bool>.Impl("r_fullscreen",  () -> game.IsFullscreen,       value -> game.IsFullscreen <- value))
+            this.AddDef(FieldCommand<bool>.Impl("r_diagnostics", () -> game.CanShowDiagnostics, value -> game.CanShowDiagnostics <- value))
+
+            this.AddDef(
+                FieldCommand<string>.Impl("cl_password", 
+                    () -> game.ClientPassword, 
+                    value -> 
+                        // TODO: This isn't quite right, we need to do this when parsing tokens.
+                        let matches = Regex.Matches(value, "\\\"(.*?)\\\"")
+                        if (matches.Count > 1)
+                            LogServerWarning("Invalid arguments for 'cl_password'.")
+                        else
+                            let value =
+                                if (matches.Count == 0)
+                                    value
+                                else
+                                    matches[0].Groups[1].Value
+                            if (value.Length > 64)
+                                LogClientWarning("Cannot set 'cl_password' as it is too long.")
+                            else
+                                game.SetClientPassword(value.Substring(0, Math.Min(64, value.Length)))
+                )
+            )
+        | _ =>
+            ()
+
+        map(Unsafe.AsImmutable(System.Linq.Enumerable.ToArray(this.Defs.Values)), x -> x.Name)
+
+    new(svGame: ServerGameProxy, gameOpt: Option<ClientServerGame>, appendEvent: (scoped ClientEventPublisher -> ()) -> ()) =
+        {
+            Defs = Dictionary()
+            AvailableCommands = this.Initialize(svGame, gameOpt, appendEvent)
+        }
+
+    AvailableCommands: string[] get
+
+    private Defs: Dictionary<string, Command> get
+    private AddDef(cmd: Command): () =
+        this.Defs.Add(cmd.Name, cmd)
+
+    private Execute(tokens: mutable string[]): () =
+        assert(tokens.Length > 0)
+        let name = tokens[0]
+        let Zero = tokens.Length == 1
+        let One = tokens.Length == 2
+
+        let mutable def = unchecked default
+        if (this.Defs.TryGetValue(name, &def))
+            match (def)
+            | FieldCommand<bool>.Pattern(fieldType, getter, setter) =>
+                if (Zero)
+                    LogCommandInfo(def.Name + ": " + getter().ToString())
+                else
+                    let mutable value = default
+                    if (bool.TryParse(tokens[1], &value))
+                        setter(value)
+                    else
+                        LogError("Expected 'true' or 'false'.")
+
+            | FieldCommand<string>.Pattern(fieldType, getter, setter) =>
+                if (Zero)
+                    LogCommandInfo(def.Name + ": " + getter())
+                else
+                    setter(tokens[1])
+
+            | ActionCommand.Pattern(action) =>
+                action()
+
+            | ActionCommand<bool>.Pattern(par1Name, par1Type, action) =>
+                if (One)
+                    let mutable value = default
+                    if (bool.TryParse(tokens[1], &value))
+                        action(value)
+                    else
+                        LogError("Expected 'true' or 'false'.")
+                else
+                    LogError("'" + def.Name + "' expected a '" + par1Type.Name + "' argument.")
+
+            | ActionCommand<int32>.Pattern(par1Name, par1Type, action) =>
+                if (One)
+                    let mutable value = default
+                    if (int32.TryParse(tokens[1], &value))
+                        action(value)
+                    else
+                        LogError("Expected an integer.")
+                else
+                    LogError("'" + def.Name + "' expected a '" + par1Type.Name + "' argument.")
+
+            | ActionCommand<string>.Pattern(par1Name, par1Type, action) =>
+                if (One)
+                    action(tokens[1])
+                else
+                    LogError("'" + def.Name + "' expected a '" + par1Type.Name + "' argument.")
+                
+            | _ =>
+                LogError("Invalid command '" + name + "'")
+        else
+            LogError("Invalid command '" + name + "'")
+
+    Process(cmd: string): () =
+        if (!string.IsNullOrWhiteSpace(cmd))
+            let tokens = cmd.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            this.Execute(tokens)

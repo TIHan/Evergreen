@@ -1,0 +1,171 @@
+namespace Game.Client
+
+open System
+open System.IO
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open Evergreen.Utilities
+open Evergreen.Collections
+open Evergreen.Graphics.Rendering
+open Evergreen.Network
+open Evergreen.Graphics.Rendering.UI
+open Evergreen.Window
+open Game.Shared
+open Game.Client.Rendering
+open static Game.AssetManager
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+open static Game.Client.Types
+open static Game.Client.Components
+open static Game.Client.Events
+open static Game.Client.Rendering.Module
+open static Game.Client.ViewModels
+open static Game.Client.Views
+open static Game.Client.RenderState
+
+open static Game.Client.RenderGameHelpers
+
+internal module RenderGameHelpers =
+
+    ResetGlobals(renv: RenderEnv, resolution: Vector2, time: GameTime, alpha: float32): () =
+        let gpuGlobals = renv.GlobalsBuffer
+        let mutable gpuGlobalsSpan = Span(gpuGlobals.Array, 0, 1)
+        let globals = &gpuGlobalsSpan[0]
+        globals.Resolution <- resolution
+        globals.SuperSamplingAmount <- renv.Gpu.SuperSamplingAmount
+        globals.Time <- time.TimeStamp
+        globals.TimeDelta <- time.DeltaTime
+        globals.Alpha <- alpha
+        globals.LightViewProjection <- mat4.Identity
+        gpuGlobals.NeedsUpdate <- true
+
+class RenderGame =
+    implements IDisposable
+
+    private Env: RenderEnv get
+    private Scene: Option<RenderScene> get, set
+    private Commands: GpuCommandList get
+
+    new(renv: RenderEnv) =
+        {
+            Env = renv
+            Scene = None
+            Commands = GpuCommandList(1000000)
+        }
+
+    NewScene(): () =
+        this.DisposeSceneIfPossible()
+        this.Scene <- Some(RenderScene(this.Env))
+
+    ResetCharacterInputActions(characterEntId: EntityId): () =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.ResetCharacterInputActions(characterEntId)
+        | _ =>
+            ()
+
+    SetCharacterInput(deltaTime: float32, characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.SetCharacterInput(deltaTime, characterEntId, &newInput) // TODO-language-bug: ", newInput)" will show error in the wrong range.
+        | _ =>
+            ()
+
+    TryGetCharacterInput(characterEntId: EntityId, outInput: byref<CharacterInput>): bool =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.TryGetCharacterInput(characterEntId, &outInput)
+        | _ =>
+            false
+
+    SwapState(): () =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.SwapState()
+        | _ =>
+            ()
+
+    private DrawConsoleBackground(renv: RenderEnv, gpuCommands: GpuCommandList): () =
+        // Transforms
+        let screenTransform = renv.ScreenTransform
+
+        // Meshes
+        let screenMesh = renv.ScreenMesh
+
+        // TODO: We should not render this if the console is not visible.
+        let consoleBackgroundRenderFrame = renv.GetConsoleBackgroundRenderFrame()
+        consoleBackgroundRenderFrame.AddBeginFrameCommands(renv, renv.GetConsoleBackgroundPipeline(), gpuCommands)
+        gpuCommands.BindDescriptorSet(1, screenTransform.GetVertexDescriptorSet())
+        gpuCommands.DrawIndexed(screenMesh.Vertices, screenMesh.Indices, screenMesh.Indices.Length, 1)
+        gpuCommands.EndFrame()
+
+    Render(time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, cont: scoped GpuCommandList -> ()): () =
+        let renv = this.Env
+        let cmds = this.Commands
+        let gpu = renv.Gpu
+
+        ResetGlobals(renv, screenSize, time, alpha)
+
+        GpuCommandList.Begin(cmds)
+        match (this.Scene)
+        | Some(scene) =>
+            scene.Render(
+                renv, 
+                time, 
+                alpha, 
+                screenSize, 
+                cameraEntId,
+                gpuCommands ->
+                    this.DrawConsoleBackground(renv, gpuCommands),
+                cont,
+                cmds
+            )
+        | _ =>
+            this.DrawConsoleBackground(renv, cmds)
+            cmds.PipelineBarrier(GpuPipelineBarrierKind.BottomPipeToAllGraphics)
+            cmds.BeginSwapChainFrame()
+            cont(cmds)
+            cmds.EndFrame()
+
+        gpu.Execute(cmds)
+        GpuCommandList.End(cmds)
+
+    CopyToBackgroundIfPossible(clientWorld: ClientWorld, localClientEntId: EntityId): () =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.CopyToBackground(clientWorld, this.Env, localClientEntId)
+        | _ =>
+            ()
+
+    CopyInputResultFromClientIfPossible(clientWorld: ClientWorld, localClientEntId: EntityId): () =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.CopyInputResultFrom(this.Env, clientWorld, localClientEntId)
+        | _ =>
+            ()
+
+    RenderingWorld: Option<RenderingWorld>
+        get() = 
+            match (this.Scene)
+            | Some(scene) => Some(scene.RenderingWorld)
+            | _ => None
+
+    HasScene: bool get() = this.Scene.IsSome
+
+    IsPlayerSpawned(playerId: EntityId): bool =
+        match (this.Scene)
+        | Some(scene) => scene.RenderingWorld.Database.Has<Player>(playerId)
+        | _ => false
+
+    DisposeSceneIfPossible(): () =
+        match (this.Scene)
+        | Some(scene) =>
+            scene.Dispose()
+            this.Scene <- None
+        | _ =>
+            ()
+
+    Dispose(): () =
+        this.DisposeSceneIfPossible()

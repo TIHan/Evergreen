@@ -1,0 +1,133 @@
+namespace Game.Shared
+
+open System
+open System.Numerics
+open Evergreen.Utilities
+open Evergreen.Physics
+open Evergreen.Collections
+open Evergreen.Graphics
+open Evergreen.Graphics.Rendering
+open Evergreen.Audio
+open static Game.AssetManager
+open static Game.Shared.Types
+open static Game.Shared.Components
+
+struct Snapshot =
+    public field ServerFrame: FrameNumber
+    public field ServerTimeStamp: int64
+    public field ServerPing: int64
+    public field ClientIndex: byte
+    public field ClientInputFrame: FrameNumber
+    public field ClientInputTimeStamp: int64
+    public field SpeedOffset: float32
+    public field World: World
+    public field Sequence: ByteSequence
+
+    new(serverFrame: FrameNumber, clientIndex: byte, clientInputFrame: FrameNumber, clientInputTimeStamp: int64, serverPing: int64, serverTimeStamp: int64, speedOffset: float32, world: World, sequence: ByteSequence) = 
+        { ServerFrame = serverFrame; ClientIndex = clientIndex; ClientInputFrame = clientInputFrame; ClientInputTimeStamp = clientInputTimeStamp; ServerPing = serverPing; ServerTimeStamp = serverTimeStamp; SpeedOffset = speedOffset; World = world; Sequence = sequence }
+
+    WithWorld(world: World): Snapshot =
+        Snapshot(
+            this.ServerFrame,
+            this.ClientIndex,
+            this.ClientInputFrame,
+            this.ClientInputTimeStamp,
+            this.ServerPing,
+            this.ServerTimeStamp,
+            this.SpeedOffset,
+            world,
+            this.Sequence
+        )
+
+    static Lerp(serverFrame: FrameNumber, prev: Snapshot, curr: Snapshot, alpha: float32, lerpWorld: (World, World, float32, FrameNumber) -> World): Snapshot =
+        Snapshot(
+            serverFrame,
+            prev.ClientIndex,
+            prev.ClientInputFrame,
+            prev.ClientInputTimeStamp,
+            lerp(prev.ServerPing, curr.ServerPing, alpha),
+            lerp(prev.ServerTimeStamp, curr.ServerTimeStamp, alpha),
+            Single.Lerp(prev.SpeedOffset, curr.SpeedOffset, alpha),
+            lerpWorld(prev.World, curr.World, alpha, serverFrame),
+            prev.Sequence
+        )
+
+    static SerializeForNetwork(snapshot: Snapshot, stream: ByteStream): () =
+        /* Begin Header */
+        stream.Write<int32>(FrameNumber.GetInt32(snapshot.ServerFrame))
+        stream.Write<byte>(snapshot.ClientIndex)
+        stream.Write<int32>(FrameNumber.GetInt32(snapshot.ClientInputFrame))
+        stream.Write<int64>(snapshot.ClientInputTimeStamp)
+        stream.Write<int64>(snapshot.ServerTimeStamp)
+        stream.Write<int64>(snapshot.ServerPing)
+        stream.Write<float32>(snapshot.SpeedOffset)
+        stream.Write<byte>(ByteSequence.GetByte(snapshot.Sequence))
+        /* End Header */
+
+        snapshot.World.SerializeForNetwork(stream)
+
+    static DeserializeForNetwork(stream: ByteStream, dstWorld: World, networkAdapterState: EntityDatabaseNetworkAdapterState): Snapshot =
+        /* Begin Header */
+        let serverFrame             = FrameNumber(stream.Read<int32>())
+        let clientIndex             = stream.Read<byte>()
+        let clientInputFrame        = FrameNumber(stream.Read<int32>())
+        let clientInputTimeStamp    = stream.Read<int64>()
+        let serverTimeStamp         = stream.Read<int64>()
+        let serverPing              = stream.Read<int64>()
+        let speedOffset             = stream.Read<float32>()
+        let sequence                = ByteSequence(stream.Read<byte>())
+        /* End Header */
+
+        dstWorld.DeserializeForNetwork(stream, networkAdapterState)
+
+        Snapshot(
+            serverFrame,
+            clientIndex,
+            clientInputFrame,
+            clientInputTimeStamp,
+            serverPing,
+            serverTimeStamp,
+            speedOffset,
+            dstWorld,
+            sequence
+        )
+
+    static SerializeDeltaForNetwork(prevWorld: World, snapshot: Snapshot, canDeltaArchetypeId: bool, stream: ByteStream): () =
+        /* Begin Header */
+        stream.Write<int32>(FrameNumber.GetInt32(snapshot.ServerFrame))
+        stream.Write<byte>(snapshot.ClientIndex)
+        stream.Write<int32>(FrameNumber.GetInt32(snapshot.ClientInputFrame))
+        stream.Write<int64>(snapshot.ClientInputTimeStamp)
+        stream.Write<int64>(snapshot.ServerTimeStamp)
+        stream.Write<int64>(snapshot.ServerPing)
+        stream.Write<float32>(snapshot.SpeedOffset)
+        stream.Write<byte>(ByteSequence.GetByte(snapshot.Sequence))
+        /* End Header */
+
+        snapshot.World.SerializeDeltaForNetwork(prevWorld, canDeltaArchetypeId, stream)
+
+    static DeserializeDeltaForNetwork(stream: ByteStream, dstWorld: World, networkAdapterState: EntityDatabaseNetworkAdapterState): Snapshot =
+        /* Begin Header */
+        let serverFrame             = FrameNumber(stream.Read<int32>())
+        let clientIndex             = stream.Read<byte>()
+        let clientInputFrame        = FrameNumber(stream.Read<int32>())
+        let clientInputTimeStamp    = stream.Read<int64>()
+        let serverTimeStamp         = stream.Read<int64>()
+        let serverPing              = stream.Read<int64>()
+        let speedOffset             = stream.Read<float32>()
+        let sequence                = ByteSequence(stream.Read<byte>())
+        /* End Header */
+
+        dstWorld.DeserializeDeltaForNetwork(stream, networkAdapterState)
+
+        Snapshot(
+            serverFrame,
+            clientIndex,
+            clientInputFrame,
+            clientInputTimeStamp,
+            serverPing,
+            serverTimeStamp,
+            speedOffset,
+            dstWorld,
+            sequence
+        )

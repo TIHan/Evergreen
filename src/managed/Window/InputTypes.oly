@@ -1,0 +1,92 @@
+namespace Evergreen.Window
+
+open System
+open System.Numerics
+
+struct MouseInfo =
+    Position: Vector2 get, set = Vector2.Zero
+    DeltaPosition: Vector2 get, set = Vector2.Zero
+
+alias Key = Evergreen.Graphics.Window.Backend.Interop.EgWindowKey
+alias KeyEvent = Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEvent
+alias MouseButtonEvent = Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEvent
+alias MouseWheelEvent = Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseWheelEvent
+alias GamepadAxisMotionEvent = Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadAxisMotionEvent
+alias GamepadButtonEvent = Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEvent
+alias GamepadEvent = Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEvent
+
+#[open]
+extension KeyEventExtensions =
+    inherits Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEvent
+
+    IsDown: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_DOWN
+
+    IsUp: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_UP
+
+    // TODO: Get rid of this. Instead, the actual event shouldn't rely on REPEAT.
+    IsRepeat: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_REPEAT == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_REPEAT
+
+    // TODO: Get rid of this. Instead, the actual event shouldn't rely on PRESSED.
+    IsPressed: bool get() = this.IsDown && !this.IsRepeat
+
+#[open]
+extension MouseButtonEventExtensions =
+    inherits Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEvent
+
+    IsDown: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_DOWN
+
+    IsUp: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_UP
+
+#[open]
+extension GamepadButtonEventExtensions =
+    inherits Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEvent
+
+    IsDown: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_DOWN
+
+    IsUp: bool
+        get() =
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_UP
+
+#[open]
+extension GamepadEventExtensions =
+    inherits Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEvent
+
+    IsAdded: bool
+        get() =
+            this.kind & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_ADDED == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_ADDED
+
+    IsUp: bool
+        get() =
+            this.kind & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_REMOVED == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_REMOVED
+
+class InputSnapshot =
+    KeyEvents: KeyEvent[] get
+    MouseButtonEvents: MouseButtonEvent[] get
+    MouseWheelEvents: MouseWheelEvent[] get
+    MouseInfo: MouseInfo get
+    GamepadAxisMotionEvents: GamepadAxisMotionEvent[] get
+    GamepadButtonEvents: GamepadButtonEvent[] get
+    GamepadEvents: GamepadEvent[] get
+
+    new(keyEvents: KeyEvent[], mouseButtonEvents: MouseButtonEvent[], mouseWheelEvents: MouseWheelEvent[], mouseInfo: MouseInfo, gamepadAxisMotionEvents: GamepadAxisMotionEvent[], gamepadButtonEvents: GamepadButtonEvent[], gamepadEvents: GamepadEvent[]) =
+        {
+            KeyEvents = keyEvents
+            MouseButtonEvents = mouseButtonEvents
+            MouseWheelEvents = mouseWheelEvents
+            MouseInfo = mouseInfo
+            GamepadAxisMotionEvents = gamepadAxisMotionEvents
+            GamepadButtonEvents = gamepadButtonEvents
+            GamepadEvents = gamepadEvents
+        }

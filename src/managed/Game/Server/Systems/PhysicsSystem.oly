@@ -1,0 +1,92 @@
+namespace Game.Server.Systems
+
+open System
+open System.Numerics
+
+open Evergreen.Network
+open Evergreen.Collections
+open Evergreen.Physics
+open Evergreen.Utilities
+
+open Game.Shared
+open Game.Shared.Systems
+open static Game.Shared.World
+open static Game.Shared.Types
+open static Game.Shared.Components
+
+class ServerPhysicsSystem =
+    inherits PhysicsSystem
+
+    field inputQueue: System.Collections.Generic.Queue<LogicInput> // TODO: Do this at the EntityDatabase level.
+
+    new(db: EntityDatabase, genv: GameEnv) =
+        base(PhysicsSystemKind.Server, db, genv) with {
+            inputQueue = System.Collections.Generic.Queue<LogicInput>()
+        }
+
+    static Create(db: EntityDatabase, genv: GameEnv): ServerPhysicsSystem =
+        let physicsSystem = ServerPhysicsSystem(db, genv)
+
+        physicsSystem.ContactAdded.Add(
+            args ->
+                let _ =
+                    db.If<StaticRigidBody, LogicOutput>(args.Entity1,
+                        (body, output) ->
+                            if (body.IsSensor)
+                                match (output.Target)
+                                | Target.Activator =>
+                                    let mutable input = LogicInput()
+                                    input.This <- args.Entity2
+                                    input.Function <- output.TargetFunction
+                                    physicsSystem.inputQueue.Enqueue(input)
+                                | _ =>
+                                    LogServerWarning(args.Entity1.ToString() + "'s output does not have a target.")
+                    )
+                let _ =
+                    db.If<StaticRigidBody, LogicOutput>(args.Entity2,
+                        (body, output) ->
+                            if (body.IsSensor)
+                                match (output.Target)
+                                | Target.Activator =>
+                                    let mutable input = LogicInput()
+                                    input.This <- args.Entity1
+                                    input.Function <- output.TargetFunction
+                                    physicsSystem.inputQueue.Enqueue(input)
+                                | _ =>
+                                    LogServerWarning(args.Entity2.ToString() + "'s output does not have a target.")
+                    )
+        )
+        physicsSystem
+
+    overrides Update(time: GameTime): () =
+        let db = this.db
+        let physics = this.physics
+
+        db.ForEach<Player, CharacterInput>(
+            (entId, player, playerInput) ->
+                player.ClientInputFrame <- playerInput.Frame
+                this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
+        )
+
+        base.Update(time)
+
+        let mutable input = default
+        while (this.inputQueue.TryDequeue(&input))
+            let _ = db.Create(BuiltInComponents.ServerSide(), input)
+
+        let destroyQueue = System.Collections.Generic.Queue<EntityId>() // TODO: Do this in EntityDatabase.
+        db.ForEach<LogicInput>(db.CreateQuery<LogicInput>(),
+            (mutable entId, input) ->
+                if (!input.This.IsNil)
+                    match (input.Function)
+                    | InputFunction.Destroy =>
+                        destroyQueue.Enqueue(input.This)
+                    | _ =>
+                        ()
+                destroyQueue.Enqueue(entId)
+        )
+        let mutable entId = default
+        while (destroyQueue.TryDequeue(&entId))
+            let _ = db.TryDelete(entId)
+            
+            

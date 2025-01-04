@@ -1,0 +1,448 @@
+namespace Evergreen.Network
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+open System.Security.Cryptography
+
+open Evergreen.Utilities
+
+class NetworkClient =
+    implements IDisposable
+
+    private static CreateSocket(): Socket =
+        let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
+        socket.Blocking <- false
+        socket.ReceiveBufferSize <- Int32.MaxValue
+        socket
+
+    field lockObj: object
+    field iv: Encryption.IV
+    field mutable socket: Socket
+    field encryption: Encryption
+    field packetFactory: PacketFactory
+    field channels: Channels
+    field onConnectionRequested: NetworkClient -> ()
+    field onConnectionFailed: (NetworkClient, ClientDisconnectReason) -> ()
+    field onConnected: NetworkClient -> ()
+    field onDisconnected: (NetworkClient, ClientDisconnectReason) -> ()
+    field onMessageReceived: (NetworkClient, ByteStream, channel: byte) -> ()
+    field mutable connectionKey: string 
+    field mutable port: int32
+    field mutable isConnectionAccepted: bool
+    field mutable remoteEndPoint: EndPoint
+    field mutable timeout: float32
+    field mutable timeSinceHeartbeat: float32
+    field mutable timeSinceConnect: float32
+
+    field lagRandom: Random
+    field mutable lagQueue: Queue<LagSimulatedPacket>
+    LatencySimulationRange: (uint16, uint16) get, set
+    PacketLossSimulationRate: byte get, set
+
+    private ReceivePacketPool: PacketPool get
+
+    new(
+            onConnectionRequested: NetworkClient -> (),
+            onConnectionFailed: (NetworkClient, ClientDisconnectReason) -> (),
+            onConnected: NetworkClient -> (),
+            onDisconnected: (NetworkClient, ClientDisconnectReason) -> (),
+            onMessageReceived: (NetworkClient, ByteStream, channel: byte) -> ()) = 
+        { 
+            lockObj = System.Object()
+            iv = Encryption.IV.Create()
+            socket = null
+            encryption = Encryption()
+            packetFactory = PacketFactory()
+            channels = Channels()
+            onConnectionRequested = onConnectionRequested
+            onConnectionFailed = onConnectionFailed
+            onConnected = onConnected
+            onDisconnected = onDisconnected
+            onMessageReceived = onMessageReceived
+            connectionKey = ""
+            port = 0
+            isConnectionAccepted = false
+            remoteEndPoint = null
+            timeout = 5
+            timeSinceHeartbeat = 0
+            timeSinceConnect = 0
+
+            lagRandom = Random()
+            lagQueue = Queue()
+            LatencySimulationRange = (0, 0)
+            PacketLossSimulationRate = 0
+            ReceivePacketPool = PacketPool(1024)
+        }
+
+    Port: int32 get() = this.port
+    IsConnecting: bool get() = (this.remoteEndPoint !== null) && !this.isConnectionAccepted
+    IsConnected: bool get() = (this.remoteEndPoint !== null) && this.isConnectionAccepted
+
+    private CheckSocket(): () =
+        if (this.socket === null)
+            fail("No socket")
+
+    private ResetState(): () =
+        if (this.socket !== null)
+            this.socket.Dispose()
+            this.socket <- null
+        this.remoteEndPoint <- null
+        this.isConnectionAccepted <- false
+        this.port <- 0
+        this.channels.Clear()
+        this.packetFactory.Clear()
+        this.lagQueue.Clear()
+
+    private SendPacket(packet: Packet): () =
+        this.CheckSocket()
+
+        if (packet.IsInPool)
+            throw InvalidOperationException("Cannot send packet that is in the packet pool")
+        
+        if (this.remoteEndPoint === null)
+            throw InvalidOperationException("Client has not attempted connection.")
+
+        if ((packet.IPEndPoint: EndPoint) !== this.remoteEndPoint)
+            throw InvalidOperationException("Remote end point does not match the packet's end point.")
+
+        try
+            let _ = this.encryption.SendPacket(this.socket, packet, this.iv)
+        catch (ex: Exception) =>
+            if (this.IsConnected)
+                this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
+            else
+                this.OnConnectionFailed(ClientDisconnectReason.MalformedPacketOrException)
+
+    private ReceivePacket(): (Packet, numberOfBytesReadFromSocket: int32) =
+        this.CheckSocket()
+        
+        let mutable packet = this.ReceivePacketPool.Rent()
+        let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
+        let numberOfBytesReadFromSocket = 
+            try
+                this.encryption.ReceivePacket(this.socket, this.port, this.iv, packet)
+            catch (ex: SocketException) =>
+                if (ex.SocketErrorCode != SocketError.WouldBlock)
+                    this.ReceivePacketPool.Return(packet)
+                    throw ex
+                else
+                    0
+            catch (ex: Exception) =>
+                this.ReceivePacketPool.Return(packet)
+                throw ex
+
+        (packet, numberOfBytesReadFromSocket)
+
+    private OnConnectionFailed(reason: ClientDisconnectReason): () =
+        this.CheckSocket()
+        
+        this.onConnectionFailed(this, reason)
+        this.ResetState()
+
+    private OnDisconnected(reason: ClientDisconnectReason): () =
+        this.CheckSocket()
+
+        this.onDisconnected(this, reason)
+        this.ResetState()
+
+    private SendConnectionRequested(): () =
+        this.CheckSocket()
+
+        let packet = Packet.CreateConnectionRequested(this.connectionKey, Unsafe.Cast(this.remoteEndPoint))
+        this.SendPacket(packet)
+
+    private TrySendHeartbeat(): () =
+        if (this.IsConnected || this.IsConnecting)
+            this.CheckSocket()
+
+            let packet = Packet.CreateHeartbeat(Unsafe.Cast(this.remoteEndPoint))
+            this.SendPacket(packet)
+
+    private SendDisconnect(): () =
+        this.CheckSocket()
+
+        let packet = Packet.CreateDisconnect(Unsafe.Cast(this.remoteEndPoint))
+        this.SendPacket(packet)
+
+    private SendCore(mutable bytes: ReadOnlySpan<byte>, channel: byte, kind: PacketKind): () =
+        this.CheckSocket()
+
+        if (bytes.Length > NetworkPacket.MaxDataSize)
+            fail("Message too large to send.")
+
+        let packets = this.packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(this.remoteEndPoint))
+        if (packets.Length > 1)
+            fail("Too many packets to send.")
+
+        if (kind == PacketKind.ReliableSequenced)
+            let acks = this.channels.GetAck(kind, channel)
+            acks.MarkAck(packets[0])
+
+        this.SendPacket(packets[0])
+
+    Send(bytes: ReadOnlySpan<byte>, channel: byte): () =
+        this.CheckSocket()
+
+        if (!this.IsConnected)
+            throw InvalidOperationException("Client not connected.")
+
+        this.SendCore(bytes, channel, PacketKind.Unreliable)
+
+    SendReliableSequenced(bytes: ReadOnlySpan<byte>, channel: byte): () =
+        // TODO: Disallow more than one packet for the client to send.
+        this.CheckSocket()
+
+        if (!this.IsConnected)
+            throw InvalidOperationException("Client not connected.")
+
+        this.SendCore(bytes, channel, PacketKind.ReliableSequenced)
+
+    private FreeReceivedPacket(packet: Packet): () =
+        this.ReceivePacketPool.Return(packet)
+
+    private ProcessLagSimulatedPackets(gotHeartbeat: byref<bool>): () =
+        this.CheckSocket()
+
+        let mutable maxCountToProcess = this.lagQueue.Count
+        let mutable count = 0
+        while (count < maxCountToProcess)
+            count <- count + 1
+            let state = this.lagQueue.Dequeue()
+            match (this.PacketLossSimulationRate)
+            | packetLossRate when (packetLossRate > 0 && this.lagRandom.Next(0, 100) <= int32(packetLossRate)) =>
+                this.FreeReceivedPacket(state.Packet)
+            | _ =>
+                match (this.LatencySimulationRange)
+                | (start, end) when ((end > 0) && (end >= start)) =>
+                    let artificialLag = float32(this.lagRandom.Next(int32(start), int32(end)))
+                    if ((state.Time + (artificialLag / 1000: float32)) < this.timeSinceConnect)
+                        this.HandleReceivedPacket(state.Packet, &gotHeartbeat)
+                        this.FreeReceivedPacket(state.Packet)
+                    else
+                        this.lagQueue.Enqueue(state)
+                | _ =>
+                    this.HandleReceivedPacket(state.Packet, &gotHeartbeat)
+                    this.FreeReceivedPacket(state.Packet)
+
+    private HandleReceivedPacket(packet: Packet, gotHeartbeat: byref<bool>): () =
+        this.CheckSocket()
+
+        if (packet.Stream.Position.Index != 0)
+            fail("invalid packet stream")
+        
+        if (this.isConnectionAccepted)
+            match (packet.Kind)
+            | PacketKind.ConnectionAccepted =>
+                ()
+
+            | PacketKind.Heartbeat =>
+                gotHeartbeat <- true
+
+            | PacketKind.SmallUnreliable =>
+                let channel = packet.Channel
+                let bstream = ByteStream()
+                bstream.Write(packet.DataSpan)
+                bstream.ResetPosition()
+                this.onMessageReceived(this, bstream, channel)
+
+            | PacketKind.Unreliable =>
+                let channel = packet.Channel
+                this.channels.GetDefragmenter(PacketKind.Unreliable, channel).HandlePacket(packet.Stream,
+                    (bstream, channel) -> this.onMessageReceived(this, bstream, channel)
+                )
+
+            | PacketKind.UnreliableSequenced =>
+                let channel = packet.Channel
+                this.channels.GetDefragmenter(PacketKind.UnreliableSequenced, channel).HandlePacket(packet.Stream, 
+                    (bstream, channel) -> this.onMessageReceived(this, bstream, channel)
+                )
+
+            | PacketKind.ReliableSequenced =>
+                let channel = packet.Channel
+
+                let header = packet.Stream.Read<PacketMessageHeader>()
+                let seqId = header.SequenceId
+                let fragIndex = header.FragmentIndex
+
+                let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(this.remoteEndPoint))
+                this.SendPacket(ackPacket)
+
+                packet.Stream.ResetPosition()
+                this.channels.GetDefragmenter(PacketKind.ReliableSequenced, channel).HandlePacket(packet.Stream, 
+                    (bstream, channel) -> this.onMessageReceived(this, bstream, channel)
+                )
+
+            | PacketKind.ReliableSequencedAck =>
+                let channel = packet.Channel
+
+                let header = packet.Stream.Read<PacketMessageHeader>()
+                let seqId = header.SequenceId
+                let fragIndex = header.FragmentIndex
+
+                let acks = this.channels.GetAck(PacketKind.ReliableSequenced, channel)
+                if (!acks.IsAcked(seqId, fragIndex))
+                    acks.Ack(seqId, fragIndex)
+
+            | PacketKind.Disconnect =>
+                this.DisconnectIfPossible(ClientDisconnectReason.ServerInitiated)
+
+            | PacketKind.ServerConnectionRefused =>
+                let reason = Packet.ReadServerConnectionRefused(packet)
+                this.DisconnectIfPossible(reason)
+
+            | _ =>
+                LogClientError("Bad packet kind with a connection: " + packet.Kind.ToString())
+                this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
+        else
+            match (packet.Kind)
+            | PacketKind.ConnectionAccepted =>
+                this.TrySendHeartbeat()
+
+            | PacketKind.Heartbeat =>
+                if (!this.isConnectionAccepted)
+                    this.isConnectionAccepted <- true
+                    this.onConnected(this)
+
+            | PacketKind.ServerConnectionRefused =>
+                let reason = Packet.ReadServerConnectionRefused(packet)
+                this.DisconnectIfPossible(reason)
+
+            | _ =>
+                LogClientError("Bad packet kind: " + packet.Kind.ToString())
+                this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
+
+    Connect(ipOrHostName: string, port: int32, connectionKey: string): () =
+        if (this.socket !== null)
+            fail("Client already connected or awaiting connection.")
+
+        this.timeSinceConnect <- 0
+
+        try
+            this.connectionKey <- connectionKey
+            this.port <- port
+            this.timeSinceHeartbeat <- 0
+
+            let ipOrHostName =
+                if (ipOrHostName == "localhost")
+                    "127.0.0.1"
+                else
+                    ipOrHostName
+            this.socket <- CreateSocket()
+            this.remoteEndPoint <- IPEndPoint(IPAddress.Parse(ipOrHostName), port)
+            this.SendConnectionRequested()
+            this.onConnectionRequested(this)
+        catch (ex: Exception) =>
+            LogClientError("Connection failure: " + ex.Message)
+            this.OnConnectionFailed(ClientDisconnectReason.MalformedPacketOrException)
+
+    Heartbeat(deltaTime: float32): () =
+        this.CheckSocket()
+
+        if (this.remoteEndPoint === null)
+            throw InvalidOperationException("Client has not attempted connection.")   
+        try
+            this.HeartbeatAux(deltaTime)
+        catch (ex: Exception) =>
+            LogClientError("Heartbeat: " + ex.Message)
+            if (this.socket !== null)
+                if (this.IsConnected)
+                    this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
+                else
+                    this.OnConnectionFailed(ClientDisconnectReason.MalformedPacketOrException)
+
+    private HeartbeatAux(deltaTime: float32): () =
+        this.CheckSocket()
+
+        if (this.isConnectionAccepted)
+            this.TrySendHeartbeat()
+            ForEach(this.channels.AckChannels.Values,
+                acks ->
+                    acks.Heartbeat(deltaTime,
+                        packet ->
+                            this.SendPacket(packet),
+                        (_) ->
+                            this.DisconnectIfPossible(ClientDisconnectReason.AckTimedOut)
+                    )
+            )
+        else
+            this.SendConnectionRequested()
+
+        if (this.IsConnected || this.IsConnecting)
+            let mutable gotHeartbeat = false
+            this.ProcessLagSimulatedPackets(&gotHeartbeat) 
+
+            let availableBytes = this.socket.Available
+            let mutable readByteCount = 0
+            while (readByteCount < availableBytes)
+                let (packet, numberOfBytesReadFromSocket) = this.ReceivePacket()
+                readByteCount <- readByteCount + numberOfBytesReadFromSocket
+
+                if (packet.IPEndPoint !== null)
+                    // TODO: Handle this in HandleReceivedPacket?
+                    if (Unsafe.Cast<PacketKind>(packet.Buffer[0]) == PacketKind.ConnectionAccepted)
+                        packet.DataSpan.CopyTo(this.iv.AsSpan())
+
+                    let mutable willFree = true
+
+                    match (this.LatencySimulationRange)
+                    | (start, end) when ((end > 0) && (end >= start)) =>
+                        willFree <- false
+                    | _ =>
+                        ()
+
+                    match (this.PacketLossSimulationRate)
+                    | packetLossRate when (packetLossRate > 0) =>
+                        willFree <- false
+                    | _ =>
+                        ()
+
+                    if (willFree)
+                        this.HandleReceivedPacket(packet, &gotHeartbeat)
+                        this.FreeReceivedPacket(packet)
+                    else
+                        this.lagQueue.Enqueue(LagSimulatedPacket(packet, this.timeSinceConnect))
+                else
+                    this.FreeReceivedPacket(packet)
+
+            if (gotHeartbeat)
+                this.timeSinceHeartbeat <- 0
+            else
+                this.timeSinceHeartbeat <- this.timeSinceHeartbeat + deltaTime
+
+            if (this.timeSinceHeartbeat >= this.timeout)
+                if (this.IsConnected)
+                    this.DisconnectIfPossible(ClientDisconnectReason.TimedOut)
+                else
+                    this.OnConnectionFailed(ClientDisconnectReason.TimedOut)
+                throw NetworkTimedOutException()
+
+            this.timeSinceConnect <- this.timeSinceConnect + deltaTime
+
+    DisconnectIfPossible(reason: ClientDisconnectReason): () =
+        if (this.IsConnected || this.IsConnecting)
+            this.CheckSocket()
+
+            if (this.IsConnected)
+                this.SendDisconnect()
+                this.OnDisconnected(reason)
+            else
+                this.OnConnectionFailed(reason)
+
+    LocalEndPoint: IPEndPoint get() = Unsafe.Cast(this.socket.LocalEndPoint)
+
+    TryGetRemoteEndPoint(): Option<IPEndPoint> =
+        if (this.remoteEndPoint === null)
+            None
+        else
+            Some(Unsafe.Cast(this.remoteEndPoint))
+
+    Dispose(): () =
+        this.DisconnectIfPossible(ClientDisconnectReason.ClientInitiated)
+        this.ResetState()

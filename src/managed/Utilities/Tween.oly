@@ -1,0 +1,97 @@
+namespace Evergreen.Utilities
+
+enum EasingFunction =
+    inherits byte
+    | Linear
+
+enum TweenState =
+    inherits byte
+    | None
+    | Stepping
+    | Finished
+
+struct Tween<T> where T: blittable =
+    public field mutable Start: T = unchecked default
+    public field mutable End: T = unchecked default
+    public field mutable Current: T = unchecked default
+    public field mutable EasingFunction: EasingFunction = EasingFunction.Linear
+    public field mutable State: TweenState = TweenState.None
+    public field mutable Duration: float32 = 0
+    public field mutable Elapsed: float32 = 0
+
+    IsStepping: bool get() = this.State == TweenState.Stepping
+    IsFinished: bool get() = this.State == TweenState.Finished
+
+    Alpha: float32 
+        get() = clamp(0, 1, this.Elapsed / this.Duration)
+        set(value) =
+            let value = clamp(0, 1, value)
+            this.Elapsed <- this.Duration * value
+
+interface ITweenValue<T> =
+
+    static abstract Linear(start: T, end: T, alpha: float32): T
+
+module Tween =
+
+    From<T>(start: T): Tween<T> where T: blittable, trait ITweenValue<T> =
+        let mutable tween = Tween<T>()
+        tween.Start <- start
+        tween
+
+    /// Returns 'true' if the tween finished.
+    Step<T>(tween: byref<Tween<T>>, deltaTime: float32): bool where T: blittable, trait ITweenValue<T> =
+        match (tween.State)
+        | TweenState.None =>
+            tween.State <- TweenState.Stepping
+            false
+        | TweenState.Stepping =>
+            tween.Elapsed <- tween.Elapsed + deltaTime
+
+            match (tween.EasingFunction)
+            | _ =>
+                tween.Current <- T.Linear(tween.Start, tween.End, tween.Alpha)
+
+            if (tween.Elapsed >= tween.Duration)
+                tween.State <- TweenState.Finished
+                tween.Current <- tween.End
+                true
+            else
+                false
+
+        | _ =>
+            false
+
+    /// This is normally used to set the tween state to Stepping if it is None.
+    StepZero<T>(tween: byref<Tween<T>>): bool where T: blittable, trait ITweenValue<T> =
+        Step(&tween, 0)
+
+    Reset<T>(tween: byref<Tween<T>>): () where T: blittable, trait ITweenValue<T> =
+        tween.State <- TweenState.None
+        tween.Elapsed <- 0
+        tween.Current <- unchecked default
+
+#[open]
+extension TweenFloat32 =
+    inherits float32
+    implements ITweenValue<float32>
+
+    internal static overrides Linear(start: float32, end: float32, alpha: float32): float32 =
+        (end - start) * alpha + start
+
+#[open]
+extension TweenExtensions<T> where T: blittable =
+    inherits Tween<T>
+
+    To(end: T, duration: float32): Tween<T> =
+        let mutable result = this
+        result.End <- end
+        result.Duration <- duration
+        result
+
+    WithAlpha(alpha: float32): Tween<T> =
+        let mutable result = this
+        result.Alpha <- alpha
+        result
+
+    

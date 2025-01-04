@@ -1,0 +1,969 @@
+{
+  "LastCreatedEntity": {
+    "Index": 11,
+    "Version": 1
+  },
+  "LastCreatedLocalEntity": {
+    "Index": 32779,
+    "Version": 1
+  },
+  "Entities": [
+    {
+      "EntityIndex": 32768,
+      "ServerSide": {},
+      "ClientSide": {},
+      "Camera": {
+        "Offset": {
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Yaw": 0,
+        "Pitch": -45,
+        "FieldOfView": 120,
+        "Width": 250,
+        "Height": 250,
+        "NearPlaneDistance": 0.1,
+        "FarPlaneDistance": 250,
+        "ProjectionKind": "Perspective"
+      },
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Rotation": {
+          "W": 1,
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "xyz.mtl",
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "xyz.obj"
+      },
+      "Light": {
+        "Kind": "Spot",
+        "Color": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1,
+          "W": 1
+        }
+      }
+    },
+    {
+      "EntityIndex": 32769,
+      "ServerSide": {},
+      "ClientSide": {},
+      "Camera": {
+        "Offset": {
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Yaw": 0,
+        "Pitch": -45,
+        "FieldOfView": 0,
+        "Width": 20,
+        "Height": 20,
+        "NearPlaneDistance": 0.1,
+        "FarPlaneDistance": 20,
+        "ProjectionKind": "Orthographic"
+      },
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0,
+          "Y": 10,
+          "Z": 0
+        },
+        "Rotation": {
+          "W": 1,
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "xyz.mtl",
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "xyz.obj"
+      },
+      "Light": {
+        "Kind": "Directional",
+        "Color": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1,
+          "W": 1
+        }
+      }
+    },
+    {
+      "EntityIndex": 32770,
+      "ServerSide": {},
+      "ClientSide": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0,
+          "Y": 6,
+          "Z": -8.3
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png",
+        "Flags": "Transparent, CastShadows, AcceptLight"
+      },
+      "StaticRigidBody": {
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "plane.obj"
+      },
+      "MeshCollider": {
+        "Mesh": "plane.obj"
+      }
+    },
+    {
+      "EntityIndex": 32771,
+      "ServerSide": {},
+      "ClientSide": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0.5,
+          "Y": 12,
+          "Z": -8.3
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/bos2a1.png",
+        "Flags": "Transparent, CastShadows, AcceptLight"
+      },
+      "StaticRigidBody": {
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "plane.obj"
+      },
+      "MeshCollider": {
+        "Mesh": "plane.obj"
+      }
+    },
+    {
+      "EntityIndex": 32772,
+      "ServerSide": {},
+      "ClientSide": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0.5,
+          "Y": 8,
+          "Z": -8.3
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/bos2a1.png",
+        "Flags": "Transparent, CastShadows, AcceptLight"
+      },
+      "StaticRigidBody": {
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "plane.obj"
+      },
+      "MeshCollider": {
+        "Mesh": "plane.obj"
+      }
+    },
+    {
+      "EntityIndex": 32778,
+      "ServerSide": {},
+      "ClientSide": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0,
+          "Y": 0,
+          "Z": -10
+        },
+        "Rotation": {
+          "W": 1,
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 30,
+          "Y": 30,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/aqf063.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "StaticRigidBody": {
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "plane.obj"
+      },
+      "MeshCollider": {
+        "Mesh": "plane.obj"
+      }
+    },
+    {
+      "EntityIndex": 32773,
+      "ClientSide": {},
+      "Sprite": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 5,
+          "Y": 10,
+          "Z": -10
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "Outline": {}
+    },
+    {
+      "EntityIndex": 32776,
+      "ClientSide": {},
+      "Sprite": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 10,
+          "Y": 0,
+          "Z": -10
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "Outline": {}
+    },
+    {
+      "EntityIndex": 32774,
+      "ClientSide": {},
+      "Sprite": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0,
+          "Y": -10,
+          "Z": -10
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png",
+        "Flags": "CastShadows, AcceptLight"
+      }
+    },
+    {
+      "EntityIndex": 32775,
+      "ClientSide": {},
+      "Sprite": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -10,
+          "Y": 0,
+          "Z": -10
+        },
+        "Rotation": {
+          "W": 0.70710677,
+          "X": 0.70710677,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Sprites/Freedoom/playf3f7.png",
+        "Flags": "CastShadows, AcceptLight"
+      }
+    },
+    {
+      "EntityIndex": 0,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 4.0236297,
+          "Y": 10.002472,
+          "Z": -9.018419
+        },
+        "Rotation": {
+          "W": 0.9999894,
+          "X": -2.856185E-06,
+          "Y": 0.0007936705,
+          "Z": 0.004535543
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "xyz.mtl",
+        "Flags": "None"
+      },
+      "MeshReference": {
+        "Mesh": "xyz.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "AngularVelocity": {
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Mass": 10,
+        "Flags": "Predicted"
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 32777,
+      "ServerSide": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": 0,
+          "Y": 0,
+          "Z": -50
+        },
+        "Rotation": {
+          "W": 1,
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 100,
+          "Y": 100,
+          "Z": 1
+        }
+      },
+      "StaticRigidBody": {
+        "Flags": "IsSensor"
+      },
+      "LogicOutput": {
+        "Target": "Activator",
+        "TargetFunction": "Destroy"
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 3,
+      "Ownership": {
+        "Owner": {
+          "Index": 2,
+          "Version": 1
+        }
+      },
+      "EntityList8": {
+        "Count": 8,
+        "Entity1": {
+          "Index": 4,
+          "Version": 1
+        },
+        "Entity2": {
+          "Index": 5,
+          "Version": 1
+        },
+        "Entity3": {
+          "Index": 6,
+          "Version": 1
+        },
+        "Entity4": {
+          "Index": 7,
+          "Version": 1
+        },
+        "Entity5": {
+          "Index": 8,
+          "Version": 1
+        },
+        "Entity6": {
+          "Index": 9,
+          "Version": 1
+        },
+        "Entity7": {
+          "Index": 10,
+          "Version": 1
+        },
+        "Entity8": {
+          "Index": 11,
+          "Version": 1
+        }
+      },
+      "Orbit": {
+        "Time": 78.76558
+      }
+    },
+    {
+      "EntityIndex": 2,
+      "Camera": {
+        "Offset": {
+          "X": 0,
+          "Y": 0,
+          "Z": 1.7
+        },
+        "Yaw": -1.8499979,
+        "Pitch": -0.3220007,
+        "FieldOfView": 70,
+        "Width": 40,
+        "Height": 22,
+        "NearPlaneDistance": 0.1,
+        "FarPlaneDistance": 1000000,
+        "ProjectionKind": "Perspective"
+      },
+      "Sprite": {},
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -6.003948,
+          "Y": 2.9967904,
+          "Z": -10
+        },
+        "Rotation": {
+          "W": 1,
+          "X": 0,
+          "Y": 0,
+          "Z": 0
+        },
+        "Scale": {
+          "X": 1,
+          "Y": 1,
+          "Z": 1
+        }
+      },
+      "Material": {
+        "Texture": "Freedoom/stfst01.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "Player": {
+        "ClientInputFrame": 8167,
+        "ClientIndex": 1
+      },
+      "VirtualCharacter": {
+        "LinearVelocity": {
+          "X": 0,
+          "Y": 0,
+          "Z": -0.32688802
+        },
+        "Speed": 5,
+        "SpecialCount": 0
+      }
+    },
+    {
+      "EntityIndex": 4,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -2.8663385,
+          "Y": -0.3237286,
+          "Z": -8.373559
+        },
+        "Rotation": {
+          "W": 0.23004231,
+          "X": 0.23004231,
+          "Y": -0.66864085,
+          "Z": -0.66864085
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": 5.340157,
+          "Y": 4.7876835,
+          "Z": -0.081692226
+        },
+        "AngularVelocity": {
+          "X": 0,
+          "Y": 0,
+          "Z": 1.5701149
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 5,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -1.4373614,
+          "Y": 2.8674643,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": 0.46840975,
+          "X": 0.46840978,
+          "Y": -0.5297097,
+          "Z": -0.5297097
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": 0.39064112,
+          "Y": 7.161464,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": 5.654893E-07,
+          "Y": 1.4625888E-06,
+          "Z": 1.5701182
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 6,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -2.6834195,
+          "Y": 6.134389,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": -0.6354645,
+          "X": -0.6354645,
+          "Y": 0.31013697,
+          "Z": 0.31013697
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": -4.7876678,
+          "Y": 5.3401713,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": -9.672632E-07,
+          "Y": 5.421013E-07,
+          "Z": 1.5701171
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 7,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -5.874607,
+          "Y": 7.563377,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": -0.70577693,
+          "X": -0.70577693,
+          "Y": 0.043346707,
+          "Z": 0.043346707
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": -7.1614647,
+          "Y": 0.39066252,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": -1.0662942E-08,
+          "Y": -6.155025E-08,
+          "Z": 1.5701138
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 8,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -9.141562,
+          "Y": 6.3173056,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": -0.6686407,
+          "X": -0.6686407,
+          "Y": -0.23004271,
+          "Z": -0.23004271
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": -5.340151,
+          "Y": -4.7876925,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": -1.014039E-06,
+          "Y": -4.4854977E-07,
+          "Z": 1.5701162
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 9,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -10.570536,
+          "Y": 3.1261106,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": 0.52970934,
+          "X": 0.52970934,
+          "Y": 0.4684101,
+          "Z": 0.4684101
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": -0.39063397,
+          "Y": -7.1614656,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": -4.485498E-07,
+          "Y": 1.0140391E-06,
+          "Z": 1.5701169
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 10,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -9.324466,
+          "Y": -0.1408177,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": -0.31013617,
+          "X": -0.31013617,
+          "Y": -0.63546485,
+          "Z": -0.63546485
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": 4.7877765,
+          "Y": -5.3402057,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": -6.9621257E-07,
+          "Y": 1.025733E-06,
+          "Z": 1.5701168
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    },
+    {
+      "EntityIndex": 11,
+      "Transform": {
+        "Sequence": 0,
+        "Position": {
+          "X": -6.133288,
+          "Y": -1.5697978,
+          "Z": -8.373562
+        },
+        "Rotation": {
+          "W": -0.043346286,
+          "X": -0.043346252,
+          "Y": -0.705777,
+          "Z": -0.70577693
+        },
+        "Scale": {
+          "X": 0.5,
+          "Y": 0.5,
+          "Z": 0.5
+        }
+      },
+      "Material": {
+        "Texture": "Flats/Freedoom/cons1_1.png",
+        "Flags": "CastShadows, AcceptLight"
+      },
+      "MeshReference": {
+        "Mesh": "cube.obj"
+      },
+      "RigidBody": {
+        "LinearVelocity": {
+          "X": 7.161349,
+          "Y": -0.39070022,
+          "Z": -0.081682704
+        },
+        "AngularVelocity": {
+          "X": 3.0195058E-06,
+          "Y": 2.9180413E-07,
+          "Z": 1.5701107
+        },
+        "Mass": 10,
+        "Flags": "Predicted, Active"
+      },
+      "Outline": {},
+      "Ownership": {
+        "Owner": {
+          "Index": 3,
+          "Version": 1
+        }
+      },
+      "BoxCollider": {}
+    }
+  ]
+}

@@ -1,0 +1,3229 @@
+namespace Evergreen.Graphics.Rendering
+
+open System
+open System.IO
+open System.Numerics
+open System.Diagnostics
+open System.Runtime.InteropServices
+open System.Collections.Generic
+open System.Collections.Concurrent
+open Evergreen
+open Evergreen.ImGui
+open Evergreen.Window
+open Evergreen.Utilities
+open Evergreen.Graphics.Backend.Vulkan
+open Evergreen.Graphics.Rendering.UI
+
+private alias Unsafe = OlyPrelude.Unsafe
+
+class GpuDescriptorSet =
+    internal IsInitialized: bool get, set
+    internal IsUpdated: bool get, set
+    internal FrameUpdates: mutable bool[] get, set
+
+    internal VkDescriptorPool: VkDescriptorPool get, set
+    internal VkDescriptorSets: VkDescriptorSet[] get, set // per frame
+    internal VkDescriptorTypes: VkDescriptorType[] get, set
+    internal VkDescriptorSetLayout: VkDescriptorSetLayout get, set
+
+    field resourceRanges: mutable (offset: int32, size: int32)[]
+
+    Layout: GpuDescriptorSetLayout get
+    Resources: IGpuInput[] get
+
+    ResourceRanges: ReadOnlySpan<(offset: int32, size: int32)> get() = this.resourceRanges.AsReadOnlySpan()
+
+    new(gpuSetLayout: GpuDescriptorSetLayout, gpuResources: IGpuInput[]) =
+        if (gpuSetLayout.Bindings.Length <= 0)
+            throw ArgumentOutOfRangeException("GpuDescriptorSetLayout.Bindings")
+        if (gpuSetLayout.Bindings.Length != gpuResources.Length)
+            throw ArgumentException("Descriptor set layout binding count does not match number of resources")
+
+        {
+            IsInitialized = false
+            IsUpdated = false
+
+            FrameUpdates = mutable []
+            VkDescriptorPool = VkDescriptorPool.NULL
+            VkDescriptorSets = []
+            VkDescriptorTypes = []
+            VkDescriptorSetLayout = VkDescriptorSetLayout.NULL
+
+            Layout = gpuSetLayout
+            Resources = gpuResources
+
+            resourceRanges = initMutableArray(gpuResources.Length, i -> (-1, -1))
+        }
+
+    SetResourceRange(resourceIndex: int32, offset: int32, size: int32): () =
+        let (currentOffset, currentSize) = this.resourceRanges[resourceIndex]
+        
+        if (currentOffset != offset || currentSize != size)
+            this.IsUpdated <- false
+            this.resourceRanges[resourceIndex] <- (offset, size)
+
+internal module Helpers =
+
+    CreateVulkanDescriptorSetLayoutBinding(inputKind: GpuDescriptorKind, flags: GpuDescriptorSetLayoutBindingFlags, stageFlags: GpuStageFlags, descriptorCount: uint32): VulkanDescriptorSetLayoutBinding =
+        let descriptorType =
+            match (inputKind)
+            | GpuDescriptorKind.Uniform =>
+                VkDescriptorType.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+            | GpuDescriptorKind.Storage =>
+                VkDescriptorType.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+            | GpuDescriptorKind.Image =>
+                VkDescriptorType.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+            | _ =>
+                fail("Invalid input")
+
+        let isBindless =
+            if (flags & GpuDescriptorSetLayoutBindingFlags.Bindless == GpuDescriptorSetLayoutBindingFlags.Bindless)
+                true
+            else
+                false
+
+        let shaderStageFlags =
+            if (stageFlags & GpuStageFlags.Vertex == GpuStageFlags.Vertex)
+                VkShaderStageFlags.VK_SHADER_STAGE_VERTEX_BIT
+            else
+                default
+
+        let shaderStageFlags =
+            if (stageFlags & GpuStageFlags.Fragment == GpuStageFlags.Fragment)
+                shaderStageFlags | VkShaderStageFlags.VK_SHADER_STAGE_FRAGMENT_BIT
+            else
+                shaderStageFlags
+
+        let shaderStageFlags =
+            if (stageFlags & GpuStageFlags.Compute == GpuStageFlags.Compute)
+                shaderStageFlags | VkShaderStageFlags.VK_SHADER_STAGE_COMPUTE_BIT
+            else
+                shaderStageFlags
+
+        VulkanDescriptorSetLayoutBinding(descriptorType, shaderStageFlags, descriptorCount, isBindless)
+
+    CreateComputePipeline(vk: VulkanApplication, gpuPipeline: GpuPipeline): VkPipeline =
+        match (gpuPipeline.Shader)
+        | GpuShader.Compute(compute) =>
+            let computeShader = compute.ComputeCode.VkShaderModule
+            Vk.CreateComputePipeline(vk, gpuPipeline.VkPipelineLayout, computeShader)
+        | _ =>
+            fail("Invalid compute shader")
+
+    CreateGraphicsPipeline(
+            vk: VulkanApplication, 
+            gpuPipeline: GpuPipeline, 
+            extent: VkExtent2D, 
+            renderPass: VkRenderPass,
+            flags: VulkanGraphicsPipelineFlags,
+            polygonMode: VkPolygonMode,
+            cullModeFlags: VkCullModeFlags,
+            frontFace: VkFrontFace,
+            frontStencilOp: VkStencilOpState,
+            backStencilOp: VkStencilOpState,
+            depthBiasOptions: VulkanDepthBiasOptions,
+            flipY: bool,
+            isDepthOnly: bool,
+            isBlendEnabled: bool,
+            viewport: byref<VkViewport>, scissor: byref<VkRect2D>): VkPipeline =
+
+        match (gpuPipeline.Shader)
+        | GpuShader.Vertex(vertex) =>
+            let vertexShader = vertex.VertexCode.VkShaderModule
+            Vk.CreateGraphicsPipeline(
+                vk, 
+                gpuPipeline.VkVertexInputBindingDescriptions, 
+                gpuPipeline.VkVertexInputAttributeDescriptions, 
+                gpuPipeline.VkPipelineLayout, 
+                renderPass,
+                polygonMode,
+                cullModeFlags,
+                frontFace,
+                vertexShader,
+                VkShaderModule.NULL,
+                extent,
+                flags,
+                frontStencilOp,
+                backStencilOp,
+                depthBiasOptions,
+                flipY,
+                isDepthOnly,
+                isBlendEnabled,
+                &viewport,
+                &scissor
+            )
+        | GpuShader.VertexFragment(vertexFragment) =>
+            let vertexShader = vertexFragment.VertexCode.VkShaderModule
+            let fragmentShader = vertexFragment.FragmentCode.VkShaderModule
+            Vk.CreateGraphicsPipeline(
+                vk, 
+                gpuPipeline.VkVertexInputBindingDescriptions, 
+                gpuPipeline.VkVertexInputAttributeDescriptions, 
+                gpuPipeline.VkPipelineLayout, 
+                renderPass,
+                polygonMode,
+                cullModeFlags,
+                frontFace,
+                vertexShader,
+                fragmentShader,
+                extent,
+                flags,
+                frontStencilOp,
+                backStencilOp,
+                depthBiasOptions,
+                flipY,
+                isDepthOnly,
+                isBlendEnabled,
+                &viewport,
+                &scissor
+            )
+        | _ =>
+            fail("Invalid gpu shader")
+
+internal class DescriptorSetLayoutManager =
+    private class _Comparer =
+        implements IEqualityComparer<VulkanDescriptorSetLayoutBinding[]>
+
+        GetHashCode(o: VulkanDescriptorSetLayoutBinding[]): int32 = o.Length
+
+        Equals(o1: VulkanDescriptorSetLayoutBinding[], o2: VulkanDescriptorSetLayoutBinding[]): bool =
+            if (o1.Length == o2.Length)
+                let mutable result = true
+                let mutable i = 0
+                while (i < o1.Length && result)
+                    let ds1 = o1[i]
+                    let ds2 = o2[i]
+                    result <- ds1.DescriptorType == ds2.DescriptorType && ds1.IsBindless == ds2.IsBindless && ds1.StageFlags == ds2.StageFlags && ds1.Count == ds2.Count
+                    i <- i + 1
+                result
+            else
+                false
+
+    field lockObj: object
+    field setLayouts: ConcurrentDictionary<VulkanDescriptorSetLayoutBinding[], VkDescriptorSetLayout>
+    field bindingInfos: ConcurrentDictionary<VkDescriptorSetLayout, VulkanDescriptorSetLayoutBinding[]>
+    field refCounts: ConcurrentDictionary<VkDescriptorSetLayout, int32>
+    field vk: VulkanApplication
+
+    Count: int32 get() = this.setLayouts.Count
+
+    new(vk: VulkanApplication) =
+        {
+            lockObj = System.Object()
+            vk = vk
+            setLayouts = ConcurrentDictionary(_Comparer())
+            bindingInfos = ConcurrentDictionary()
+            refCounts = ConcurrentDictionary()
+        }
+
+    Create(bindingInfos: VulkanDescriptorSetLayoutBinding[]): VkDescriptorSetLayout =
+        let mutable setLayout = default
+        if (this.setLayouts.TryGetValue(bindingInfos, &setLayout))
+            lock(this.lockObj,
+                () ->
+                    let mutable refCount = 0
+                    if (this.refCounts.TryGetValue(setLayout, &refCount) && refCount > 0)
+                        this.refCounts[setLayout] <- refCount + 1
+                    else
+                        fail("Invalid state of descriptor set management")
+            )
+        else
+            lock(this.lockObj,
+                () ->
+                    if (!this.setLayouts.TryGetValue(bindingInfos, &setLayout))
+                        setLayout <- Vk.CreateDescriptorSetLayout(this.vk, ReadOnlySpan<VulkanDescriptorSetLayoutBinding>.op_Implicit(Unsafe.AsMutable(bindingInfos)))
+                        this.setLayouts[bindingInfos] <- setLayout
+                        this.bindingInfos[setLayout] <- bindingInfos
+                        this.refCounts[setLayout] <- 1
+            )
+        setLayout
+
+    Destroy(setLayout: VkDescriptorSetLayout): () =
+        lock(this.lockObj,
+            () ->
+                let mutable refCount = 0
+                if (this.refCounts.TryGetValue(setLayout, &refCount))
+                    refCount <- refCount - 1
+                    if (refCount < 0)
+                        fail("Invalid reference count")
+                    if (refCount == 0)
+                        let _ = this.refCounts.TryRemove(setLayout, &refCount)
+                        let mutable bindingInfos = unchecked default
+                        let _ = this.bindingInfos.TryRemove(setLayout, &bindingInfos)
+                        let mutable setLayout = default
+                        let _ = this.setLayouts.TryRemove(bindingInfos, &setLayout)
+                        Vk.DestroyDescriptorSetLayout(this.vk, setLayout)
+                    else
+                        this.refCounts[setLayout] <- refCount
+                        
+        )
+
+#[Flags]
+enum GpuStageFlags =
+    | Vertex    = 0b00001
+    | Fragment  = 0b00010
+    | Compute   = 0b00100
+
+enum GpuMemoryKind =
+    | Local
+    | Shared
+
+enum GpuBufferKind =
+    | Uniform
+    | Storage
+    | Vertex
+    | Index
+    | IndirectStorage
+
+enum GpuResourceKind =
+    | Buffer
+    | Image
+    | Array
+
+abstract class GpuResource =
+    private IsInitialized: bool get, set
+    private FrameUpdates: mutable bool[] get, set
+
+    ResourceKind: GpuResourceKind get
+    NeedsUpdate: bool get, set
+
+    new(kind: GpuResourceKind) =
+        {
+            IsInitialized = false
+            FrameUpdates = mutable []
+            ResourceKind = kind
+            NeedsUpdate = false
+        }
+
+    private Initialize(gpu: Gpu): () =
+        if (this.IsInitialized)
+            throw InvalidOperationException("Already initialized")
+        this.InitializeCore(gpu)
+        this.IsInitialized <- true
+        this.FrameUpdates <- initMutableArray(gpu.vk.MaxFramesInFlight, i -> true)
+
+    internal Upload(gpu: Gpu, frameIndex: int32): () =
+        if (this.NeedsUpdate)
+            this.NeedsUpdate <- false
+            For(this.FrameUpdates.Length,
+                i -> this.FrameUpdates[i] <- false
+            )
+        if (!this.IsInitialized)
+            this.Initialize(gpu)
+        
+        if (!this.FrameUpdates[frameIndex])
+            this.UploadCore(gpu, frameIndex)
+            this.FrameUpdates[frameIndex] <- true
+
+    internal Free(gpu: Gpu): () =
+        if (this.IsInitialized)
+            this.FreeCore(gpu)
+            this.FrameUpdates <- mutable []
+            this.IsInitialized <- false
+
+    protected abstract InitializeCore(gpu: Gpu): ()
+    protected abstract UploadCore(gpu: Gpu, frameIndex: int32): ()
+    protected abstract FreeCore(gpu: Gpu): ()
+
+interface IGpuInput =
+    internal IsDirty: bool get
+    internal RefCount: byref<int32> get
+
+    ResourceKind: GpuResourceKind get
+
+    GetVertexDescriptorSet(): GpuDescriptorSet
+
+interface IGpuBuffer =
+    inherits IGpuInput
+
+    internal Buffers: mutable VulkanBuffer[] get, set
+    
+    DataSize: int32 get
+    BufferKind: GpuBufferKind get
+    MemoryKind: GpuMemoryKind get
+    Length: int32 get
+
+    internal Upload(gpu: Gpu, frameIndex: int32): ()
+    internal Free(gpu: Gpu): ()
+
+struct GpuBufferUpdateRange =
+    Start: int32 get
+    Length: int32 get
+
+class GpuBuffer<T> where T: unmanaged =
+    inherits GpuResource
+    implements IGpuBuffer
+
+    internal IsDirty: bool get, set
+
+    protected overrides InitializeCore(gpu: Gpu): () =
+        let usageFlags =
+            match (this.BufferKind)
+            | GpuBufferKind.Uniform => 
+                VkBufferUsageFlags.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+            | GpuBufferKind.Vertex =>
+                VkBufferUsageFlags.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+            | GpuBufferKind.Index =>
+                VkBufferUsageFlags.VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+            | GpuBufferKind.Storage =>
+                VkBufferUsageFlags.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+            | GpuBufferKind.IndirectStorage =>
+                VkBufferUsageFlags.VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VkBufferUsageFlags.VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+            | _ =>
+                fail("Invalid 'GpuBufferKind'.")
+
+        let usageFlags =
+            match (this.MemoryKind)
+            | GpuMemoryKind.Local =>
+                usageFlags | VkBufferUsageFlags.VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            | _ =>
+                usageFlags | VkBufferUsageFlags.VK_BUFFER_USAGE_TRANSFER_DST_BIT // TODO: Add option to use transfer
+
+        let bufferSize = uint64(this.DataSize * this.Length)
+
+        let createFlags =
+            match (this.MemoryKind)
+            | GpuMemoryKind.Local =>
+                default
+            | GpuMemoryKind.Shared =>
+                VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VmaAllocationCreateFlags.VMA_ALLOCATION_CREATE_MAPPED_BIT
+            | _ =>
+                fail("Invalid gpu memory kind.")
+
+        this.Buffers <-
+            initMutableArray(gpu.vk.MaxFramesInFlight, 
+                i -> Vk.CreateBuffer(gpu.vk, bufferSize, usageFlags, createFlags)
+            )
+
+        let mutable i = 0
+        while (i < gpu.vk.MaxFramesInFlight)
+            this.UploadCore(gpu, i)
+            i <- i + 1
+
+        gpu.gpuBuffers[this: IGpuBuffer] <- ()
+
+    protected overrides UploadCore(gpu: Gpu, frameIndex: int32): () =
+        let array = this.Array
+        let buffers = this.Buffers
+        let updateRanges = this.UpdateRanges
+        For(updateRanges.Count,
+            i ->
+                let (start, length) = updateRanges[i]
+                if (start != 0)
+                    throw NotSupportedException("Start doesn't support non-zero (yet)")
+                if (length > 0)
+                    Vk.UpdateBuffer(gpu.vk, buffers[frameIndex], ReadOnlySpan(array, start, length))
+        )
+
+    protected overrides FreeCore(gpu: Gpu): () =
+        if (this.VertexDescriptorSet !== unchecked default)
+            gpu.Free(this.VertexDescriptorSet)
+            this.VertexDescriptorSet <- unchecked default
+
+        if (this.VertexFragmentDescriptorSet !== unchecked default)
+            gpu.Free(this.VertexFragmentDescriptorSet)
+            this.VertexFragmentDescriptorSet <- unchecked default
+
+        if (this.ComputeDescriptorSet !== unchecked default)
+            gpu.Free(this.ComputeDescriptorSet)
+            this.ComputeDescriptorSet <- unchecked default
+
+        let mutable i = 0
+        while (i < this.Buffers.Length)
+            Vk.DestroyBuffer(gpu.vk, this.Buffers[i])
+            i <- i + 1
+        this.Buffers <- mutable []
+
+        let mutable value = unchecked default
+        let result = gpu.gpuBuffers.TryRemove(this, &value)
+
+    internal new Upload(gpu: Gpu, frameIndex: int32): () =
+        base.Upload(gpu, frameIndex)
+
+    internal new Free(gpu: Gpu): () =
+        base.Free(gpu)
+
+    field mutable refCount: int32
+    internal RefCount: byref<int32> get() = &this.refCount
+
+    new ResourceKind: GpuResourceKind get() = base.ResourceKind
+
+    internal Buffers: mutable VulkanBuffer[] get, set  
+    DataSize: int32 get
+    BufferKind: GpuBufferKind get
+    MemoryKind: GpuMemoryKind get
+    Length: int32 get() = this.Array.Length
+
+    Array: mutable T[] get
+    UpdateRanges: List<(start: int32, length: int32)> get
+
+    internal VertexDescriptorSet: GpuDescriptorSet get, set
+    internal VertexFragmentDescriptorSet: GpuDescriptorSet get, set
+    internal ComputeDescriptorSet: GpuDescriptorSet get, set
+
+    internal new(kind: GpuBufferKind, memoryKind: GpuMemoryKind, array: mutable T[]) =
+        base(GpuResourceKind.Buffer) with {
+            refCount = 0
+            IsDirty = false
+            DataSize = DotNet.SizeOf<T>
+            BufferKind = kind
+            MemoryKind = memoryKind
+            Array = array
+            Buffers = mutable []
+            UpdateRanges = List()
+            VertexDescriptorSet = unchecked default
+            VertexFragmentDescriptorSet = unchecked default
+            ComputeDescriptorSet = unchecked default
+        }
+
+    GetVertexDescriptorSet(): GpuDescriptorSet =
+        if (this.VertexDescriptorSet === unchecked default)
+            this.VertexDescriptorSet <-
+                GpuDescriptorSet(
+                    GpuDescriptorSetLayout(
+                        let kind =
+                            match (this.BufferKind)
+                            | GpuBufferKind.Uniform => GpuDescriptorKind.Uniform
+                            | GpuBufferKind.Storage => GpuDescriptorKind.Storage
+                            | _ => throw InvalidOperationException("Buffer is incompatible to be referenced in a descriptor set.")
+                        [
+                            GpuDescriptorSetLayoutBinding(kind, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)
+                        ]
+                    ),
+                    [this: IGpuInput]
+                )
+        this.VertexDescriptorSet
+
+    GetVertexFragmentDescriptorSet(): GpuDescriptorSet =
+        if (this.VertexFragmentDescriptorSet === unchecked default)
+            this.VertexFragmentDescriptorSet <-
+                GpuDescriptorSet(
+                    GpuDescriptorSetLayout(
+                        let kind =
+                            match (this.BufferKind)
+                            | GpuBufferKind.Uniform => GpuDescriptorKind.Uniform
+                            | GpuBufferKind.Storage => GpuDescriptorKind.Storage
+                            | _ => throw InvalidOperationException("Buffer is incompatible to be referenced in a descriptor set.")
+                        [
+                            GpuDescriptorSetLayoutBinding(kind, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)
+                        ]
+                    ),
+                    [this: IGpuInput]
+                )
+        this.VertexFragmentDescriptorSet
+
+    GetComputeDescriptorSet(): GpuDescriptorSet =
+        if (this.ComputeDescriptorSet === unchecked default)
+            this.ComputeDescriptorSet <-
+                GpuDescriptorSet(
+                    GpuDescriptorSetLayout(
+                        let kind =
+                            match (this.BufferKind)
+                            | GpuBufferKind.Uniform => GpuDescriptorKind.Uniform
+                            | GpuBufferKind.Storage => GpuDescriptorKind.Storage
+                            | _ => throw InvalidOperationException("Buffer is incompatible to be referenced in a descriptor set.")
+                        [
+                            GpuDescriptorSetLayoutBinding(kind, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        ]
+                    ),
+                    [this: IGpuInput]
+                )
+        this.ComputeDescriptorSet
+
+module GpuBuffer =
+
+    Initialize<T>(kind: GpuBufferKind, memoryKind: GpuMemoryKind, length: int32, f: scoped int32 -> T): GpuBuffer<T> where T: unmanaged =
+        let gpuBuffer = GpuBuffer(kind, memoryKind, initMutableArray(length, f))
+        gpuBuffer.UpdateRanges.Add((0, length))
+        gpuBuffer.NeedsUpdate <- true
+        gpuBuffer
+        
+    ZeroCreate<T>(kind: GpuBufferKind, memoryKind: GpuMemoryKind, length: int32): GpuBuffer<T> where T: unmanaged =
+        GpuBuffer(kind, memoryKind, zeroArray(length))
+
+enum GpuImageKind =
+    | Image
+    | Frame
+    | FrameView
+
+enum GpuFilterKind =
+    | Nearest
+    | Linear
+
+interface IGpuImage =
+    inherits IGpuInput
+
+    ImageKind: GpuImageKind get
+    Width: int32 get
+    Height: int32 get
+
+    internal DescriptorSet: GpuDescriptorSet get, set
+
+    internal GetVkImageView(frameIndex: int32): VkImageView
+    internal GetVkImageLayout(): VkImageLayout
+    internal GetVkSampler(): VkSampler
+    internal IsValid(): bool
+
+abstract default class GpuImage =
+    implements IGpuImage
+
+    field mutable refCount: int32
+    internal RefCount: byref<int32> get() = &this.refCount
+
+    ResourceKind: GpuResourceKind get() = GpuResourceKind.Image
+
+    ImageKind: GpuImageKind
+        get() = GpuImageKind.Image
+
+    FilterKind: GpuFilterKind get
+
+    internal GetVkImageView(_frameIndex: int32): VkImageView =
+        // Image is immutable, therefore, frameIndex is irrelevant.
+        this.VkImageView
+
+    internal GetVkImageLayout(): VkImageLayout = VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+
+    internal GetVkSampler(): VkSampler =
+        this.VkSampler
+
+    internal IsValid(): bool =
+        true
+
+    internal IsDirty: bool get, set
+    internal Bytes: ReadOnlyMemory<byte> get, set
+    internal Width: int32 get
+    internal Height: int32 get
+
+    internal VulkanImage: VulkanImage get, set
+    internal VkImageView: VkImageView get, set
+    internal VkSampler: VkSampler get, set
+
+    internal DescriptorSet: GpuDescriptorSet get, set
+
+    new(filterKind: GpuFilterKind, width: int32, height: int32, mutable bytes: ReadOnlyMemory<byte>) =
+        if (width < 0)
+            fail("Invalid width.")
+        if (height < 0)
+            fail("Invalid height.")
+        if (bytes.IsEmpty)
+            fail("Invalid bytes.")
+        {
+            refCount = 0
+                
+            IsDirty = true
+            Bytes = bytes
+            Width = width
+            Height = height
+            FilterKind = filterKind
+                
+            VulkanImage = unchecked default
+            VkImageView = VkImageView.NULL
+            VkSampler = VkSampler.NULL
+
+            DescriptorSet = unchecked default
+        }
+
+    static DescriptorSetLayout: GpuDescriptorSetLayout
+        get =
+            GpuDescriptorSetLayout(
+                [
+                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Image, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)
+                ]
+            )
+
+    GetVertexDescriptorSet(): GpuDescriptorSet =
+        if (this.DescriptorSet === unchecked default)
+            this.DescriptorSet <-
+                GpuDescriptorSet(
+                    DescriptorSetLayout,
+                    [this: IGpuInput]
+                )
+        this.DescriptorSet
+
+internal enum GpuFrameImageKind =
+    | Color
+    | Depth
+    | Stencil
+
+internal class GpuFrameImage =
+    implements IGpuImage
+
+    internal IsDirty: bool
+        get() = this.frame.IsDirty
+
+    field mutable refCount: int32
+    internal RefCount: byref<int32> get() = &this.refCount
+
+    field frame: GpuFrame
+
+    Frame: GpuFrame get() = this.frame
+    Kind: GpuFrameImageKind get
+    Width: int32
+        get() = 
+            match (this.Frame.Options.SizeMode)
+            | GpuFrameSizeMode.Custom =>
+                this.Frame.CustomWidth
+            | _ =>
+                int32(this.Frame.Width)
+    Height: int32
+        get() = 
+            match (this.Frame.Options.SizeMode)
+            | GpuFrameSizeMode.Custom =>
+                this.Frame.CustomHeight
+            | _ =>
+                int32(this.Frame.Height)
+    
+    
+    new(frame: GpuFrame, kind: GpuFrameImageKind) =
+        {
+            refCount = 0
+            frame = frame
+            Kind = kind
+            DescriptorSet = unchecked default
+        }
+
+    IsDepth: bool get() = this.Kind == GpuFrameImageKind.Depth
+    IsStencil: bool get() = this.Kind == GpuFrameImageKind.Stencil
+
+    ResourceKind: GpuResourceKind get() = GpuResourceKind.Image
+
+    ImageKind: GpuImageKind
+        get() = GpuImageKind.Frame
+
+    internal DescriptorSet: GpuDescriptorSet get, set
+
+    internal GetVkImageView(frameIndex: int32): VkImageView =
+        if (this.IsDepth)
+            this.frame.VkDepthImageViews[frameIndex]
+        else if (this.IsStencil)
+            this.frame.VkStencilImageViews[frameIndex]
+        else
+            this.frame.VkImageViews[frameIndex]
+
+    internal GetVkImageLayout(): VkImageLayout = 
+        if (this.IsDepth)
+            VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL 
+        else if (this.IsStencil)
+            VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
+        else
+            VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+
+    internal GetVkSampler(): VkSampler =
+        this.frame.VkSampler
+
+    internal IsValid(): bool =
+        this.frame.VkImageViews.Length != 0
+
+    GetVertexDescriptorSet(): GpuDescriptorSet =
+        if (this.DescriptorSet === unchecked default)
+            this.DescriptorSet <-
+                GpuDescriptorSet(
+                    GpuImage.DescriptorSetLayout,
+                    [this: IGpuInput]
+                )
+        this.DescriptorSet
+
+internal class GpuFrameImageView =
+    implements IGpuImage
+
+    internal IsDirty: bool
+        get() = this.Frame.IsDirty
+
+    field mutable refCount: int32
+    internal RefCount: byref<int32> get() = &this.refCount
+
+    internal DescriptorSet: GpuDescriptorSet get, set
+
+    Frame: GpuFrame get
+    Kind: GpuFrameImageKind get
+    LayerIndex: int32 get
+    Width: int32 
+        get() = 
+            match (this.Frame.Options.SizeMode)
+            | GpuFrameSizeMode.Custom =>
+                this.Frame.CustomWidth
+            | _ =>
+                int32(this.Frame.Width)
+    Height: int32
+        get() = 
+            match (this.Frame.Options.SizeMode)
+            | GpuFrameSizeMode.Custom =>
+                this.Frame.CustomHeight
+            | _ =>
+                int32(this.Frame.Height)
+    
+    new(frame: GpuFrame, kind: GpuFrameImageKind, layerIndex: int32) =
+        {
+            refCount = 0
+            DescriptorSet = unchecked default
+            Frame = frame
+            Kind = kind
+            LayerIndex = layerIndex
+        }
+
+    IsDepth: bool get() = this.Kind == GpuFrameImageKind.Depth
+    IsStencil: bool get() = this.Kind == GpuFrameImageKind.Stencil
+
+    ResourceKind: GpuResourceKind get() = GpuResourceKind.Image
+
+    ImageKind: GpuImageKind
+        get() = GpuImageKind.FrameView
+
+    internal GetVkImageView(frameIndex: int32): VkImageView =
+        if (this.IsDepth)
+            this.Frame.VkDepthImageLayeredViews[this.LayerIndex][frameIndex]
+        else if (this.IsStencil)
+            this.Frame.VkStencilImageLayeredViews[this.LayerIndex][frameIndex]
+        else
+            this.Frame.VkImageLayeredViews[this.LayerIndex][frameIndex]
+
+    internal GetVkImageLayout(): VkImageLayout = 
+        if (this.IsDepth)
+            VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL 
+        else if (this.IsStencil)
+            VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL
+        else
+            VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+
+    internal GetVkSampler(): VkSampler =
+        this.Frame.VkSampler
+
+    internal IsValid(): bool =
+        this.Frame.VkImageViews.Length != 0
+
+    GetVertexDescriptorSet(): GpuDescriptorSet =
+        if (this.DescriptorSet === unchecked default)
+            this.DescriptorSet <-
+                GpuDescriptorSet(
+                    GpuImage.DescriptorSetLayout,
+                    [this: IGpuInput]
+                )
+        this.DescriptorSet
+
+class GpuInputArray =
+    implements IGpuInput
+
+    field mutable refCount: int32
+    internal RefCount: byref<int32> get() = &this.refCount
+
+    internal IsDirty: bool get, set
+
+    ResourceKind: GpuResourceKind get() = GpuResourceKind.Array
+    Inputs: mutable IGpuInput[] get
+
+    ElementKind: GpuResourceKind get
+
+    field mutable totalCount: int32
+    Count: int32
+        get() = this.totalCount
+        set(value) =
+            if (value > this.Inputs.Length || value < 0)
+                throw ArgumentOutOfRangeException("value")
+            this.IsDirty <- true
+            this.totalCount <- value
+
+    field descriptorKind: GpuDescriptorKind
+    field mutable descriptorSet: GpuDescriptorSet
+    GetVertexDescriptorSet(): GpuDescriptorSet =
+        if (this.descriptorSet === unchecked default)
+            this.descriptorSet <-
+                GpuDescriptorSet(
+                    GpuDescriptorSetLayout(
+                        [GpuDescriptorSetLayoutBinding(this.descriptorKind, GpuDescriptorSetLayoutBindingFlags.Bindless, GpuStageFlags.Vertex | GpuStageFlags.Fragment, this.Inputs.Length)]
+                    ),
+                    [this: IGpuInput]
+                )
+        this.descriptorSet
+
+    new(descriptorKind: GpuDescriptorKind, elementKind: GpuResourceKind, capacity: int32) =
+        if (capacity < 0)
+            throw ArgumentOutOfRangeException("capacity")
+        {
+            refCount = 0
+            IsDirty = true
+
+            Inputs = zeroArray(capacity)
+            ElementKind = elementKind
+            totalCount = 0
+            descriptorKind = descriptorKind
+            descriptorSet = unchecked default
+        }
+
+enum GpuImageMode =
+    | Repeat
+    | Clamp
+    | MirrorRepeat
+
+enum GpuFilterMode =
+    | Nearest
+    | Linear
+
+enum GpuMipmapMode =
+    | Nearest
+    | Linear
+
+enum GpuFrameSizeMode =
+    | Window
+    | WindowSuperSampled
+    | WindowDownscaledX3
+    | Custom
+
+struct GpuFrameOptions =
+    ImageMode: GpuImageMode get, set = GpuImageMode.Clamp
+    FilterMode: GpuFilterMode get, set = GpuFilterMode.Nearest
+    MipmapMode: GpuMipmapMode get, set = GpuMipmapMode.Nearest
+    SizeMode: GpuFrameSizeMode get, set = GpuFrameSizeMode.Window
+    MipmapLevels: int32 get, set = 1
+    LayerCount: int32 get, set = 1
+    RenderPassFlags: GpuRenderPassFlags get, set = GpuRenderPassFlags.ClearAll
+
+internal enum GpuFrameKind =
+    | Normal
+    | Layer
+
+interface IGpuFrame =
+
+    internal Kind: GpuFrameKind internal get
+
+    internal VkRenderPass: VkRenderPass get
+    internal VkFramebuffers: VkFramebuffer[] get, set
+    internal VkExtent: VkExtent2D get
+    internal GetVulkanColorImage(frameIndex: int32): VulkanImage
+    internal GetVulkanDepthStencilImage(frameIndex: int32): VulkanImage
+    internal LayerCount: int32 get
+    
+    ColorImage: IGpuImage get
+    DepthImage: IGpuImage get
+    StencilImage: IGpuImage get
+
+    Size: Vector2 get
+    RenderPassFlags: GpuRenderPassFlags get
+
+internal class GpuFrameLayer =
+    implements IGpuFrame
+
+    internal Frame: GpuFrame get
+    internal LayerIndex: int32 get
+
+    internal Kind: GpuFrameKind internal get() = GpuFrameKind.Layer
+
+    internal VkRenderPass: VkRenderPass get() = this.Frame.VkRenderPass
+    internal VkFramebuffers: VkFramebuffer[] get, set
+    internal VkExtent: VkExtent2D get() = this.Frame.VkExtent
+    internal GetVulkanColorImage(frameIndex: int32): VulkanImage =
+        this.Frame.VulkanImages[frameIndex]
+    internal GetVulkanDepthStencilImage(frameIndex: int32): VulkanImage =
+        this.Frame.VulkanDepthImages[frameIndex]
+    internal LayerCount: int32 get() = 1
+    
+    ColorImage: IGpuImage get
+    DepthImage: IGpuImage get
+    StencilImage: IGpuImage get
+    Size: Vector2 get() = this.Frame.Size
+    RenderPassFlags: GpuRenderPassFlags get() = this.Frame.RenderPassFlags
+
+    new(frame: GpuFrame, layerIndex: int32) =
+        {
+            Frame = frame
+            LayerIndex = layerIndex
+
+            ColorImage = GpuFrameImageView(frame, GpuFrameImageKind.Color, layerIndex)
+            DepthImage = GpuFrameImageView(frame, GpuFrameImageKind.Depth, layerIndex)
+            StencilImage = GpuFrameImageView(frame, GpuFrameImageKind.Stencil, layerIndex)
+
+            VkFramebuffers = []
+        }
+
+class GpuFrame =
+    implements IGpuFrame
+
+    internal Kind: GpuFrameKind internal get() = GpuFrameKind.Normal
+
+    internal IsDirty: bool get, set
+
+    internal Width: uint32 get, set
+    internal Height: uint32 get, set
+
+    internal VkRenderPass: VkRenderPass get, set
+    internal VkFramebuffers: VkFramebuffer[] get, set
+    internal VulkanImages: VulkanImage[] get, set
+    internal VkImageViews: VkImageView[] get, set
+    internal VulkanDepthImages: VulkanImage[] get, set
+    internal VkDepthImageViews: VkImageView[] get, set
+    internal VkStencilImageViews: VkImageView[] get, set
+    internal VkDepthStencilImageViews: VkImageView[] get, set
+    internal VkSampler: VkSampler get, set
+    internal VkExtent: VkExtent2D get, set
+    internal GetVulkanColorImage(frameIndex: int32): VulkanImage =
+        this.VulkanImages[frameIndex]
+    internal GetVulkanDepthStencilImage(frameIndex: int32): VulkanImage =
+        this.VulkanDepthImages[frameIndex]
+
+    internal VkImageLayeredViews: (VkImageView[])[] get, set
+    internal VkDepthImageLayeredViews: (VkImageView[])[] get, set
+    internal VkStencilImageLayeredViews: (VkImageView[])[] get, set
+    internal VkDepthStencilImageLayeredViews: (VkImageView[])[] get, set
+
+    internal Options: GpuFrameOptions get
+
+    RenderPassFlags: GpuRenderPassFlags get() = this.Options.RenderPassFlags
+
+    Layers: IGpuFrame[] get
+
+    ColorImage: IGpuImage get
+    DepthImage: IGpuImage get
+    StencilImage: IGpuImage get
+
+    SizeMode: GpuFrameSizeMode get() = this.Options.SizeMode
+
+    Size: Vector2
+        get() = 
+            match (this.Options.SizeMode)
+            | GpuFrameSizeMode.Custom =>
+                Vector2(float32(this.Width), float32(this.Height))
+            | _ =>
+                fail("Frame has a variable size and therefore cannot be retrieved.")
+
+    LayerCount: int32 get() = this.Options.LayerCount
+
+    CustomWidth: int32
+        get() = 
+            if (this.SizeMode != GpuFrameSizeMode.Custom)
+                fail("SizeMode must not be 'Custom'.")
+            int32(this.Width)
+
+    CustomHeight: int32
+        get() = 
+            if (this.SizeMode != GpuFrameSizeMode.Custom)
+                fail("SizeMode must not be 'Custom'.")
+            int32(this.Height)
+
+    new(options: GpuFrameOptions) =
+        if (options.SizeMode == GpuFrameSizeMode.Custom)
+            fail("SizeMode must not be 'Custom'.")
+        {
+            IsDirty = true
+            Width = 0
+            Height = 0
+                
+            VkRenderPass = VkRenderPass.NULL
+            VkFramebuffers = []
+            VulkanImages = []
+            VkImageViews = []
+            VulkanDepthImages = []
+            VkDepthImageViews = []
+            VkStencilImageViews = []
+            VkDepthStencilImageViews = []
+            VkSampler = VkSampler.NULL
+            VkExtent = default
+
+            VkImageLayeredViews = []
+            VkDepthImageLayeredViews = []
+            VkStencilImageLayeredViews = []
+            VkDepthStencilImageLayeredViews = []
+
+            Layers =
+                if (options.LayerCount > 1)
+                    initArray(options.LayerCount,
+                        i ->
+                            let view = GpuFrameLayer(this, i): IGpuFrame
+                            view: IGpuFrame
+                    )
+                else
+                    [this: IGpuFrame]
+
+            ColorImage = GpuFrameImage(this, GpuFrameImageKind.Color)
+            DepthImage = GpuFrameImage(this, GpuFrameImageKind.Depth)
+            StencilImage = GpuFrameImage(this, GpuFrameImageKind.Stencil)
+            Options = options
+        }
+
+    new(options: GpuFrameOptions, width: int32, height: int32) =
+        if (width <= 0)
+            fail("Invalid width.")
+
+        if (height <= 0)
+            fail("Invalid height.")
+
+        if (options.SizeMode != GpuFrameSizeMode.Custom)
+            fail("SizeMode must be 'Custom'.")
+
+        {
+            IsDirty = true
+            Width = uint32(width)
+            Height = uint32(height)
+            
+            VkRenderPass = VkRenderPass.NULL
+            VkFramebuffers = []
+            VulkanImages = []
+            VkImageViews = []
+            VulkanDepthImages = []
+            VkDepthImageViews = []
+            VkStencilImageViews = []
+            VkDepthStencilImageViews = []
+            VkSampler = VkSampler.NULL
+            VkExtent = default
+
+            VkImageLayeredViews = []
+            VkDepthImageLayeredViews = []
+            VkStencilImageLayeredViews = []
+            VkDepthStencilImageLayeredViews = []
+
+            Layers =
+                if (options.LayerCount > 1)
+                    initArray(options.LayerCount,
+                        i ->
+                            let view = GpuFrameLayer(this, i): IGpuFrame
+                            view: IGpuFrame
+                    )
+                else
+                    [this: IGpuFrame]
+
+            ColorImage = GpuFrameImage(this, GpuFrameImageKind.Color)
+            DepthImage = GpuFrameImage(this, GpuFrameImageKind.Depth)
+            StencilImage = GpuFrameImage(this, GpuFrameImageKind.Stencil)
+            Options = options
+        }
+
+enum GpuDescriptorKind =
+    | Uniform
+    | Storage
+    | Image
+
+enum GpuPolygonMode =
+    | Fill
+    | Line
+
+#[Flags]
+enum GpuPipelineFlags =
+    | None          = 0b000000
+    | DepthTest     = 0b000001
+    | DepthWrite    = 0b000010
+    | DepthOnly     = 0b000100
+    | FlipY         = 0b001000
+    | Blend         = 0b010000
+
+enum GpuCompareOp =
+    | Always
+    | NotEqual
+
+enum GpuStencilOp =
+    | Replace
+    | Keep
+
+enum GpuCullMode =
+    | None
+    | Front
+    | Back
+    | FrontAndBack
+
+enum GpuFrontFace =
+    | Clockwise
+    | CounterClockwise
+
+struct GpuStencilOpState =
+    CompareOp:   GpuCompareOp get, set
+    FailOp:      GpuStencilOp get, set
+    DepthFailOp: GpuStencilOp get, set
+    PassOp:      GpuStencilOp get, set
+    WriteMask:   uint32 get, set
+    CompareMask: uint32 get, set
+    Reference:   uint32 get, set
+
+    private new() =
+        {
+            CompareOp   = default
+            FailOp      = default
+            DepthFailOp = default
+            PassOp      = default
+            WriteMask   = default
+            CompareMask = default
+            Reference   = default
+        }
+
+    static Write: GpuStencilOpState get =
+        let mutable state = GpuStencilOpState()
+        state.CompareOp   <- GpuCompareOp.Always
+        state.FailOp      <- GpuStencilOp.Replace
+        state.DepthFailOp <- GpuStencilOp.Replace
+        state.PassOp      <- GpuStencilOp.Replace
+        state.WriteMask   <- 0xFF
+        state.CompareMask <- 0xFF
+        state.Reference   <- 1
+        state
+
+    static Test: GpuStencilOpState get =
+        let mutable state = GpuStencilOpState()
+        state.CompareOp   <- GpuCompareOp.NotEqual
+        state.FailOp      <- GpuStencilOp.Keep
+        state.DepthFailOp <- GpuStencilOp.Keep
+        state.PassOp      <- GpuStencilOp.Replace
+        state.WriteMask   <- 0xFF
+        state.CompareMask <- 0xFF
+        state.Reference   <- 1
+        state
+
+#[open]
+internal extension GpuCompareOpVulkanExtensions =
+    inherits GpuCompareOp
+
+    ToVulkan(): VkCompareOp =
+        match (this)
+        | GpuCompareOp.NotEqual =>
+            VkCompareOp.VK_COMPARE_OP_NOT_EQUAL
+        | _ =>
+            VkCompareOp.VK_COMPARE_OP_ALWAYS
+
+#[open]
+internal extension GpuStencilOpVulkankExtensions =
+    inherits GpuStencilOp
+
+    ToVulkan(): VkStencilOp =
+        match (this)
+        | GpuStencilOp.Keep =>
+            VkStencilOp.VK_STENCIL_OP_KEEP
+        | _ =>
+            VkStencilOp.VK_STENCIL_OP_REPLACE
+
+#[open]
+internal extension GpuStencilOpStateVulkankExtensions =
+    inherits GpuStencilOpState
+
+    ToVulkan(): VkStencilOpState =
+        let mutable state = default: VkStencilOpState
+        state.compareOp   <- this.CompareOp.ToVulkan()
+        state.failOp      <- this.FailOp.ToVulkan()
+        state.depthFailOp <- this.DepthFailOp.ToVulkan()
+        state.passOp      <- this.PassOp.ToVulkan()
+        state.writeMask   <- this.WriteMask
+        state.compareMask <- this.CompareMask
+        state.reference   <- this.Reference
+        state
+
+struct GpuDepthBiasOptions =
+    ConstantFactor: float32 get, set
+    SlopeFactor:    float32 get, set
+
+struct GpuPipelineOptions =
+    Flags:       GpuPipelineFlags get, set = GpuPipelineFlags.None
+    PolygonMode: GpuPolygonMode get, set   = GpuPolygonMode.Fill
+
+    CullMode: GpuCullMode get, set = GpuCullMode.Front
+    FrontFace: GpuFrontFace get, set = GpuFrontFace.Clockwise
+    
+    DepthBiasOptions: OptionStruct<GpuDepthBiasOptions> get, set = NoneStruct
+
+    FrontStencilOpState: OptionStruct<GpuStencilOpState> get, set = NoneStruct
+    BackStencilOpState: OptionStruct<GpuStencilOpState> get, set  = NoneStruct
+
+enum GpuDescriptorSetLayoutBindingFlags =
+    | None
+    | Bindless
+
+struct GpuDescriptorSetLayoutBinding =
+    internal VulkanDescriptorSetLayoutBinding: VulkanDescriptorSetLayoutBinding get
+
+    DescriptorKind: GpuDescriptorKind get
+    Flags: GpuDescriptorSetLayoutBindingFlags get
+    StageFlags: GpuStageFlags get
+    Count: int32 get
+
+    new(gpuDescriptorKind: GpuDescriptorKind, flags: GpuDescriptorSetLayoutBindingFlags, gpuStageFlags: GpuStageFlags, count: int32) =
+        if (count <= 0)
+            throw ArgumentOutOfRangeException("count")
+        {
+            VulkanDescriptorSetLayoutBinding = Helpers.CreateVulkanDescriptorSetLayoutBinding(gpuDescriptorKind, flags, gpuStageFlags, uint32(count))
+            DescriptorKind = gpuDescriptorKind
+            Flags = flags
+            StageFlags = gpuStageFlags
+            Count = count
+        }
+
+    new(gpuDescriptorKind: GpuDescriptorKind, flags: GpuDescriptorSetLayoutBindingFlags, gpuStageFlags: GpuStageFlags) =
+        GpuDescriptorSetLayoutBinding(gpuDescriptorKind, flags, gpuStageFlags, 1)
+
+class GpuDescriptorSetLayout =
+    Bindings: GpuDescriptorSetLayoutBinding[] get
+
+    new(bindings: GpuDescriptorSetLayoutBinding[]) =
+        if (bindings.Length <= 0)
+            throw ArgumentOutOfRangeException("bindings")
+        {
+            Bindings = bindings
+        }
+
+    AddBinding(binding: GpuDescriptorSetLayoutBinding): GpuDescriptorSetLayout =
+        GpuDescriptorSetLayout(
+            appendOne(this.Bindings, binding)
+        )
+
+class GpuShaderCode =
+    internal IsDirty: bool get, set
+    internal RefCount: int32 get, set
+    internal VkShaderModule: VkShaderModule get, set
+
+    Code: byte[] get
+
+    new(mutable code:byte[]) =
+        if (code.Length <= 0)
+            throw ArgumentOutOfRangeException("code")
+        {
+            IsDirty = true
+            RefCount = 0
+            VkShaderModule = VkShaderModule.NULL
+            Code = code
+        }
+
+enum GpuShaderKind =
+    | Vertex
+    | VertexFragment
+    | Compute
+
+abstract class GpuShader =
+    internal IsDirty: bool get, set
+    internal CanFree: bool get, set
+
+    Kind: GpuShaderKind get
+
+    private new(gpuShaderKind: GpuShaderKind) =
+        {
+            IsDirty = true
+            CanFree = false
+            Kind = gpuShaderKind
+        }
+
+    class Vertex =
+        inherits GpuShader
+
+        VertexCode: GpuShaderCode get
+
+        new(vertexCode: GpuShaderCode) = 
+            base(GpuShaderKind.Vertex) with { VertexCode = vertexCode }
+
+    class VertexFragment =
+        inherits GpuShader
+
+        VertexCode: GpuShaderCode get
+        FragmentCode: GpuShaderCode get
+
+        new(vertexCode: GpuShaderCode, fragmentCode: GpuShaderCode) = 
+            base(GpuShaderKind.VertexFragment) with { VertexCode = vertexCode; FragmentCode = fragmentCode }
+
+    class Compute =
+        inherits GpuShader
+
+        ComputeCode: GpuShaderCode get
+
+        new(computeCode: GpuShaderCode) = 
+            base(GpuShaderKind.Compute) with { ComputeCode = computeCode }
+
+    internal pattern Vertex(gpuShader: GpuShader): Vertex when (gpuShader.Kind == GpuShaderKind.Vertex) =>
+        Unsafe.Cast(gpuShader)
+
+    internal pattern VertexFragment(gpuShader: GpuShader): VertexFragment when (gpuShader.Kind == GpuShaderKind.VertexFragment) =>
+        Unsafe.Cast(gpuShader)
+
+    internal pattern Compute(gpuShader: GpuShader): Compute when (gpuShader.Kind == GpuShaderKind.Compute) =>
+        Unsafe.Cast(gpuShader)
+
+class GpuPipeline =
+    IsDirty: bool get, internal set
+
+    internal VkPipelineLayout: VkPipelineLayout get, set
+
+    internal VkDescriptorSetLayouts: VkDescriptorSetLayout[] get, set
+    internal VkVertexInputBindingDescriptions: VkVertexInputBindingDescription[] get, set
+    internal VkVertexInputAttributeDescriptions: VkVertexInputAttributeDescription[] get, set
+
+    internal VkPipeline: VkPipeline get, set
+    internal VkViewport: VkViewport get, set
+    internal VkScissor: VkRect2D get, set
+
+    internal Shader: GpuShader get
+
+    internal Frame: IGpuFrame get, set // null means swap-chain frame
+    internal Frames: Dictionary<IGpuFrame, GpuPipeline> get
+
+    internal Options: GpuPipelineOptions get
+
+    internal DescriptorSetLayouts: GpuDescriptorSetLayout[] get
+
+    Description: string get
+
+    new(description: string, options: GpuPipelineOptions, gpuShader: GpuShader, gpuDescriptorSetLayouts: GpuDescriptorSetLayout[]) =
+        {
+            Description = description
+            IsDirty = true
+
+            VkPipelineLayout = VkPipelineLayout.NULL
+
+            VkDescriptorSetLayouts = []
+            VkVertexInputBindingDescriptions = []
+            VkVertexInputAttributeDescriptions = []
+
+            VkPipeline = VkPipeline.NULL
+            VkViewport = default
+            VkScissor = default
+
+            Shader = gpuShader
+            Frame = unchecked default
+            Frames = Dictionary()
+
+            Options = options
+
+            DescriptorSetLayouts = gpuDescriptorSetLayouts
+        }
+
+    SetVertexInput<T>(): () where T: unmanaged =
+        this.IsDirty <- true
+
+        this.VkVertexInputBindingDescriptions <- [Vk.CreateVertexBindingDescription<T>(0, false)]
+        this.VkVertexInputAttributeDescriptions <- Vk.CreateVertexAttributeDescriptions<T>(0)
+
+    internal IsCompute: bool
+        get() =
+            match (this.Shader)
+            | GpuShader.Compute(_) => true
+            | _ => false
+
+    internal CopyToFrame(frame: IGpuFrame): GpuPipeline =
+        // IMPORTANT: Be sure to update the state for the next program, otherwise we will get unexpected rendering results in the frame.
+        let copy = GpuPipeline(this.Description, this.Options, this.Shader, this.DescriptorSetLayouts) // Be sure to pass the flags!
+        copy.Frame <- frame
+        copy.VkPipelineLayout <- this.VkPipelineLayout
+        copy.VkDescriptorSetLayouts <- this.VkDescriptorSetLayouts
+        copy.VkVertexInputBindingDescriptions <- this.VkVertexInputBindingDescriptions
+        copy.VkVertexInputAttributeDescriptions <- this.VkVertexInputAttributeDescriptions
+        copy.IsDirty <- true
+        copy
+
+class GpuPipelineUI =
+    DeltaTime: float32 get, set
+    FontPath: string get
+    CanShowImGuiDemo: bool get, set
+    internal Frame: IGpuFrame get, set
+    internal ImGuiContext: ImGuiContext get, set
+    internal CanInitializeWindow: bool get, set
+    internal FontHandle: ImFont get, set
+    internal Fonts: List<Font> get
+
+    internal Frames: Dictionary<IGpuFrame, GpuPipelineUI> get
+
+    internal RefreshFonts(): () =
+        For(this.Fonts.Count,
+            i ->
+                let font = this.Fonts[i]
+                font.IsInitialized <- false
+                font.ImFont <- default
+        )
+        this.Fonts.Clear()
+
+    new(fontPath: string) =
+        GpuPipelineUI(unchecked default, fontPath)
+
+    internal new(gpuFrame: IGpuFrame, fontPath: string) =
+        {
+            DeltaTime = 0
+            FontPath = fontPath
+            CanShowImGuiDemo = false
+            Frame = gpuFrame
+            ImGuiContext = unchecked default
+            CanInitializeWindow = true
+            FontHandle = default
+            Fonts = List()
+            Frames = Dictionary()
+        }
+
+enum GpuPipelineBarrierKind =
+    | DispatchToDispatch
+    | DispatchToDrawIndirect
+    | BottomPipeToVertexFragmentRead
+    | DepthStencilToVertexFragmentRead
+    | BottomPipeToAllGraphics
+    | Full
+
+enum GpuFrameBarrierKind =
+    | Default
+
+#[Flags]
+enum GpuRenderPassFlags =
+    | None              = 0b000
+    | ClearColor        = 0b001
+    | ClearDepthStencil = 0b010
+    | ClearAll          = 0b011
+
+internal abstract class GpuCommand = // TODO-language-bug: 'internal' doesn't work; we can still access GpuCommand elsewhere down the stack
+    internal Tag: int32 get, set
+    
+    private class DrawIndexed =
+        inherits GpuCommand
+
+        Vertices: IGpuBuffer get, set = unchecked default
+        Indices: IGpuBuffer get, set = unchecked default
+        IndexCount: int32 get, set = 0
+        InstanceCount: int32 get, set = 0
+
+    internal pattern DrawIndexed(cmd: GpuCommand): (vertices: IGpuBuffer, indices: IGpuBuffer, indexCount: int32, instanceCount: int32) when (cmd.Tag == 0) =>
+        let cmd = Unsafe.Cast<DrawIndexed>(cmd)
+        (cmd.Vertices, cmd.Indices, cmd.IndexCount, cmd.InstanceCount)
+
+    internal static DrawIndexed(vertices: IGpuBuffer, indices: IGpuBuffer, indexCount: int32, instanceCount: int32): GpuCommand =
+        let cmd = DrawIndexed()
+        cmd.Tag <- 0
+        cmd.Vertices <- vertices
+        cmd.Indices <- indices
+        cmd.IndexCount <- indexCount
+        cmd.InstanceCount <- instanceCount
+        cmd
+
+    private class DrawUI =
+        inherits GpuCommand
+
+        PipelineUI: GpuPipelineUI get, set = unchecked default
+        WindowViews: IEnumerable<WindowView> get, set = unchecked default
+
+    internal pattern DrawUI(cmd: GpuCommand): (GpuPipelineUI, IEnumerable<WindowView>) when (cmd.Tag == 1) =>
+        let cmd = Unsafe.Cast<DrawUI>(cmd)
+        (cmd.PipelineUI, cmd.WindowViews)
+
+    internal static DrawUI(gpuPipelineUI: GpuPipelineUI, windowViews: IEnumerable<WindowView>): GpuCommand =
+        let cmd = DrawUI()
+        cmd.Tag <- 1
+        cmd.PipelineUI <- gpuPipelineUI
+        cmd.WindowViews <- windowViews
+        cmd
+
+    private class EndFrame =
+        inherits GpuCommand
+
+    internal pattern EndFrame(cmd: GpuCommand): () when (cmd.Tag == 2) =>
+        let cmd = Unsafe.Cast<EndFrame>(cmd)
+
+    internal static EndFrame(): GpuCommand =
+        let cmd = EndFrame()
+        cmd.Tag <- 2
+        cmd
+
+    private class BeginFrame =
+        inherits GpuCommand
+
+        Frame: IGpuFrame get, set
+
+        new() = 
+            {
+                Frame = unchecked default
+            }
+
+    internal pattern BeginFrame(cmd: GpuCommand): IGpuFrame when (cmd.Tag == 3) =>
+        let cmd = Unsafe.Cast<BeginFrame>(cmd)
+        cmd.Frame
+
+    internal static BeginFrame(gpuFrame: IGpuFrame): GpuCommand =
+        let cmd = BeginFrame()
+        cmd.Tag <- 3
+        cmd.Frame <- gpuFrame
+        cmd
+
+    // ---
+
+    private class BindPipeline =
+        inherits GpuCommand
+
+        Pipeline: GpuPipeline get, set = unchecked default
+
+    internal pattern BindPipeline(cmd: GpuCommand): GpuPipeline when (cmd.Tag == 4) =>
+        let cmd = Unsafe.Cast<BindPipeline>(cmd)
+        cmd.Pipeline
+
+    internal static BindPipeline(pipeline: GpuPipeline): GpuCommand =
+        let cmd = BindPipeline()
+        cmd.Tag <- 4
+        cmd.Pipeline <- pipeline
+        cmd
+
+    // ---
+
+    private class BindDescriptorSet =
+        inherits GpuCommand
+
+        Offset: int32 get, set = 0
+        DescriptorSet: GpuDescriptorSet get, set = unchecked default
+
+    internal pattern BindDescriptorSet(cmd: GpuCommand): (offset: int32, GpuDescriptorSet) when (cmd.Tag == 5) =>
+        let cmd = Unsafe.Cast<BindDescriptorSet>(cmd)
+        (cmd.Offset, cmd.DescriptorSet)
+
+    internal static BindDescriptorSet(offset: int32, descriptorSet: GpuDescriptorSet): GpuCommand =
+        if (offset < 0)
+            throw ArgumentOutOfRangeException("offset")
+
+        if (Pool.IsPooling)
+            Pool.RentBindDescriptorSet(offset, descriptorSet)
+        else
+            let cmd = BindDescriptorSet()
+            cmd.Tag <- 5
+            cmd.Offset <- offset
+            cmd.DescriptorSet <- descriptorSet
+            cmd
+
+    module Pool =
+        private BindDescriptorSetPool: mutable BindDescriptorSet[] get = zeroArray(1000000)
+        private BindDescriptorSetPoolCount: int32 get, set = 0
+
+        internal RentBindDescriptorSet(offset: int32, descriptorSet: GpuDescriptorSet): GpuCommand =
+            let index = BindDescriptorSetPoolCount
+
+            if (index >= 1000000)
+                let cmd = BindDescriptorSet()
+                cmd.Tag <- 5
+                cmd.Offset <- offset
+                cmd.DescriptorSet <- descriptorSet
+                cmd
+            else
+                let mutable cmd = BindDescriptorSetPool[index]
+                if (cmd === unchecked default)
+                    cmd <- BindDescriptorSet()
+                    BindDescriptorSetPool[index] <- cmd
+
+                cmd.Tag <- 5
+                cmd.Offset <- offset
+                cmd.DescriptorSet <- descriptorSet
+                BindDescriptorSetPoolCount <- BindDescriptorSetPoolCount + 1
+                cmd
+
+        private DrawIndexedIndirectVulkanPool: mutable DrawIndexedIndirectVulkan[] get = zeroArray(1000000)
+        private DrawIndexedIndirectVulkanPoolCount: int32 get, set = 0
+
+        internal RentDrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
+            let index = DrawIndexedIndirectVulkanPoolCount
+
+            if (index >= 1000000)
+                let cmd = DrawIndexedIndirectVulkan()
+                cmd.Tag <- 9
+                cmd.Vertices <- vertices
+                cmd.Indices <- indices
+                cmd.Buffer <- buffer
+                cmd.Offset <- offset
+                cmd.DrawCount <- drawCount
+                cmd.Stride <- stride
+                cmd
+            else
+                let mutable cmd = DrawIndexedIndirectVulkanPool[index]
+                if (cmd === unchecked default)
+                    cmd <- DrawIndexedIndirectVulkan()
+                    DrawIndexedIndirectVulkanPool[index] <- cmd
+
+                cmd.Tag <- 9
+                cmd.Vertices <- vertices
+                cmd.Indices <- indices
+                cmd.Buffer <- buffer
+                cmd.Offset <- offset
+                cmd.DrawCount <- drawCount
+                cmd.Stride <- stride
+                DrawIndexedIndirectVulkanPoolCount <- DrawIndexedIndirectVulkanPoolCount + 1
+                cmd
+
+        // --
+
+        internal IsPooling: bool get, set = false
+
+        Begin(): () =
+            IsPooling <- true
+
+        End(): () =
+            BindDescriptorSetPoolCount <- 0
+            DrawIndexedIndirectVulkanPoolCount <- 0     
+            IsPooling <- false
+
+    // ---
+
+    // TODO: Use Tag 6
+
+    // ---
+
+    private class BeginSwapChainFrame =
+        inherits GpuCommand
+
+    internal pattern BeginSwapChainFrame(cmd: GpuCommand): () when (cmd.Tag == 7) =>
+        let cmd = Unsafe.Cast<BeginSwapChainFrame>(cmd)
+
+    internal static BeginSwapChainFrame(): GpuCommand =
+        let cmd = BeginSwapChainFrame()
+        cmd.Tag <- 7
+        cmd
+
+    // ---
+
+    private class Dispatch =
+        inherits GpuCommand
+
+        GroupCountX: int32 get, set = 0
+        GroupCountY: int32 get, set = 0
+        GroupCountZ: int32 get, set = 0
+
+    internal pattern Dispatch(cmd: GpuCommand): (groupCountX: int32, groupCountY: int32, groupCountZ: int32) when (cmd.Tag == 8) =>
+        let cmd = Unsafe.Cast<Dispatch>(cmd)
+        (cmd.GroupCountX, cmd.GroupCountY, cmd.GroupCountZ)
+
+    internal static Dispatch(groupCountX: int32, groupCountY: int32, groupCountZ: int32): GpuCommand =
+        if (groupCountX < 0)
+            throw ArgumentOutOfRangeException("groupCountX")
+        if (groupCountY < 0)
+            throw ArgumentOutOfRangeException("groupCountY")
+        if (groupCountZ < 0)
+            throw ArgumentOutOfRangeException("groupCountZ")
+        let cmd = Dispatch()
+        cmd.Tag <- 8
+        cmd.GroupCountX <- groupCountX
+        cmd.GroupCountY <- groupCountY
+        cmd.GroupCountZ <- groupCountZ
+        cmd
+
+    private class DrawIndexedIndirectVulkan =
+        inherits GpuCommand
+
+        Vertices: IGpuBuffer get, set = unchecked default
+        Indices: IGpuBuffer get, set = unchecked default
+        Buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand> get, set = unchecked default
+        Offset: uint64 get, set = 0
+        DrawCount: uint32 get, set = 0
+        Stride: uint32 get, set = 0
+
+    internal pattern DrawIndexedIndirectVulkan(cmd: GpuCommand): (vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32) when (cmd.Tag == 9) =>
+        let cmd = Unsafe.Cast<DrawIndexedIndirectVulkan>(cmd)
+        (cmd.Vertices, cmd.Indices, cmd.Buffer, cmd.Offset, cmd.DrawCount, cmd.Stride)
+
+    internal static DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
+        if (Pool.IsPooling)
+            Pool.RentDrawIndexedIndirectVulkan(vertices, indices, buffer, offset, drawCount, stride)
+        else
+            let cmd = DrawIndexedIndirectVulkan()
+            cmd.Tag <- 9
+            cmd.Vertices <- vertices
+            cmd.Indices <- indices
+            cmd.Buffer <- buffer
+            cmd.Offset <- offset
+            cmd.DrawCount <- drawCount
+            cmd.Stride <- stride
+            cmd
+
+    private class PipelineBarrier  =
+        inherits GpuCommand
+
+        Kind: GpuPipelineBarrierKind get, set = default
+
+    internal pattern PipelineBarrier(cmd: GpuCommand): GpuPipelineBarrierKind when (cmd.Tag == 10) =>
+        let cmd = Unsafe.Cast<PipelineBarrier>(cmd)
+        cmd.Kind
+
+    internal static PipelineBarrier(kind: GpuPipelineBarrierKind): GpuCommand =
+        let cmd = PipelineBarrier()
+        cmd.Tag <- 10
+        cmd.Kind <- kind
+        cmd
+
+class GpuCommandList =
+    internal Commands: List<GpuCommand> get
+    private HasBegun: bool get, set
+
+    private Validate(): () =
+        if (!this.HasBegun)
+            fail("Command list has not begun.")
+
+    new(capacity: int32) = { Commands = List(capacity); HasBegun = false }
+
+    DrawIndexed(vertices: IGpuBuffer, indices: IGpuBuffer, indexCount: int32, instanceCount: int32): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.DrawIndexed(vertices, indices, indexCount, instanceCount))
+
+    DrawUI(gpuPipelineUI: GpuPipelineUI, windowViews: IEnumerable<WindowView>): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.DrawUI(gpuPipelineUI, windowViews))
+
+    BeginFrame(gpuFrame: IGpuFrame): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.BeginFrame(gpuFrame))
+
+    EndFrame(): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.EndFrame())
+
+    BindPipeline(pipeline: GpuPipeline): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.BindPipeline(pipeline))
+
+    BindDescriptorSet(offset: int32, descriptorSet: GpuDescriptorSet): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.BindDescriptorSet(offset, descriptorSet))
+
+    BeginSwapChainFrame(): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.BeginSwapChainFrame())
+
+    Dispatch(groupCountX: int32, groupCountY: int32, groupCountZ: int32): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.Dispatch(groupCountX, groupCountY, groupCountZ))
+
+    DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.DrawIndexedIndirectVulkan(vertices, indices, buffer, offset, drawCount, stride))
+
+    PipelineBarrier(kind: GpuPipelineBarrierKind): () =
+        this.Validate()
+        this.Commands.Add(GpuCommand.PipelineBarrier(kind))
+
+    static Begin(cmdList: GpuCommandList): () =
+        if (cmdList.HasBegun)
+            fail("Command list already began.")
+        GpuCommand.Pool.Begin()
+        cmdList.HasBegun <- true
+
+    static End(cmdList: GpuCommandList): () =
+        cmdList.Validate()
+        cmdList.Commands.Clear()
+        GpuCommand.Pool.End()
+        cmdList.HasBegun <- false
+
+class Gpu =
+    implements IDisposable
+
+    field setLayoutManager: DescriptorSetLayoutManager
+
+    field window: WindowVulkan
+    internal field gpuBuffers: ConcurrentDictionary<IGpuBuffer, ()>
+    field gpuImages: ConcurrentDictionary<IGpuImage, ()>
+    field gpuArrays: ConcurrentDictionary<GpuInputArray, ()>
+    field gpuFrames: ConcurrentDictionary<GpuFrame, ()>
+    field gpuPipelines: ConcurrentDictionary<GpuPipeline, ()>
+    field gpuPipelineUIs: ConcurrentDictionary<GpuPipelineUI, ()>
+    field gpuDescriptorSets: HashSet<GpuDescriptorSet>
+
+    internal field vk: VulkanApplication
+    field vkCmdBuffers: mutable VulkanCommandBuffer[]
+
+    field mutable swapChain: VulkanSwapChain
+    field mutable swapChainVsync: bool
+    field mutable swapChainRenderPass: VkRenderPass
+    field mutable swapChainFramebuffers: VkFramebuffer[]
+
+    internal new(window: WindowVulkan, vk: VulkanApplication) =
+        let vkCmdBuffers =
+            let vkCmdBuffers = zeroArray(vk.MaxFramesInFlight)
+            let mutable i = 0
+            while (i < vkCmdBuffers.Length)
+                vkCmdBuffers[i] <- Vk.CreateGraphicsCommandBuffer(vk)
+                i <- i + 1
+            vkCmdBuffers
+        {
+            setLayoutManager = DescriptorSetLayoutManager(vk)
+
+            window = window       
+            gpuBuffers = ConcurrentDictionary()
+            gpuImages = ConcurrentDictionary()
+            gpuArrays = ConcurrentDictionary()
+            gpuFrames = ConcurrentDictionary()
+            gpuPipelines = ConcurrentDictionary()
+            gpuPipelineUIs = ConcurrentDictionary()
+            gpuDescriptorSets = HashSet()
+
+            vk = vk
+            vkCmdBuffers = vkCmdBuffers
+
+            swapChain = unchecked default
+            swapChainVsync = true // by default
+            swapChainRenderPass = VkRenderPass.NULL
+            swapChainFramebuffers = unchecked default
+            superSamplingAmount = 1
+        }
+
+    GetName(): string = this.vk.GetDeviceName()
+    GetDriverVersion(): uint32 = this.vk.GetDriverVersion()
+    GetApiVersion(): uint32 = this.vk.GetApiVersion()
+    GetVRamCapacity(): uint64 = this.vk.GetVRamCapacity()
+    GetVRamCapacityInGB(): float32 = float32(this.GetVRamCapacity()) / 1024 / 1024 / 1024
+
+    GetCurrentWindowSize(): Vector2 = this.window.Size
+
+    SetUIContext(gpuPipelineUI: GpuPipelineUI): () =
+        if (gpuPipelineUI.ImGuiContext !== unchecked default)
+            ImGui.SetCurrentContext(gpuPipelineUI.ImGuiContext)
+
+    private Update(gpuDescriptorSet: GpuDescriptorSet, frameIndex: int32): () =
+        if (!gpuDescriptorSet.FrameUpdates[frameIndex])
+            gpuDescriptorSet.FrameUpdates[frameIndex] <- true
+
+            let gpuDescriptorSetLayoutBindings = gpuDescriptorSet.Layout.Bindings
+            let descriptorTypes = gpuDescriptorSet.VkDescriptorTypes
+            let descriptorSets = gpuDescriptorSet.VkDescriptorSets
+
+            let mutable i = 0
+            while (i < gpuDescriptorSetLayoutBindings.Length)
+                let gpuResource = gpuDescriptorSet.Resources[i]
+                let descriptorType = descriptorTypes[i]
+                let (offset, size) = gpuDescriptorSet.ResourceRanges.get_Item(i) // TODO-language-bug: We should be able to do gpuDescriptorSet.ResourceRanges[i]
+
+                match (gpuResource.ResourceKind)
+                | GpuResourceKind.Buffer =>
+                    let gpuBuffer = Unsafe.Cast<IGpuBuffer>(gpuResource)
+                    gpuBuffer.Upload(this, frameIndex)
+
+                    let buffer = gpuBuffer.Buffers[frameIndex]
+                    let offset =
+                        if (offset == -1)
+                            uint64(0)
+                        else
+                            uint64(offset)
+                    let size =
+                        if (size == -1)
+                            buffer.Size
+                        else
+                            uint64(size)
+                    Vk.UpdateDescriptorSet(this.vk, uint32(i), descriptorSets[frameIndex], buffer.Buffer, offset, size, descriptorType)
+
+                | GpuResourceKind.Image =>
+                    let image = Unsafe.Cast<IGpuImage>(gpuResource)
+                    this.Upload(image)
+
+                    if (offset != -1)
+                        fail("Invalid offset")
+
+                    if (size != -1)
+                        fail("Invalid size")
+
+                    let vkImageView = image.GetVkImageView(frameIndex)
+                    let vkImageLayout = image.GetVkImageLayout()
+                    let vkSampler = image.GetVkSampler()
+                    if (vkImageLayout == VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL || vkImageLayout == VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED)
+                        fail("Invalid image format when updating descriptor set")
+                    else
+                        Vk.UpdateDescriptorSet(this.vk, uint32(i), descriptorSets[frameIndex], vkImageLayout, vkImageView, vkSampler, descriptorType)
+
+                | GpuResourceKind.Array =>
+                    if (i != (gpuDescriptorSetLayoutBindings.Length - 1))
+                        throw InvalidOperationException("Resource array must be the last binding in the set")
+                        
+                    let array = Unsafe.Cast<GpuInputArray>(gpuResource)
+                    this.Upload(array)
+
+                    let lastBinding = gpuDescriptorSetLayoutBindings[i]
+                    if (lastBinding.Count < array.Count)
+                        throw InvalidOperationException("Binding count is less than the resource array count")
+
+                    if (array.Count > 0)
+                        match (array.ElementKind)
+                        | GpuResourceKind.Image =>
+                            // TODO: We could just do a simple 'map' to get all of this information.
+                            //       Because this array could be large.
+                            let images = initArray(array.Count, i -> Unsafe.Cast<IGpuImage>(array.Inputs[i]))
+
+                            let vkImageViews = map(images, x -> x.GetVkImageView(frameIndex))
+                            let vkImageLayouts = map(images, x -> x.GetVkImageLayout())
+                            let vkSamplers = map(images, x -> x.GetVkSampler())
+
+                            // TODO: Do we need to do this?
+                            ForEach(vkImageLayouts,
+                                vkImageLayout ->
+                                    if (vkImageLayout == VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL || vkImageLayout == VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED)
+                                        fail("Invalid image format when updating descriptor set")
+                            )
+
+                            Vk.UpdateDescriptorSet(this.vk, uint32(i), descriptorSets[frameIndex], vkImageLayouts, vkImageViews, vkSamplers, descriptorType)
+                        | _ =>
+                            throw NotSupportedException(array.ElementKind.ToString())
+
+                | _ =>
+                    fail("Invalid gpu resource kind.")
+
+                i <- i + 1
+
+    private Initialize(gpuDescriptorSet: GpuDescriptorSet): () =
+        if (!gpuDescriptorSet.IsInitialized)
+            gpuDescriptorSet.IsInitialized <- true
+            gpuDescriptorSet.IsUpdated <- true
+
+            let gpuDescriptorSetLayoutBindings = gpuDescriptorSet.Layout.Bindings
+
+            let descriptorTypes =
+                map(gpuDescriptorSetLayoutBindings,
+                    x -> 
+                        match (x.DescriptorKind)
+                        | GpuDescriptorKind.Uniform =>
+                            VkDescriptorType.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                        | GpuDescriptorKind.Storage =>
+                            VkDescriptorType.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                        | GpuDescriptorKind.Image =>
+                            VkDescriptorType.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                        | _ =>
+                            fail("Invalid input")                       
+                )
+
+            let setLayoutBindings =
+                map(gpuDescriptorSetLayoutBindings,
+                    x -> Helpers.CreateVulkanDescriptorSetLayoutBinding(x.DescriptorKind, x.Flags, x.StageFlags, uint32(x.Count))
+                )
+
+            let setLayout = this.setLayoutManager.Create(setLayoutBindings)
+    
+            let descriptorPool = Vk.CreateDescriptorPool(this.vk, descriptorTypes.AsSpan(), uint32(this.vk.MaxFramesInFlight))
+
+            let counts = 
+                let lastBinding = gpuDescriptorSetLayoutBindings[gpuDescriptorSetLayoutBindings.Length - 1]
+                let count =
+                    if (lastBinding.Flags & GpuDescriptorSetLayoutBindingFlags.Bindless == GpuDescriptorSetLayoutBindingFlags.Bindless)
+                        uint32(lastBinding.Count)
+                    else
+                        1
+                initArray<uint32>(this.vk.MaxFramesInFlight, (_) -> count)
+            let descriptorSets = Vk.CreateDescriptorSets(this.vk, descriptorPool, uint32(this.vk.MaxFramesInFlight), setLayout, counts)
+
+            gpuDescriptorSet.FrameUpdates <- initMutableArray(this.vk.MaxFramesInFlight, (_) -> false)
+            gpuDescriptorSet.VkDescriptorPool <- descriptorPool
+            gpuDescriptorSet.VkDescriptorSets <- descriptorSets
+            gpuDescriptorSet.VkDescriptorTypes <- descriptorTypes
+            gpuDescriptorSet.VkDescriptorSetLayout <- setLayout
+    
+            let mutable frameIndex = 0
+            while (frameIndex < this.vk.MaxFramesInFlight)                                        
+                this.Update(gpuDescriptorSet, frameIndex)       
+                frameIndex <- frameIndex + 1
+
+            let _ = this.gpuDescriptorSets.Add(gpuDescriptorSet)
+        else if (!gpuDescriptorSet.IsUpdated)
+            gpuDescriptorSet.IsUpdated <- true
+
+            let mutable frameIndex = 0
+            while (frameIndex < this.vk.MaxFramesInFlight) 
+                gpuDescriptorSet.FrameUpdates[frameIndex] <- false
+                frameIndex <- frameIndex + 1
+        
+    private Upload(gpuDescriptorSet: GpuDescriptorSet, frameIndex: int32): () =
+        this.Initialize(gpuDescriptorSet)
+        this.Update(gpuDescriptorSet, frameIndex)
+
+    Free(gpuDescriptorSet: GpuDescriptorSet): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (gpuDescriptorSet.VkDescriptorPool != VkDescriptorPool.NULL)
+            Vk.DestroyDescriptorPool(this.vk, gpuDescriptorSet.VkDescriptorPool)
+
+            this.setLayoutManager.Destroy(gpuDescriptorSet.VkDescriptorSetLayout)
+
+            gpuDescriptorSet.IsInitialized <- false
+            gpuDescriptorSet.IsUpdated <- false
+            gpuDescriptorSet.FrameUpdates <- mutable []
+            gpuDescriptorSet.VkDescriptorPool <- VkDescriptorPool.NULL
+            gpuDescriptorSet.VkDescriptorSets <- []
+            gpuDescriptorSet.VkDescriptorTypes <- []
+            gpuDescriptorSet.VkDescriptorSetLayout <- VkDescriptorSetLayout.NULL
+
+            let result = this.gpuDescriptorSets.Remove(gpuDescriptorSet)
+
+    // This is 'internal' instead of 'private' because ImGui needs to call this.
+    internal Upload(gpuImage: IGpuImage): () =
+        match (gpuImage.ImageKind)
+        | GpuImageKind.Image =>
+            this.Upload(Unsafe.Cast<GpuImage>(gpuImage))
+        | GpuImageKind.Frame =>
+            this.Upload(Unsafe.Cast<GpuFrameImage>(gpuImage).Frame)
+        | GpuImageKind.FrameView =>
+            this.Upload(Unsafe.Cast<GpuFrameImageView>(gpuImage).Frame)
+        | _ =>
+            fail("invalid image kind")
+
+    private Upload(gpuImage: GpuImage): () =
+        if (gpuImage.IsDirty)
+            gpuImage.IsDirty <- false
+
+            let format = VkFormat.VK_FORMAT_R8G8B8A8_UNORM
+            let mipLevels = uint32(Math.Floor(Math.Log2(float64(Math.Max(gpuImage.Width, gpuImage.Height))))) + 1
+
+            let mutable vulkanImageCreateInfo = VulkanImageCreateInfo(uint32(gpuImage.Width), uint32(gpuImage.Height), format)
+            vulkanImageCreateInfo.MipLevels <- mipLevels
+            let vulkanImage = Vk.CreateImage(this.vk, vulkanImageCreateInfo)
+            Vk.UpdateImage(this.vk, vulkanImage, gpuImage.Bytes.Span)
+
+            let filter =
+                match (gpuImage.FilterKind)
+                | GpuFilterKind.Linear => VkFilter.VK_FILTER_LINEAR
+                | _ => VkFilter.VK_FILTER_NEAREST
+
+            let sampler = Vk.CreateSampler(this.vk, mipLevels, VkSamplerAddressMode.VK_SAMPLER_ADDRESS_MODE_REPEAT, filter, filter, VkSamplerMipmapMode.VK_SAMPLER_MIPMAP_MODE_LINEAR)
+
+            gpuImage.VulkanImage <- vulkanImage
+            gpuImage.VkImageView <- Vk.CreateImageView(this.vk, VulkanImageViewCreateInfo(vulkanImage, VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT))
+            gpuImage.VkSampler <- sampler
+            gpuImage.Bytes <- ReadOnlyMemory<_>.Empty
+
+            //this.gpuImages[gpuImage: IGpuImage] <- () // TODO-language-bug: We should be able to do gpuImages[gpuImage] without the annotation
+            this.gpuImages.set_Item(gpuImage, ())
+
+    private Upload(gpuFrame: IGpuFrame): () =
+        match (gpuFrame.Kind)
+        | GpuFrameKind.Normal =>
+            this.Upload(Unsafe.Cast(gpuFrame): GpuFrame)
+        | GpuFrameKind.Layer =>
+            this.Upload((Unsafe.Cast(gpuFrame): GpuFrameLayer).Frame)
+        | _ =>
+            fail("Invalid gpu frame kind")
+
+    private Upload(gpuFrame: GpuFrame): () =
+        let gpuFrameOptions = gpuFrame.Options
+
+        let ssAmount = uint32(this.SuperSamplingAmount)
+
+        let mustUpload =
+            match (gpuFrameOptions.SizeMode)
+            | GpuFrameSizeMode.Window =>
+                (gpuFrame.Width != this.swapChain.Extent.width) || (gpuFrame.Height != this.swapChain.Extent.height)
+            | GpuFrameSizeMode.WindowSuperSampled =>
+                (gpuFrame.Width != (this.swapChain.Extent.width * ssAmount)) || (gpuFrame.Height != (this.swapChain.Extent.height * ssAmount))
+            | GpuFrameSizeMode.WindowDownscaledX3 =>
+                (gpuFrame.Width != (this.swapChain.Extent.width / 3)) || (gpuFrame.Height != (this.swapChain.Extent.height / 3))
+            | _ => 
+                false
+ 
+        if (mustUpload)
+            this.Free(gpuFrame)
+
+        if (gpuFrame.IsDirty || mustUpload)
+            gpuFrame.IsDirty <- false
+
+            let renderPass = Vk.CreateRenderPass(this.vk, this.swapChain.ImageFormat, this.swapChain.DepthImageFormat, Unsafe.Cast(gpuFrameOptions.RenderPassFlags))
+
+            let width = 
+                match (gpuFrameOptions.SizeMode)
+                | GpuFrameSizeMode.Window => 
+                    this.swapChain.Extent.width
+                | GpuFrameSizeMode.WindowSuperSampled =>
+                    this.swapChain.Extent.width * ssAmount
+                | GpuFrameSizeMode.WindowDownscaledX3 =>
+                    (this.swapChain.Extent.width / 3)
+                | _ =>
+                    gpuFrame.Width
+
+            let height = 
+                match (gpuFrameOptions.SizeMode)
+                | GpuFrameSizeMode.Window => 
+                    this.swapChain.Extent.height
+                | GpuFrameSizeMode.WindowSuperSampled =>
+                    this.swapChain.Extent.height * ssAmount
+                | GpuFrameSizeMode.WindowDownscaledX3 =>
+                    (this.swapChain.Extent.height / 3)
+                | _ =>
+                    gpuFrame.Height
+
+            let layerCount = uint32(gpuFrameOptions.LayerCount)
+
+            let format = VkFormat.VK_FORMAT_B8G8R8A8_UNORM
+            let images =
+                initArray(this.vk.MaxFramesInFlight,
+                    i -> 
+                        let mutable vulkanImageCreateInfo = VulkanImageCreateInfo(width, height, format, VkImageUsageFlags.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+                        vulkanImageCreateInfo.ArrayLayers <- layerCount
+                        let image = Vk.CreateImage(this.vk, vulkanImageCreateInfo)
+                        Vk.TransitionImageLayout(this.vk, image.Image, width, height, format, VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vulkanImageCreateInfo.MipLevels, vulkanImageCreateInfo.ArrayLayers)
+                        image
+                )
+            let imageViews =
+                map(images,
+                    image -> Vk.CreateImageView(this.vk, VulkanImageViewCreateInfo(image, VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT))
+                )
+
+            let depthImageFormat = Vk.GetDepthImageFormat(this.vk, true)
+            let depthImages =
+                initArray(this.vk.MaxFramesInFlight,
+                    i -> 
+                        let mutable vulkanImageCreateInfo = VulkanImageCreateInfo(width, height, depthImageFormat, VkImageUsageFlags.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                        vulkanImageCreateInfo.ArrayLayers <- layerCount
+                        let image = Vk.CreateImage(this.vk, vulkanImageCreateInfo)
+                        Vk.TransitionImageLayout(this.vk, image.Image, width, height, depthImageFormat, VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, vulkanImageCreateInfo.MipLevels, vulkanImageCreateInfo.ArrayLayers)
+                        image
+                )
+            let depthImageViews =
+                map(depthImages,
+                    image -> 
+                        let mutable vulkanImageViewCreateInfo = VulkanImageViewCreateInfo(image, VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT)
+                        vulkanImageViewCreateInfo.LayerCount <- layerCount
+                        Vk.CreateImageView(this.vk, vulkanImageViewCreateInfo)
+                )
+            let stencilImageViews =
+                map(depthImages,
+                    image -> 
+                        let mutable vulkanImageViewCreateInfo = VulkanImageViewCreateInfo(image, VkImageAspectFlags.VK_IMAGE_ASPECT_STENCIL_BIT)
+                        vulkanImageViewCreateInfo.LayerCount <- layerCount
+                        Vk.CreateImageView(this.vk, vulkanImageViewCreateInfo)
+                )
+            let depthStencilImageViews =
+                map(depthImages,
+                    image ->
+                        let mutable vulkanImageViewCreateInfo = VulkanImageViewCreateInfo(image, VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT | VkImageAspectFlags.VK_IMAGE_ASPECT_STENCIL_BIT)
+                        vulkanImageViewCreateInfo.LayerCount <- layerCount
+                        Vk.CreateImageView(this.vk, vulkanImageViewCreateInfo)
+                )
+
+            let framebuffers =
+                initArray(this.vk.MaxFramesInFlight,
+                    i ->
+                        let imageView = imageViews[i]
+                        let depthStencilImageView = depthStencilImageViews[i]
+
+                        let flags = gpuFrameOptions.RenderPassFlags
+                        let views =
+                            if (flags & GpuRenderPassFlags.ClearAll == GpuRenderPassFlags.ClearAll)
+                                [imageView;depthStencilImageView]
+                            else if (flags & GpuRenderPassFlags.ClearDepthStencil == GpuRenderPassFlags.ClearDepthStencil)
+                                [depthStencilImageView]
+                            else if (flags & GpuRenderPassFlags.ClearColor == GpuRenderPassFlags.ClearColor)
+                                [imageView]
+                            else
+                                []
+
+                        let mutable vulkanFramebufferCreateInfo = VulkanFramebufferCreateInfo(renderPass, views, width, height)
+                        vulkanFramebufferCreateInfo.Layers <- layerCount
+                        Vk.CreateFramebuffer(this.vk, vulkanFramebufferCreateInfo)
+                )     
+
+            let sampler = 
+                let addressMode =
+                    match (gpuFrameOptions.ImageMode)
+                    | GpuImageMode.Clamp => VkSamplerAddressMode.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+                    | GpuImageMode.MirrorRepeat => VkSamplerAddressMode.VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
+                    | _ => VkSamplerAddressMode.VK_SAMPLER_ADDRESS_MODE_REPEAT
+
+                let filter =
+                    match (gpuFrameOptions.FilterMode)
+                    | GpuFilterMode.Linear => VkFilter.VK_FILTER_LINEAR
+                    | _ => VkFilter.VK_FILTER_NEAREST
+
+                let mipmapMode =
+                    match (gpuFrameOptions.MipmapMode)
+                    | GpuMipmapMode.Linear => VkSamplerMipmapMode.VK_SAMPLER_MIPMAP_MODE_LINEAR
+                    | _ => VkSamplerMipmapMode.VK_SAMPLER_MIPMAP_MODE_NEAREST
+                    
+                let mipmapLevels = gpuFrameOptions.MipmapLevels
+
+                Vk.CreateSampler(this.vk, uint32(mipmapLevels), addressMode, filter, filter, mipmapMode)
+
+            gpuFrame.VkRenderPass <- renderPass
+            gpuFrame.VulkanImages <- images
+            gpuFrame.VkImageViews <- imageViews
+            gpuFrame.VulkanDepthImages <- depthImages
+            gpuFrame.VkDepthImageViews <- depthImageViews
+            gpuFrame.VkStencilImageViews <- stencilImageViews
+            gpuFrame.VkDepthStencilImageViews <- depthStencilImageViews
+            gpuFrame.VkFramebuffers <- framebuffers
+            gpuFrame.VkSampler <- sampler
+
+            if (layerCount > 1)
+                let createVkLayeredViews(images: VulkanImage[], aspectFlags) =
+                        initArray(int32(layerCount),
+                            layerIndex ->
+                                initArray(this.vk.MaxFramesInFlight,
+                                    frameIndex ->
+                                        let image = images[frameIndex]
+                                        let mutable vulkanImageViewCreateInfo = VulkanImageViewCreateInfo(image, aspectFlags)
+                                        vulkanImageViewCreateInfo.BaseArrayLayer <- uint32(layerIndex)
+                                        Vk.CreateImageView(this.vk, vulkanImageViewCreateInfo)
+                                )
+                        )
+
+                gpuFrame.VkImageLayeredViews <- createVkLayeredViews(images, VkImageAspectFlags.VK_IMAGE_ASPECT_COLOR_BIT)
+                gpuFrame.VkDepthImageLayeredViews <- createVkLayeredViews(depthImages, VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT)
+                gpuFrame.VkStencilImageLayeredViews <- createVkLayeredViews(depthImages, VkImageAspectFlags.VK_IMAGE_ASPECT_STENCIL_BIT)
+                gpuFrame.VkDepthStencilImageLayeredViews <- createVkLayeredViews(depthImages, VkImageAspectFlags.VK_IMAGE_ASPECT_DEPTH_BIT | VkImageAspectFlags.VK_IMAGE_ASPECT_STENCIL_BIT)
+
+                let mutable i = 0
+                while (i < int32(layerCount))
+                    let gpuFrameLayer = gpuFrame.Layers[i]
+                    let imageViews = gpuFrame.VkImageLayeredViews[i]
+                    let depthStencilImageViews = gpuFrame.VkDepthImageLayeredViews[i]
+
+                    gpuFrameLayer.VkFramebuffers <-
+                        initArray(this.vk.MaxFramesInFlight,
+                            i ->
+                                let imageView = imageViews[i]
+                                let depthStencilImageView = depthStencilImageViews[i]
+        
+                                let flags = gpuFrameOptions.RenderPassFlags
+                                let views =
+                                    if (flags & GpuRenderPassFlags.ClearAll == GpuRenderPassFlags.ClearAll)
+                                        [imageView;depthStencilImageView]
+                                    else if (flags & GpuRenderPassFlags.ClearDepthStencil == GpuRenderPassFlags.ClearDepthStencil)
+                                        [depthStencilImageView]
+                                    else if (flags & GpuRenderPassFlags.ClearColor == GpuRenderPassFlags.ClearColor)
+                                        [imageView]
+                                    else
+                                        []
+                                        
+                                let mutable vulkanFramebufferCreateInfo = VulkanFramebufferCreateInfo(renderPass, views, width, height)
+                                vulkanFramebufferCreateInfo.Layers <- layerCount
+                                Vk.CreateFramebuffer(this.vk, vulkanFramebufferCreateInfo)
+                        )     
+                    i <- i + 1
+
+            gpuFrame.VkExtent <-
+                let mutable extent = default: VkExtent2D
+                extent.width <- width
+                extent.height <- height
+                extent
+
+            gpuFrame.Width <- width
+            gpuFrame.Height <- height
+            
+            this.gpuFrames[gpuFrame] <- ()
+
+    private Upload(resource: GpuInputArray): () =
+        if (resource.IsDirty)
+            resource.IsDirty <- false
+
+            match (resource.ElementKind)
+            | GpuResourceKind.Image =>
+                For(resource.Count,
+                    i ->
+                        let resource = resource.Inputs[i]
+                        let image = Unsafe.Cast<IGpuImage>(resource)
+                        this.Upload(image)
+                )
+
+            | _ =>
+                throw NotSupportedException(resource.ElementKind.ToString())
+
+            // TODO:
+            this.gpuArrays.set_Item(resource, ())
+
+    Free(resource: GpuInputArray): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (resource.RefCount == 0)
+            resource.IsDirty <- true
+
+            let ds = resource.GetVertexDescriptorSet()
+            this.Free(ds)
+
+            let mutable item = unchecked default
+            let _ = this.gpuArrays.TryRemove(resource, &item)
+
+    private Upload(gpuShaderCode: GpuShaderCode): () =
+        if (gpuShaderCode.IsDirty)
+            gpuShaderCode.IsDirty <- false
+
+            gpuShaderCode.VkShaderModule <- Vk.CreateShaderModule(this.vk, gpuShaderCode.Code.AsSpan())
+
+    Free(gpuShaderCode: GpuShaderCode): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (gpuShaderCode.RefCount == 0)
+            if (gpuShaderCode.VkShaderModule != VkShaderModule.NULL)
+                Vk.DestroyShaderModule(this.vk, gpuShaderCode.VkShaderModule)
+            gpuShaderCode.IsDirty <- true
+
+    private Upload(gpuShader: GpuShader): () =
+        if (gpuShader.IsDirty)
+            gpuShader.IsDirty <- false
+            gpuShader.CanFree <- true
+
+            // Note: If the shader is dirty for reasons other than loading the shader code, then we should not increment the ref count.
+            //       However, this is not the case today, so this is fine.
+            match (gpuShader)
+            | GpuShader.Vertex(vertex) =>
+                this.Upload(vertex.VertexCode)
+                vertex.VertexCode.RefCount <- vertex.VertexCode.RefCount + 1
+            | GpuShader.VertexFragment(vertexFragment) =>
+                this.Upload(vertexFragment.VertexCode)
+                this.Upload(vertexFragment.FragmentCode)
+                vertexFragment.VertexCode.RefCount <- vertexFragment.VertexCode.RefCount + 1
+                vertexFragment.FragmentCode.RefCount <- vertexFragment.FragmentCode.RefCount + 1
+            | GpuShader.Compute(compute) =>
+                this.Upload(compute.ComputeCode)
+                compute.ComputeCode.RefCount <- compute.ComputeCode.RefCount + 1
+            | _ =>
+                fail("Invalid gpu shader")
+
+    Free(gpuShader: GpuShader): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (gpuShader.CanFree)
+            gpuShader.IsDirty <- true
+            gpuShader.CanFree <- false
+
+            match (gpuShader)
+            | GpuShader.Vertex(vertex) =>
+                vertex.VertexCode.RefCount <- vertex.VertexCode.RefCount - 1
+                this.Free(vertex.VertexCode)
+            | GpuShader.VertexFragment(vertexFragment) =>
+                vertexFragment.VertexCode.RefCount <- vertexFragment.VertexCode.RefCount - 1
+                vertexFragment.FragmentCode.RefCount <- vertexFragment.FragmentCode.RefCount - 1
+                this.Free(vertexFragment.VertexCode)
+                this.Free(vertexFragment.FragmentCode)
+            | GpuShader.Compute(compute) =>
+                compute.ComputeCode.RefCount <- compute.ComputeCode.RefCount - 1
+                this.Free(compute.ComputeCode)
+            | _ =>
+                fail("Invalid gpu shader")
+
+    private Upload(gpuPipeline: GpuPipeline): () =
+        if (gpuPipeline.IsDirty)
+            this.Free(gpuPipeline)
+            gpuPipeline.IsDirty <- false
+
+            this.Upload(gpuPipeline.Shader)
+
+            let setLayouts = 
+                map(gpuPipeline.DescriptorSetLayouts,
+                    bindingInfo ->
+                        this.setLayoutManager.Create(map(bindingInfo.Bindings, x -> x.VulkanDescriptorSetLayoutBinding))
+                )
+            let pipelineLayout = Vk.CreatePipelineLayout(this.vk, setLayouts)
+
+            gpuPipeline.VkDescriptorSetLayouts <- setLayouts
+            gpuPipeline.VkPipelineLayout <- pipelineLayout
+
+        if (gpuPipeline.VkPipeline == VkPipeline.NULL)
+            let gpuOptions = gpuPipeline.Options
+
+            if (gpuPipeline.IsCompute)
+                gpuPipeline.VkPipeline <- Helpers.CreateComputePipeline(this.vk, gpuPipeline)
+            else
+                let extent =
+                    if (gpuPipeline.Frame !== unchecked default)
+                        gpuPipeline.Frame.VkExtent
+                    else
+                        this.swapChain.Extent
+
+                let renderPass =
+                    if (gpuPipeline.Frame !== unchecked default)
+                        this.Upload(gpuPipeline.Frame)
+                        gpuPipeline.Frame.VkRenderPass
+                    else
+                        this.swapChainRenderPass
+
+                let gpuPipelineFlags = gpuOptions.Flags
+
+                let flags =
+                    if (gpuPipelineFlags.HasFlag(GpuPipelineFlags.DepthTest))
+                        VulkanGraphicsPipelineFlags.DepthTest
+                    else
+                        VulkanGraphicsPipelineFlags.None
+
+                let flags =
+                    if (gpuPipelineFlags.HasFlag(GpuPipelineFlags.DepthWrite))
+                        flags | VulkanGraphicsPipelineFlags.DepthWrite
+                    else
+                        flags
+
+                let flags =
+                    if (gpuOptions.FrontStencilOpState.IsSome || gpuOptions.BackStencilOpState.IsSome)
+                        flags | VulkanGraphicsPipelineFlags.StencilTest
+                    else
+                        flags
+
+                let polygonMode =
+                    match (gpuOptions.PolygonMode)
+                    | GpuPolygonMode.Line =>
+                        VkPolygonMode.VK_POLYGON_MODE_LINE
+                    | _ =>
+                        VkPolygonMode.VK_POLYGON_MODE_FILL
+
+                let mutable frontStencilOp = default: VkStencilOpState
+                match (gpuOptions.FrontStencilOpState)
+                | SomeStruct(gpuStencilOpState) =>
+                    frontStencilOp <- gpuStencilOpState.ToVulkan()
+                | _ =>
+                    ()
+
+                let mutable backStencilOp = default: VkStencilOpState
+                match (gpuOptions.BackStencilOpState)
+                | SomeStruct(gpuStencilOpState) =>
+                    backStencilOp <- gpuStencilOpState.ToVulkan()
+                | _ =>
+                    ()
+
+                let depthBiasOptions =
+                    match (gpuOptions.DepthBiasOptions)
+                    | SomeStruct(x) =>
+                        let mutable options = VulkanDepthBiasOptions()
+                        options.Enabled <- true
+                        options.ConstantFactor <- x.ConstantFactor
+                        options.SlopeFactor <- x.SlopeFactor
+                        options
+                    | _ =>
+                        VulkanDepthBiasOptions()
+
+                let flipY = gpuPipelineFlags.HasFlag(GpuPipelineFlags.FlipY)
+
+                let isDepthOnly = gpuPipelineFlags.HasFlag(GpuPipelineFlags.DepthOnly)
+                let isBlendEnabled = gpuPipelineFlags.HasFlag(GpuPipelineFlags.Blend)
+
+                let cullModeFlags =
+                    match (gpuOptions.CullMode)
+                    | GpuCullMode.None => VkCullModeFlags.VK_CULL_MODE_NONE
+                    | GpuCullMode.Front => VkCullModeFlags.VK_CULL_MODE_FRONT_BIT
+                    | GpuCullMode.Back => VkCullModeFlags.VK_CULL_MODE_BACK_BIT
+                    | GpuCullMode.FrontAndBack => VkCullModeFlags.VK_CULL_MODE_FRONT_AND_BACK
+                    | _ => fail("Invalid GpuCullMode")
+
+                let frontFace =
+                    match (gpuOptions.FrontFace)
+                    | GpuFrontFace.Clockwise => VkFrontFace.VK_FRONT_FACE_CLOCKWISE
+                    | GpuFrontFace.CounterClockwise => VkFrontFace.VK_FRONT_FACE_COUNTER_CLOCKWISE
+                    | _ => fail("Invalid GpuFrontFace")
+
+                let mutable viewport = default
+                let mutable scissor = default
+                gpuPipeline.VkPipeline <-
+                    Helpers.CreateGraphicsPipeline(
+                        this.vk,
+                        gpuPipeline,
+                        extent,
+                        renderPass,
+                        flags,
+                        polygonMode,
+                        cullModeFlags,
+                        frontFace,
+                        frontStencilOp,
+                        backStencilOp,
+                        depthBiasOptions,
+                        flipY,
+                        isDepthOnly,
+                        isBlendEnabled,
+                        &viewport,
+                        &scissor
+                    )
+                gpuPipeline.VkViewport <- viewport
+                gpuPipeline.VkScissor <- scissor
+
+            this.gpuPipelines[gpuPipeline] <- ()
+
+    private Upload(gpuPipelineUI: GpuPipelineUI): () =
+        if (gpuPipelineUI.ImGuiContext === unchecked default)
+            let renderPass =
+                if (gpuPipelineUI.Frame === unchecked default)
+                    this.swapChainRenderPass
+                else
+                    this.Upload(gpuPipelineUI.Frame)
+                    gpuPipelineUI.Frame.VkRenderPass
+
+            let minImageCount = this.swapChain.SupportDetails.Capabilities.minImageCount
+            let imageCount = uint32(this.swapChain.Images.Length)
+
+            gpuPipelineUI.ImGuiContext <- ImGui.CreateContext(this.window, this.vk, minImageCount, imageCount, renderPass)
+    
+            // Must do this first before NewFrame!
+            let defaultFontPixelSize = 16: float32
+            if (gpuPipelineUI.Frame === unchecked default)
+                // Primary UI
+                let size = this.window.Size
+                let ratio = (size.Y / 720)
+                let fontPixelSize = ratio * defaultFontPixelSize
+                let _ = ImGui.AddFont(gpuPipelineUI.ImGuiContext, gpuPipelineUI.FontPath, fontPixelSize)
+                ImGui.SetScaleFactor(gpuPipelineUI.ImGuiContext, ratio)
+                ImGui.SetMouseCursorChange(gpuPipelineUI.ImGuiContext, true)
+            else
+                let _ = ImGui.AddFont(gpuPipelineUI.ImGuiContext, gpuPipelineUI.FontPath, defaultFontPixelSize)
+                ImGui.SetScaleFactor(gpuPipelineUI.ImGuiContext, 1)
+                ImGui.SetMouseCursorChange(gpuPipelineUI.ImGuiContext, false)
+
+            ImGui.UploadFonts(gpuPipelineUI.ImGuiContext)
+
+            this.gpuPipelineUIs[gpuPipelineUI] <- ()
+            gpuPipelineUI.CanInitializeWindow <- true
+
+        if (gpuPipelineUI.ImGuiContext !== unchecked default && gpuPipelineUI.Frame === unchecked default)
+            // Primary UI
+            ImGui.SetMouseCursorChange(gpuPipelineUI.ImGuiContext, this.window.IsCursorVisible)
+
+    Free(gpuImage: IGpuImage): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (gpuImage.DescriptorSet !== unchecked default)
+            this.Free(gpuImage.DescriptorSet)
+            gpuImage.DescriptorSet <- unchecked default
+
+        match (gpuImage.ImageKind)
+        | GpuImageKind.Image =>
+            this.Free(Unsafe.Cast<GpuImage>(gpuImage))
+        | GpuImageKind.Frame =>
+            this.Free(Unsafe.Cast<GpuFrameImage>(gpuImage).Frame)
+        | GpuImageKind.FrameView =>
+            this.Free(Unsafe.Cast<GpuFrameImageView>(gpuImage).Frame)
+        | _ =>
+            fail("invalid image kind")
+
+    Free<T>(gpuBuffer: GpuBuffer<T>): () where T: unmanaged =
+        Vk.WaitForIdle(this.vk)
+
+        gpuBuffer.Free(this)
+
+    private Free(gpuImage: GpuImage): () =
+        Vk.WaitForIdle(this.vk)
+
+        let refCount = gpuImage.RefCount
+        if (gpuImage.VulkanImage !== unchecked default && refCount == 0)
+            Vk.DestroySampler(this.vk, gpuImage.VkSampler)
+            Vk.DestroyImageView(this.vk, gpuImage.VkImageView)
+            Vk.DestroyImage(this.vk, gpuImage.VulkanImage)
+
+            let mutable value = unchecked default
+            let result = this.gpuImages.TryRemove(gpuImage, &value)
+            gpuImage.IsDirty <- true
+
+    Free(gpuFrame: GpuFrame): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (gpuFrame.ColorImage.DescriptorSet !== unchecked default)
+            this.Free(gpuFrame.ColorImage.DescriptorSet)
+            gpuFrame.ColorImage.DescriptorSet <- unchecked default
+
+        if (gpuFrame.DepthImage.DescriptorSet !== unchecked default)
+            this.Free(gpuFrame.DepthImage.DescriptorSet)
+            gpuFrame.DepthImage.DescriptorSet <- unchecked default
+
+        if (gpuFrame.StencilImage.DescriptorSet !== unchecked default)
+            this.Free(gpuFrame.StencilImage.DescriptorSet)
+            gpuFrame.StencilImage.DescriptorSet <- unchecked default
+
+        let freeFrameBuffers(framebuffers: VkFramebuffer[]) =
+            let mutable i = 0
+            while (i < framebuffers.Length)
+                Vk.DestroyFramebuffer(this.vk, framebuffers[i])
+                i <- i + 1
+
+        if (gpuFrame.LayerCount > 1)
+            let mutable i = 0
+            while (i < gpuFrame.Layers.Length)
+                freeFrameBuffers(gpuFrame.Layers[i].VkFramebuffers)
+                gpuFrame.Layers[i].VkFramebuffers <- []
+                i <- i + 1
+
+        freeFrameBuffers(gpuFrame.VkFramebuffers)
+        gpuFrame.VkFramebuffers <- []
+
+        let freeLayeredViews(layeredViews: (VkImageView[])[]) =
+            if (layeredViews.Length > 0)
+                let mutable i = 0
+                while (i < layeredViews.Length)
+                    let layeredView = layeredViews[i]
+                    if (layeredView.Length > 0)
+                        let mutable i = 0
+                        while (i < layeredView.Length)
+                            Vk.DestroyImageView(this.vk, layeredView[i])
+                            i <- i + 1
+                    i <- i + 1
+
+        freeLayeredViews(gpuFrame.VkDepthStencilImageLayeredViews)
+        gpuFrame.VkDepthStencilImageLayeredViews <- []
+        freeLayeredViews(gpuFrame.VkStencilImageLayeredViews)
+        gpuFrame.VkStencilImageLayeredViews <- []
+        freeLayeredViews(gpuFrame.VkDepthImageLayeredViews)
+        gpuFrame.VkDepthImageLayeredViews <- []
+        freeLayeredViews(gpuFrame.VkImageLayeredViews)
+        gpuFrame.VkImageLayeredViews <- []
+
+        if (gpuFrame.VkDepthStencilImageViews.Length > 0)
+            let mutable i = 0
+            while (i < gpuFrame.VkDepthStencilImageViews.Length)
+                Vk.DestroyImageView(this.vk, gpuFrame.VkDepthStencilImageViews[i])
+                i <- i + 1
+            gpuFrame.VkDepthStencilImageViews <- []
+
+        if (gpuFrame.VkStencilImageViews.Length > 0)
+            let mutable i = 0
+            while (i < gpuFrame.VkStencilImageViews.Length)
+                Vk.DestroyImageView(this.vk, gpuFrame.VkStencilImageViews[i])
+                i <- i + 1
+            gpuFrame.VkStencilImageViews <- []
+
+        if (gpuFrame.VkDepthImageViews.Length > 0)
+            let mutable i = 0
+            while (i < gpuFrame.VkDepthImageViews.Length)
+                Vk.DestroyImageView(this.vk, gpuFrame.VkDepthImageViews[i])
+                i <- i + 1
+            gpuFrame.VkDepthImageViews <- []
+
+        if (gpuFrame.VulkanDepthImages.Length > 0)
+            let mutable i = 0
+            while (i < gpuFrame.VulkanDepthImages.Length)
+                Vk.DestroyImage(this.vk, gpuFrame.VulkanDepthImages[i])
+                i <- i + 1
+            gpuFrame.VulkanDepthImages <- []
+
+        if (gpuFrame.VkImageViews.Length > 0)
+            let mutable i = 0
+            while (i < gpuFrame.VkImageViews.Length)
+                Vk.DestroyImageView(this.vk, gpuFrame.VkImageViews[i])
+                i <- i + 1
+            gpuFrame.VkImageViews <- []
+
+        if (gpuFrame.VulkanImages.Length > 0)
+            let mutable i = 0
+            while (i < gpuFrame.VulkanImages.Length)
+                Vk.DestroyImage(this.vk, gpuFrame.VulkanImages[i])
+                i <- i + 1
+            gpuFrame.VulkanImages <- []
+
+        if (gpuFrame.VkSampler != VkSampler.NULL)
+            Vk.DestroySampler(this.vk, gpuFrame.VkSampler)
+            gpuFrame.VkSampler <- VkSampler.NULL
+
+            Vk.DestroyRenderPass(this.vk, gpuFrame.VkRenderPass)
+            gpuFrame.VkRenderPass <- VkRenderPass.NULL
+
+            let mutable value = unchecked default
+            let result = this.gpuFrames.TryRemove(gpuFrame, &value)
+            gpuFrame.IsDirty <- true
+
+    Free(gpuPipeline: GpuPipeline): () =
+        Vk.WaitForIdle(this.vk)
+
+        if (gpuPipeline.VkPipelineLayout != VkPipelineLayout.NULL)
+            Vk.WaitForIdle(this.vk)
+
+            ForEach(gpuPipeline.Frames,
+                (mutable pair) ->
+                    this.Free(pair.Value)
+            )
+            gpuPipeline.Frames.Clear()
+
+            Vk.DestroyPipeline(this.vk, gpuPipeline.VkPipeline)
+            gpuPipeline.VkPipeline <- VkPipeline.NULL
+
+            let mutable i = 0
+            while (i < gpuPipeline.VkDescriptorSetLayouts.Length)
+                this.setLayoutManager.Destroy(gpuPipeline.VkDescriptorSetLayouts[i])
+                i <- i + 1           
+
+            // programs associated with explicit frames do not own pipelinelayout and shader modules
+            if (gpuPipeline.Frame === unchecked default)
+                Vk.DestroyPipelineLayout(this.vk, gpuPipeline.VkPipelineLayout)
+
+                this.Free(gpuPipeline.Shader)
+
+                gpuPipeline.VkDescriptorSetLayouts <- []
+                gpuPipeline.VkPipelineLayout <- VkPipelineLayout.NULL
+
+            let mutable value = unchecked default
+            let result = this.gpuPipelines.TryRemove(gpuPipeline, &value)
+            gpuPipeline.IsDirty <- true
+
+    Free(gpuPipelineUI: GpuPipelineUI): () =
+        Vk.WaitForIdle(this.vk)
+        
+        if (gpuPipelineUI.ImGuiContext !== unchecked default)
+
+            ForEach(gpuPipelineUI.Frames,
+                (mutable pair) ->
+                    this.Free(pair.Value)
+            )
+            gpuPipelineUI.Frames.Clear()
+
+            ImGui.Flush(gpuPipelineUI.ImGuiContext)
+            ImGui.DestroyContext(gpuPipelineUI.ImGuiContext)
+            gpuPipelineUI.ImGuiContext <- unchecked default
+            gpuPipelineUI.RefreshFonts()
+
+            let mutable value = unchecked default
+            let result = this.gpuPipelineUIs.TryRemove(gpuPipelineUI, &value)
+
+    private Flush(): () =
+        let frame = this.vk.CurrentFrame
+
+        ForEach(this.gpuPipelineUIs.Keys,
+            x ->
+                if (x.ImGuiContext !== unchecked default)
+                    ImGui.Flush(x.ImGuiContext)
+        )
+
+    private Upload(gpuCommands: IReadOnlyList<GpuCommand>, frameIndex: int32): () =
+        this.RecreateSwapChainIfNecessary()
+
+        if (this.swapChain !== unchecked default)
+            let mutable currentFrame = unchecked default
+            ForEach(gpuCommands,
+                gpuCommand ->
+                    match (gpuCommand)
+                    | GpuCommand.BeginFrame(frame) =>
+                        this.Upload(frame)
+                        currentFrame <- frame
+
+                    | GpuCommand.EndFrame =>
+                        currentFrame <- unchecked default
+
+                    | GpuCommand.BindPipeline(pipeline) =>
+                        if (currentFrame === unchecked default)
+                            this.Upload(pipeline)
+                        else
+                            let mutable nextPipeline = unchecked default
+                            if (!pipeline.Frames.TryGetValue(currentFrame, &nextPipeline))
+                                nextPipeline <- pipeline.CopyToFrame(currentFrame)
+                                pipeline.Frames.Add(currentFrame, nextPipeline)
+
+                            this.Upload(nextPipeline)
+
+                    | GpuCommand.DrawIndexed(vertices, indices, _, _) =>
+                        vertices.Upload(this, frameIndex)
+                        indices.Upload(this, frameIndex)
+
+                    | GpuCommand.DrawIndexedIndirectVulkan(vertices, indices, buffer, _, _, _) =>
+                        vertices.Upload(this, frameIndex)
+                        indices.Upload(this, frameIndex)
+                        buffer.Upload(this, frameIndex)
+
+                    | GpuCommand.BindDescriptorSet(offset, descriptorSet) =>
+                        this.Upload(descriptorSet, this.vk.CurrentFrame)
+
+                        ForEach(descriptorSet.Resources,
+                            resource ->
+                                match (resource.ResourceKind)
+                                | GpuResourceKind.Buffer =>
+                                    Unsafe.Cast<IGpuBuffer>(resource).Upload(this, frameIndex)
+                                | GpuResourceKind.Image =>
+                                    let image = Unsafe.Cast<IGpuImage>(resource)
+                                    match (image.ImageKind)
+                                    | GpuImageKind.Image =>
+                                        this.Upload(Unsafe.Cast<GpuImage>(resource))
+                                    | GpuImageKind.Frame =>
+                                        let frameInput = Unsafe.Cast<GpuFrameImage>(resource)
+                                        this.Upload(frameInput)
+                                    | _ =>
+                                        fail("Invalid image")
+                                | GpuResourceKind.Array =>
+                                    let array = Unsafe.Cast<GpuInputArray>(resource)
+                                    this.Upload(array)
+                                | _ =>
+                                    fail("Invalid global input")
+                        )                         
+
+                    | GpuCommand.DrawUI(gpuPipelineUI, windowViews) =>
+                        this.Upload(gpuPipelineUI)
+
+                    | _ =>
+                        ()
+            )
+
+        this.Flush()
+
+    OnDisplayChanged(): () =
+        Vk.Refresh(this.vk)
+
+    Download<T>(dstBuffer: GpuBuffer<T>): () where T: unmanaged =
+        Vk.CopyBuffer(
+            this.vk, 
+            dstBuffer.Buffers[this.vk.PreviousFrame], 
+            dstBuffer.Array
+        )
+
+    DownloadSwapChainImageData(width: int32, height: int32): mutable byte[] =
+        let stagingBuffer = GpuBuffer.ZeroCreate<byte>(GpuBufferKind.Storage, GpuMemoryKind.Shared, width * height * 4)
+        stagingBuffer.Upload(this, this.vk.PreviousFrame)
+
+        Vk.CopyImage(
+            this.vk, 
+            this.swapChain.Images[this.vk.LastImageIndex], 
+            VkFormat.VK_FORMAT_B8G8R8A8_UNORM, 
+            VkImageLayout.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 
+            uint32(width), 
+            uint32(height), 
+            stagingBuffer.Buffers[this.vk.PreviousFrame]
+        )
+
+        this.Download(stagingBuffer)
+        this.Free(stagingBuffer)
+        stagingBuffer.Array
+
+    Execute(cmdList: GpuCommandList): () =
+        let gpuCommands = cmdList.Commands
+
+        this.Upload(gpuCommands, this.vk.CurrentFrame)
+
+        if (this.swapChain !== unchecked default)
+            try
+                Vk.Draw(this.vk, this.swapChain, 
+                    (framebufferIndex, frameIndex) -> 
+                        let commandBuffer = this.vkCmdBuffers[frameIndex]
+
+                        Vk.ResetCommandBuffer(this.vk, commandBuffer)
+
+                        commandBuffer.Begin()
+
+                        let mutable currentRenderPass = this.swapChainRenderPass
+                        let mutable currentFramebuffer = this.swapChainFramebuffers[framebufferIndex]
+                        let mutable currentExtent = this.swapChain.Extent
+
+                        let mutable currentPipeline = VkPipeline.NULL
+                        let mutable currentGpuPipeline: GpuPipeline = unchecked default
+                        let mutable currentFrame = unchecked default
+
+                        let mutable currentPipelineLayout = VkPipelineLayout.NULL
+                        let mutable currentDescriptorSets = zeroArray<VkDescriptorSet>(8)
+
+                        let mutable descriptorSetsToUpdate = zeroArray<VkDescriptorSet>(8)
+
+                        ForEach(gpuCommands,
+                            gpuCommand ->
+                                match (gpuCommand)
+                                | GpuCommand.BeginSwapChainFrame =>
+                                    commandBuffer.BeginRenderPass(currentRenderPass, currentFramebuffer, currentExtent, VulkanRenderPassFlags.ClearAll)
+
+                                | GpuCommand.EndFrame =>
+                                    commandBuffer.EndRenderPass()
+                                    
+                                    currentFrame <- unchecked default
+                                    currentRenderPass <- this.swapChainRenderPass
+                                    currentFramebuffer <- this.swapChainFramebuffers[framebufferIndex]
+                                    currentExtent <- this.swapChain.Extent
+
+                                | GpuCommand.BeginFrame(gpuFrame) =>
+                                    currentFrame <- gpuFrame
+                                    currentRenderPass <- gpuFrame.VkRenderPass
+                                    currentFramebuffer <- gpuFrame.VkFramebuffers[frameIndex]
+                                    currentExtent <- gpuFrame.VkExtent
+
+                                    commandBuffer.BeginRenderPass(currentRenderPass, currentFramebuffer, currentExtent, Unsafe.Cast(currentFrame.RenderPassFlags))
+
+                                | GpuCommand.BindPipeline(gpuPipeline) =>
+                                    let mutable gpuPipeline = gpuPipeline
+                                    if (gpuPipeline.Frame !== currentFrame)
+                                        let mutable nextPipeline = unchecked default
+                                        if (!gpuPipeline.Frames.TryGetValue(currentFrame, &nextPipeline))
+                                            fail("Expected valid pipeline for current frame")
+                                        gpuPipeline <- nextPipeline
+
+                                    currentGpuPipeline <- gpuPipeline
+                                    currentPipelineLayout <- gpuPipeline.VkPipelineLayout
+
+                                    if (currentPipeline != gpuPipeline.VkPipeline)
+                                        currentPipeline <- gpuPipeline.VkPipeline
+
+                                        let bindPoint =
+                                            if (currentGpuPipeline.IsCompute)
+                                                VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_COMPUTE
+                                            else
+                                                VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS
+
+                                        commandBuffer.BindPipeline(currentPipeline, bindPoint)
+                                        currentDescriptorSets.AsSpan().Clear() // reset tracking for descriptor sets
+
+                                        if (bindPoint == VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS)
+                                            commandBuffer.SetViewport(gpuPipeline.VkViewport)
+                                            commandBuffer.SetScissor(gpuPipeline.VkScissor)
+
+                                | GpuCommand.BindDescriptorSet(offset, descriptorSet) =>
+                                    if (descriptorSet.VkDescriptorSets[frameIndex] == currentDescriptorSets[offset])
+                                        () // Descriptor set already bound
+                                    else
+                                        currentDescriptorSets[offset] <- descriptorSet.VkDescriptorSets[frameIndex]
+                                        descriptorSetsToUpdate[0] <- descriptorSet.VkDescriptorSets[frameIndex]
+
+                                        let bindPoint =
+                                            if (currentGpuPipeline.IsCompute)
+                                                VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_COMPUTE
+                                            else
+                                                VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS
+
+                                        commandBuffer.BindDescriptorSets(bindPoint, currentPipelineLayout, uint32(offset), Unsafe.AsImmutable(descriptorSetsToUpdate), 1)                                
+
+                                | GpuCommand.DrawIndexed(vertices, indices, indexCount, instanceCount) =>
+                                    if (currentGpuPipeline === unchecked default)
+                                        fail("Cannot bind global inputs because a pipeline is not bound")
+
+                                    commandBuffer.BindVertexBuffer(vertices.Buffers[frameIndex])
+                                    commandBuffer.BindIndexBuffer(indices.Buffers[frameIndex])
+                                    commandBuffer.DrawIndexed(uint32(indexCount), uint32(instanceCount))
+
+                                | GpuCommand.DrawIndexedIndirectVulkan(vertices, indices, buffer, offset, drawCount, stride) =>
+                                    if (currentGpuPipeline === unchecked default)
+                                        fail("Cannot bind global inputs because a pipeline is not bound")
+
+                                    commandBuffer.BindVertexBuffer(vertices.Buffers[frameIndex])
+                                    commandBuffer.BindIndexBuffer(indices.Buffers[frameIndex])
+                                    commandBuffer.DrawIndexedIndirect(buffer.Buffers[frameIndex].Buffer, offset, drawCount, stride)
+
+                                | GpuCommand.Dispatch(groupCountX, groupCountY, groupCountZ) =>
+                                    if (currentGpuPipeline === unchecked default)
+                                        fail("Cannot bind global inputs because a pipeline is not bound")
+                                        
+                                    commandBuffer.Dispatch(uint32(groupCountX), uint32(groupCountY), uint32(groupCountZ))
+
+                                | GpuCommand.PipelineBarrier(kind) =>
+                                    match (kind)
+                                    | GpuPipelineBarrierKind.DispatchToDispatch =>
+                                        commandBuffer.PipelineBarrier(
+                                            VkAccessFlags.VK_ACCESS_SHADER_WRITE_BIT, VkAccessFlags.VK_ACCESS_SHADER_READ_BIT,
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VkPipelineStageFlags.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+                                        )
+                                    | GpuPipelineBarrierKind.DispatchToDrawIndirect =>
+                                        commandBuffer.PipelineBarrier(
+                                            VkAccessFlags.VK_ACCESS_SHADER_WRITE_BIT, VkAccessFlags.VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VkPipelineStageFlags.VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
+                                        )   
+                                    | GpuPipelineBarrierKind.BottomPipeToVertexFragmentRead =>
+                                        commandBuffer.PipelineBarrier(
+                                            VkAccessFlags.VK_ACCESS_NONE, 
+                                            VkAccessFlags.VK_ACCESS_SHADER_READ_BIT,
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                        )  
+                                    | GpuPipelineBarrierKind.DepthStencilToVertexFragmentRead =>
+                                        commandBuffer.PipelineBarrier(
+                                            VkAccessFlags.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, 
+                                            VkAccessFlags.VK_ACCESS_SHADER_READ_BIT,
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VkPipelineStageFlags.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                        ) 
+                                    | GpuPipelineBarrierKind.BottomPipeToAllGraphics =>
+                                        commandBuffer.PipelineBarrier(
+                                            VkAccessFlags.VK_ACCESS_NONE, 
+                                            VkAccessFlags.VK_ACCESS_SHADER_READ_BIT,
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT
+                                        ) 
+                                    | GpuPipelineBarrierKind.Full =>
+                                        commandBuffer.PipelineBarrier(
+                                            VkAccessFlags.VK_ACCESS_MEMORY_READ_BIT | VkAccessFlags.VK_ACCESS_MEMORY_WRITE_BIT,
+                                            VkAccessFlags.VK_ACCESS_MEMORY_READ_BIT | VkAccessFlags.VK_ACCESS_MEMORY_WRITE_BIT,
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 
+                                            VkPipelineStageFlags.VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+                                        )                           
+                                    | _ =>
+                                        fail("Invalid pipeline barrier kind")
+
+                                | GpuCommand.DrawUI(gpuPipelineUI, windowViews) =>
+                                    let mutable gpuPipelineUI = gpuPipelineUI
+                                    if (gpuPipelineUI.Frame !== currentFrame)
+
+                                        let mutable gpuNextPipelineUI = unchecked default
+                                        if (!gpuPipelineUI.Frames.TryGetValue(currentFrame, &gpuNextPipelineUI))
+                                            gpuNextPipelineUI <- GpuPipelineUI(currentFrame, gpuPipelineUI.FontPath)
+                                            gpuPipelineUI.Frames.Add(currentFrame, gpuNextPipelineUI)
+
+                                        this.Upload(gpuNextPipelineUI)
+                                        gpuPipelineUI <- gpuNextPipelineUI
+
+                                    currentGpuPipeline <- unchecked default
+                                    currentPipeline <- VkPipeline.NULL
+
+                                    let prevFontCount = gpuPipelineUI.Fonts.Count
+
+                                    let context = UIContext(this, gpuPipelineUI)
+                                    UI.NewFrame(context)
+                                    ForEach(windowViews, 
+                                        windowView ->
+                                            UI.Show(context, windowView)
+                                    )
+                                    if (gpuPipelineUI.CanShowImGuiDemo)
+                                        UI.ShowImGuiDemo(context)
+                                    UI.EndFrame(context)
+                                    
+                                    let fontCount = gpuPipelineUI.Fonts.Count
+
+                                    if (prevFontCount != fontCount)
+                                        ImGui.UploadFonts(context.ImGuiContext)
+                                        UI.NewFrame(context)
+                                        ForEach(windowViews, 
+                                            windowView ->
+                                                UI.Show(context, windowView)
+                                        )
+                                        if (gpuPipelineUI.CanShowImGuiDemo)
+                                            UI.ShowImGuiDemo(context)
+                                        UI.EndFrame(context)
+
+                                    UI.Draw(context, commandBuffer.CommandBuffer, VkPipeline.NULL)
+                                    gpuPipelineUI.CanInitializeWindow <- false
+                                    
+                                | _ =>
+                                    ()
+                        )
+
+                        commandBuffer.End()
+
+                        commandBuffer
+                )
+            catch (ex: VulkanSwapChainOutOfDateException) =>
+                let size = this.window.Size
+                if (!this.window.IsClosed && size.X != 0 && size.Y != 0)
+                    Vk.WaitForIdle(this.vk)
+                    this.CleanupSwapChain()
+                    try
+                        this.RecreateSwapChain()
+                    catch (ex: VulkanSwapChainCreationFailedException) =>
+                        // swap-chain failed to create, bail out of application
+                        ()
+
+    Wait(): () =
+        Vk.WaitForIdle(this.vk)
+
+    Dispose(): () =
+        Vk.WaitForIdle(this.vk)
+
+        let gpuPipelineUIs = this.gpuPipelineUIs.ToArray()
+        let mutable i = 0
+        while (i < gpuPipelineUIs.Length)
+            this.Free(gpuPipelineUIs[i].Key)
+            i <- i + 1
+
+        let gpuPipelines = this.gpuPipelines.ToArray()
+        let mutable i = 0
+        while (i < gpuPipelines.Length)
+            this.Free(gpuPipelines[i].Key)
+            i <- i + 1
+
+        let gpuDescriptorSets = System.Linq.Enumerable.ToArray(this.gpuDescriptorSets)
+        let mutable i = 0
+        while (i < gpuDescriptorSets.Length)
+            this.Free(gpuDescriptorSets[i])
+            i <- i + 1
+
+        let gpuBuffers = this.gpuBuffers.ToArray()
+        let mutable i = 0
+        while (i < gpuBuffers.Length)
+            gpuBuffers[i].Key.Free(this)
+            i <- i + 1
+
+        let gpuFrames = this.gpuFrames.ToArray()
+        let mutable i = 0
+        while (i < gpuFrames.Length)
+            this.Free(gpuFrames[i].Key)
+            i <- i + 1
+
+        let gpuImages = this.gpuImages.ToArray()
+        let mutable i = 0
+        while (i < gpuImages.Length)
+            this.Free(gpuImages[i].Key)
+            i <- i + 1
+
+        let gpuArrays = this.gpuArrays.ToArray()
+        let mutable i = 0
+        while (i < gpuArrays.Length)
+            this.Free(gpuArrays[i].Key)
+            i <- i + 1
+
+        if (this.setLayoutManager.Count > 0)
+            fail("set layouts are not disposed")
+
+        this.CleanupSwapChain()
+
+        Vk.Destroy(this.vk)
+
+    private RecreateSwapChainIfNecessary(): () =
+        if (this.swapChain === unchecked default)
+            this.RecreateSwapChain()
+            
+    private RecreateSwapChain(): () =
+        Vk.WaitForIdle(this.vk)
+        
+        let vulkanApp = this.vk
+
+        ImGuiContext.InputContext <- unchecked default
+
+        let gpuPipelineUIs = this.gpuPipelineUIs.ToArray()
+        let mutable i = 0
+        while (i < gpuPipelineUIs.Length)
+            let gpuPipelineUI = gpuPipelineUIs[i].Key
+            if (gpuPipelineUI.ImGuiContext !== unchecked default)
+                ImGui.DestroyContext(gpuPipelineUI.ImGuiContext)
+                gpuPipelineUI.ImGuiContext <- unchecked default
+                gpuPipelineUI.RefreshFonts()
+            i <- i + 1
+
+        ForEach(this.gpuPipelines,
+            (mutable pair) ->
+                let program = pair.Key
+                Vk.DestroyPipeline(this.vk, program.VkPipeline)
+                program.VkPipeline <- VkPipeline.NULL
+        )
+
+        // TODO: Remove the commented code below, or uncomment it.
+        //       Do we actually need to do this for a swap-chain re-creation?
+        // We need to update all descriptor sets that were used
+        // ForEach(this.gpuDescriptorSets,
+        //     gpuDescriptorSet ->
+        //         let mutable i = 0
+        //         while (i < this.vk.MaxFramesInFlight)
+        //             gpuDescriptorSet.FrameUpdates[i] <- false
+        //             i <- i + 1
+        // )
+
+        this.swapChain <- unchecked default
+        if (Vk.TryCreateSwapChain(vulkanApp, VkFormat.VK_FORMAT_B8G8R8A8_UNORM, this.swapChainVsync, &this.swapChain))
+            this.swapChainRenderPass <- Vk.CreateRenderPass(vulkanApp, this.swapChain)
+            this.swapChainFramebuffers <- Vk.CreateSwapChainFramebuffers(vulkanApp, this.swapChain, this.swapChainRenderPass)
+
+    VerticalSyncEnabled: bool
+        get() = this.swapChainVsync
+        set(value) =
+            if (value != this.swapChainVsync)
+                this.swapChainVsync <- value
+                this.OnDisplayChanged()
+
+    field mutable superSamplingAmount: int32
+    SuperSamplingAmount: int32
+        get() = this.superSamplingAmount
+        set(value) =
+            if (value <= 0)
+                throw ArgumentOutOfRangeException("value")
+            if (value != this.superSamplingAmount)
+                this.superSamplingAmount <- value
+                this.OnDisplayChanged()
+
+    private CleanupSwapChain(): () =
+        if (this.swapChain !== unchecked default)
+            Vk.DestroyFramebuffers(this.vk, this.swapChainFramebuffers)   
+            Vk.DestroyRenderPass(this.vk, this.swapChainRenderPass)
+            Vk.DestroySwapChain(this.vk, this.swapChain)
+            this.swapChain <- unchecked default
+
+class RenderingOptions =
+    WindowTitle: string get, set = "Evergreen Engine"
+    IsFullscreen: bool get, set = false
+    DisplayMode: Option<DisplayMode> get, set = None
+    IsValidationEnabled: bool get, set = false
+
+// Graphics rendering for a window
+class Rendering =
+    implements IDisposable
+
+    new(options: RenderingOptions) =
+        // We must set this variable otherwise some multi-gpu setups will fail with integrated AMD and discrete NVIDIA cards.
+        Environment.SetEnvironmentVariable("DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1", "1")
+
+        // one-time initialization
+        if (!isInitialized)
+            lock(lockObj,
+                () ->
+                    if (!isInitialized)
+                        isInitialized <- true
+                        if (Evergreen.Graphics.Shader.Backend.Interop.Methods.egShaderInitialize() <= 0)
+                            fail("Shader initialization failed.")
+            )
+        
+        let window = WindowVulkan(options.WindowTitle)
+        window.IsFullscreen <- options.IsFullscreen
+        match (options.DisplayMode)
+        | Some(displayMode) =>
+            window.ChangeDisplayMode(displayMode)
+        | _ =>
+            window.ChangeDisplayMode(window.DesktopDisplayMode)
+
+        let vulkanAppOptions = VulkanApplicationOptions()
+        if (options.IsValidationEnabled)
+            vulkanAppOptions.ValidationFlags <- VulkanValidationFlags.Standard
+
+        let vulkanApp = Vk.Initialize(window.HWND, nint(0), vulkanAppOptions)
+
+        let gpu = Gpu(window, vulkanApp)
+        window.DisplayChanged.Add(x -> gpu.OnDisplayChanged())
+        
+        {
+            Window = window
+            Gpu = gpu
+        }
+
+    Window: IWindow get
+    Gpu: Gpu get
+
+    static field lockObj: object = System.Object()
+    static field mutable isInitialized: bool = false
+
+    Dispose(): () =
+        this.Gpu.Dispose()
+        this.Window.Dispose()
