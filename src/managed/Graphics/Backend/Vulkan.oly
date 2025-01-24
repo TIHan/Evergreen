@@ -573,7 +573,7 @@ module Vk =
     Initialize(hwnd: nint, hinstance: nint, options: VulkanApplicationOptions): VulkanApplication =
         validateOptions(options)
 
-        let asyncDrawEnabled = false // TODO: Enable this when we figure out the bug with uploading fonts.
+        let asyncDrawEnabled = true
 
         let maxFramesInFlight = 2 // double buffering - do not change
         let enableValidationLayers = options.ValidationFlags.HasFlag(VulkanValidationFlags.Standard)
@@ -618,7 +618,7 @@ module Vk =
         //     else
         //         result
 
-        let graphicsQueueCount = 1: uint32
+        let graphicsQueueCount = uint32(maxFramesInFlight)
         let computeQueueCount = 1: uint32
         let transferQueueCount = 1: uint32
         let presentQueueCount = 1: uint32
@@ -671,20 +671,21 @@ module Vk =
                 i ->
                     let mutable presentQueue = default
                     vkGetDeviceQueue(device, uint32(presentFamilyIndex), uint32(nextQueueIndex), &&presentQueue)
-                    //nextQueueIndex <- nextQueueIndex + 1
+                    nextQueueIndex <- nextQueueIndex + 1
                     presentQueue
             )
+
+        nextQueueIndex <- 0
 
         let graphicsQueues =
             initArray(maxFramesInFlight,
                 i ->
                     let mutable graphicsQueue = default
                     vkGetDeviceQueue(device, uint32(graphicsFamilyIndex), uint32(nextQueueIndex), &&graphicsQueue)
-                    //nextQueueIndex <- nextQueueIndex + 1
+                    nextQueueIndex <- nextQueueIndex + 1
                     graphicsQueue
             )
 
-        nextQueueIndex <- nextQueueIndex + 1
         if (computeFamilyIndex != graphicsFamilyIndex)
             nextQueueIndex <- 0
 
@@ -2819,12 +2820,6 @@ module Vk =
         submitInfo.signalSemaphoreCount <- 1
         submitInfo.pSignalSemaphores <- &&signalSemaphore
 
-        if (vkQueueWaitIdle(graphicsQueue) != VkResult.VK_SUCCESS)
-            fail("Failed to wait graphics queue.")
-
-        if (vkQueueWaitIdle(presentQueue) != VkResult.VK_SUCCESS)
-            fail("Failed to wait present queue.")
-
         if (vkQueueSubmit(graphicsQueue, 1, &&submitInfo, inFlightFence) != VkResult.VK_SUCCESS)
             fail("Failed to submit draw command buffer.")
 
@@ -2840,7 +2835,15 @@ module Vk =
         presentInfo.pImageIndices <- &&imageIndex
         presentInfo.pResults <- nullptr // Optional
 
-        vkQueuePresentKHR(presentQueue, &&presentInfo)
+        let result = vkQueuePresentKHR(presentQueue, &&presentInfo)
+
+        if (vkQueueWaitIdle(graphicsQueue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait graphics queue.")
+
+        if (vkQueueWaitIdle(presentQueue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait present queue.")
+
+        result
 
     // REVIEW: This doesn't appear to be used, should we remove it?
     private endAndSubmitCommands(device: VkDevice, commandPool: VkCommandPool, commandBuffer: VkCommandBuffer, queue: VkQueue): () =
