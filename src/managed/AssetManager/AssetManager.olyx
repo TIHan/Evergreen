@@ -132,6 +132,9 @@ module AssetManager =
 
 class AssetManager<T> where T: not struct =
 
+    private AsyncLock: object get
+    private AsyncTasks: ConcurrentDictionary<Int32Id, Task<T>> get
+
     private class Item =
         public field LockObject: object
         public field Name: string
@@ -181,6 +184,8 @@ class AssetManager<T> where T: not struct =
         let items = List()
         items.Add(unchecked default) // Add a dummy for index 0 since it is not valid.
         {
+            AsyncLock = Object()
+            AsyncTasks = ConcurrentDictionary()
             items = items
             freeAsset = freeAsset
             mappings = ConcurrentDictionary(StringComparer.OrdinalIgnoreCase)
@@ -293,6 +298,33 @@ class AssetManager<T> where T: not struct =
         | Some(observable) => observable.Value
         | _ => fail("should not happen")
 
+    private GetAsync(assetId: Int32Id): Task<T> =
+        let mutable task: Task<T> = null
+        if (this.AsyncTasks.TryGetValue(assetId, &task))
+            task
+        else
+            lock(this.AsyncLock,
+                () ->
+                    if (this.AsyncTasks.TryGetValue(assetId, &task))
+                        task
+                    else
+                        let task: Task<T> = // TODO-language-bug: Should not need to annotate 'Task<T>'
+                            Task.Factory.StartNew(
+                                () ->
+                                    System.Threading.Thread.Sleep(10000)
+                                    this.Get(assetId)
+                            )
+                        this.AsyncTasks[assetId] <- task
+                        task
+            )
+
+    GetNonBlocking(assetId: Int32Id): Option<T> =
+        let task = this.GetAsync(assetId)
+        if (task.IsCompletedSuccessfully)
+            Some(task.Result)
+        else
+            None
+
     TryGetName(assetId: Int32Id): Option<string> =
         if (assetId.IsValid)
             let item = this.items[assetId.Value]
@@ -344,6 +376,8 @@ class AssetManager<T> where T: not struct =
             | _ =>
                 ()
             let _ = this.GetItem(index)
+            let mutable result = unchecked default
+            let _ = this.AsyncTasks.TryRemove(assetId, &result)
 
     RegisterFiles(extensionName: string, directory: string, fs: IVirtualFileSystem, read: string -> T): () =
         this.RegisterFiles(extensionName, directory, fs, filePath -> return read(filePath))

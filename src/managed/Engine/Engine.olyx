@@ -74,6 +74,7 @@ main(args: string[]): () =
 #end
         let r = Rendering(options)
         r.Window.Show()
+        r.Gpu.RecreateSwapChainIfNecessary()
 
         // TODO: What do we do for server-only?
         let resx = Resources(r) // TODO-language-bug: crashes when doing 'Resources.Initialize(r)'. note: 'Initialize' doesn't exist.

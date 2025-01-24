@@ -493,6 +493,9 @@ module DrawHelpers =
         let mutable resultInstanceIndex = -1
 
         let images = images.Get(material.ImageId)
+            // match (images.GetNonBlocking(material.ImageId))
+            // | Some(images) => images
+            // | _ => images.Get(Int32Id(1))
 
         For(meshes.Length,
             i ->

@@ -139,7 +139,26 @@ class VulkanApplication =
         )
         total
 
-    new(validationLayersEnabled: bool, asyncDrawEnabled: bool, instance: VkInstance, surface: VkSurfaceKHR, physicalDevice: VkPhysicalDevice, device: VkDevice, graphicsQueues: VkQueue[], graphicsQueueFamilyIndex: uint32, computeQueue: VkQueue, computeQueueFamilyIndex: uint32, transferQueues: VkQueue[], transferQueueFamilyIndex: uint32, presentQueue: VkQueue, presentQueueFamilyIndex: uint32, debugMessenger: VkDebugUtilsMessengerEXT, imageAvailableSemaphores: VkSemaphore[], renderFinishedSemaphores: VkSemaphore[], inFlightFences: VkFence[], allocator: VmaAllocator) =
+    new(
+        validationLayersEnabled: bool, 
+        asyncDrawEnabled: bool, 
+        instance: VkInstance, 
+        surface: VkSurfaceKHR, 
+        physicalDevice: VkPhysicalDevice, 
+        device: VkDevice, 
+        graphicsQueues: VkQueue[], 
+        graphicsQueueFamilyIndex: uint32, 
+        computeQueue: VkQueue, 
+        computeQueueFamilyIndex: uint32,
+        transferQueues: VkQueue[], 
+        transferQueueFamilyIndex: uint32, 
+        presentQueue: VkQueue, 
+        presentQueueFamilyIndex: uint32, 
+        debugMessenger: VkDebugUtilsMessengerEXT, 
+        imageAvailableSemaphores: VkSemaphore[], 
+        renderFinishedSemaphores: VkSemaphore[], 
+        inFlightFences: VkFence[], 
+        allocator: VmaAllocator) =
         let graphicsCommandPool = Vk.createCommandPool(device, graphicsQueueFamilyIndex)
         let computeCommandPool = Vk.createCommandPool(device, computeQueueFamilyIndex)
         let transferCommandPool = Vk.createCommandPool(device, transferQueueFamilyIndex)
@@ -599,27 +618,57 @@ module Vk =
         //     else
         //         result
 
-        let maxQueueCount =
-            if (graphicsFamilyIndex == computeFamilyIndex && graphicsFamilyIndex == transferFamilyIndex && graphicsFamilyIndex == presentFamilyIndex)
-                int32(queueFamilyProperties[graphicsFamilyIndex].queueCount)
+        let graphicsQueueCount = 1: uint32//uint32(maxFramesInFlight)
+        let computeQueueCount = 1: uint32
+        let transferQueueCount = 1: uint32
+        let presentQueueCount = 1: uint32
+
+        let graphicsQueueCount =
+            if (graphicsFamilyIndex == computeFamilyIndex)
+                graphicsQueueCount + 1
             else
-                1
+                graphicsQueueCount
 
-        let maxQueueCount =
-            if (maxQueueCount >= (maxFramesInFlight + 4))
-                (maxFramesInFlight - 1) * 2 + 4 // the 2 represents graphics and transfer families
+        let graphicsQueueCount =
+            if (graphicsFamilyIndex == transferFamilyIndex)
+                graphicsQueueCount + 1//uint32(maxFramesInFlight)
             else
-                1
+                graphicsQueueCount
 
-        let maxQueueCount =
-            if (asyncDrawEnabled)
-                maxQueueCount
+        let graphicsQueueCount =
+            if (graphicsFamilyIndex == presentFamilyIndex)
+                graphicsQueueCount + 1
             else
-                1
+                graphicsQueueCount
 
-        let asyncDrawEnabled = maxQueueCount != 1
+        let computeQueueCount =
+            if (computeFamilyIndex == graphicsFamilyIndex)
+                0: uint32
+            else
+                computeQueueCount
 
-        let device = createDevice(enableValidationLayers, validationLayers, physicalDevice, graphicsFamilyIndex, computeFamilyIndex, transferFamilyIndex, presentFamilyIndex, maxQueueCount)
+        let transferQueueCount =
+            if (transferFamilyIndex == graphicsFamilyIndex)
+                0: uint32
+            else
+                transferQueueCount
+
+        let presentQueueCount =
+            if (presentFamilyIndex == graphicsFamilyIndex)
+                0: uint32
+            else
+                presentQueueCount
+
+        let device = 
+            createDevice(
+                enableValidationLayers, 
+                validationLayers, 
+                physicalDevice, 
+                graphicsFamilyIndex, graphicsQueueCount,
+                computeFamilyIndex, computeQueueCount,
+                transferFamilyIndex, transferQueueCount, 
+                presentFamilyIndex, presentQueueCount
+            )
 
         let mutable nextQueueIndex = 0
 
@@ -628,25 +677,35 @@ module Vk =
                 i ->
                     let mutable graphicsQueue = default
                     vkGetDeviceQueue(device, uint32(graphicsFamilyIndex), uint32(nextQueueIndex), &&graphicsQueue)
-                    if (asyncDrawEnabled)
-                        nextQueueIndex <- nextQueueIndex + 1
+                    //nextQueueIndex <- nextQueueIndex + 1
                     graphicsQueue
             )
 
+        //nextQueueIndex <- nextQueueIndex + 1
+
+        if (computeFamilyIndex != graphicsFamilyIndex)
+            nextQueueIndex <- 0
+
         let mutable computeQueue = default
         vkGetDeviceQueue(device, uint32(computeFamilyIndex), uint32(nextQueueIndex), &&computeQueue)
-        if (asyncDrawEnabled)
-            nextQueueIndex <- nextQueueIndex + 1
+        //nextQueueIndex <- nextQueueIndex + 1
+
+        if (transferFamilyIndex != graphicsFamilyIndex)
+            nextQueueIndex <- 0
 
         let transferQueues =
             initArray(maxFramesInFlight,
                 i ->
                     let mutable transferQueue = default
                     vkGetDeviceQueue(device, uint32(transferFamilyIndex), uint32(nextQueueIndex), &&transferQueue)
-                    if (asyncDrawEnabled)
-                        nextQueueIndex <- nextQueueIndex + 1
+                    //nextQueueIndex <- nextQueueIndex + 1
                     transferQueue
             )
+
+        //nextQueueIndex <- nextQueueIndex + 1
+
+        if (presentFamilyIndex != graphicsFamilyIndex)
+            nextQueueIndex <- 0
 
         let mutable presentQueue = default
         vkGetDeviceQueue(device, uint32(presentFamilyIndex), uint32(nextQueueIndex), &&presentQueue)
@@ -938,10 +997,10 @@ module Vk =
                 submitInfo.commandBufferCount <- 1
                 submitInfo.pCommandBuffers <- &&commandBuffer
 
-                if (vkQueueSubmit(app.TransferQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+                if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
                     fail("Failed to submit queue.")
 
-                if (vkQueueWaitIdle(app.TransferQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+                if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
                     fail("Failed to wait for idle queue.")
 
                 vkFreeCommandBuffers(app.Device, app.TransferCommandPool, 1, &&commandBuffer)
@@ -1481,39 +1540,53 @@ module Vk =
             fail("Failed to create window surface.")
         surface
 
-    private createDevice(enableValidationLayers: bool, validationLayers: string[], physicalDevice: VkPhysicalDevice, graphicsFamilyIndex: int32, computeFamilyIndex: int32, transferFamilyIndex: int32,  presentFamilyIndex: int32, maxQueueCount: int32): VkDevice =
+    private createDevice(
+            enableValidationLayers: bool, 
+            validationLayers: string[], 
+            physicalDevice: VkPhysicalDevice, 
+            graphicsFamilyIndex: int32, 
+            graphicsQueueCount: uint32,
+            computeFamilyIndex: int32, 
+            computeQueueCount: uint32,
+            transferFamilyIndex: int32,
+            transferQueueCount: uint32,
+            presentFamilyIndex: int32,
+            presentQueueCount: uint32): VkDevice =
         // Graphics Queue
-        let mutable graphicsQueuePriorities = initArray(maxQueueCount, i -> 1.0: float32)
+        let mutable graphicsQueuePriorities = initArray(int32(graphicsQueueCount), i -> 1.0: float32)
         let mutable graphicsQueueCreateInfo = default: VkDeviceQueueCreateInfo
         let mutable graphicsQueuePrioritiesHandle = fixed(graphicsQueuePriorities)
         graphicsQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
         graphicsQueueCreateInfo.queueFamilyIndex <- uint32(graphicsFamilyIndex)
-        graphicsQueueCreateInfo.queueCount <- uint32(maxQueueCount)
+        graphicsQueueCreateInfo.queueCount <- graphicsQueueCount
         graphicsQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(graphicsQueuePrioritiesHandle.AddrOfPinnedObject())
 
         // Compute Queue
-        let mutable computeQueuePriority = 1.0: float32
+        let mutable computeQueuePriorities = initArray(int32(computeQueueCount), i -> 1.0: float32)
         let mutable computeQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        let mutable computeQueuePrioritiesHandle = fixed(computeQueuePriorities)
         computeQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
         computeQueueCreateInfo.queueFamilyIndex <- uint32(computeFamilyIndex)
-        computeQueueCreateInfo.queueCount <- 1
-        computeQueueCreateInfo.pQueuePriorities <- &&computeQueuePriority
+        computeQueueCreateInfo.queueCount <- computeQueueCount
+        computeQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(computeQueuePrioritiesHandle.AddrOfPinnedObject())
 
         // Transfer Queue
-        let mutable transferQueuePriority = 1.0: float32
+        let mutable transferQueuePriorities = initArray(int32(transferQueueCount), i -> 1.0: float32)
         let mutable transferQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        let mutable transferQueuePrioritiesHandle = fixed(transferQueuePriorities)
         transferQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
         transferQueueCreateInfo.queueFamilyIndex <- uint32(transferFamilyIndex)
-        transferQueueCreateInfo.queueCount <- 1
-        transferQueueCreateInfo.pQueuePriorities <- &&transferQueuePriority
+        transferQueueCreateInfo.queueCount <- transferQueueCount
+        transferQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(transferQueuePrioritiesHandle.AddrOfPinnedObject())
 
         // Present Queue
-        let mutable presentQueuePriority = 1.0: float32
+        let mutable presentQueuePriorities = initArray(int32(presentQueueCount), i -> 1.0: float32)
         let mutable presentQueueCreateInfo = default: VkDeviceQueueCreateInfo
+        let mutable presentQueuePrioritiesHandle = fixed(presentQueuePriorities)
         presentQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
         presentQueueCreateInfo.queueFamilyIndex <- uint32(presentFamilyIndex)
-        presentQueueCreateInfo.queueCount <- 1
-        presentQueueCreateInfo.pQueuePriorities <- &&presentQueuePriority
+        presentQueueCreateInfo.queueCount <- presentQueueCount
+        presentQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(presentQueuePrioritiesHandle.AddrOfPinnedObject())
 
         // TODO: We need to query these to ensure they are actually supported.
         let mutable deviceFeatures = default: VkPhysicalDeviceFeatures2
@@ -1550,7 +1623,7 @@ module Vk =
 
         // Queues
         let queueCreateInfos = [graphicsQueueCreateInfo;computeQueueCreateInfo;transferQueueCreateInfo;presentQueueCreateInfo]
-        let queueCreateInfos = distinctBy(queueCreateInfos, x -> x.queueFamilyIndex)
+        let queueCreateInfos = filter(distinctBy(queueCreateInfos, x -> x.queueFamilyIndex), x -> x.queueCount > 0)
         let mutable queueCreateInfosHandle = fixed(queueCreateInfos)
         createInfo.queueCreateInfoCount <- uint32(queueCreateInfos.Length)
         createInfo.pQueueCreateInfos <- Unsafe.AsPointer(queueCreateInfosHandle.AddrOfPinnedObject())

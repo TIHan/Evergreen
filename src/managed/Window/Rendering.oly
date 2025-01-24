@@ -230,7 +230,13 @@ internal class DescriptorSetLayoutManager =
         else
             lock(this.lockObj,
                 () ->
-                    if (!this.setLayouts.TryGetValue(bindingInfos, &setLayout))
+                    if (this.setLayouts.TryGetValue(bindingInfos, &setLayout))
+                        let mutable refCount = 0
+                        if (this.refCounts.TryGetValue(setLayout, &refCount) && refCount > 0)
+                            this.refCounts[setLayout] <- refCount + 1
+                        else
+                            fail("Invalid state of descriptor set management")
+                    else
                         setLayout <- Vk.CreateDescriptorSetLayout(this.vk, ReadOnlySpan<VulkanDescriptorSetLayoutBinding>.op_Implicit(Unsafe.AsMutable(bindingInfos)))
                         this.setLayouts[bindingInfos] <- setLayout
                         this.bindingInfos[setLayout] <- bindingInfos
@@ -2019,7 +2025,7 @@ class Gpu =
             let result = this.gpuDescriptorSets.Remove(gpuDescriptorSet)
 
     // This is 'internal' instead of 'private' because ImGui needs to call this.
-    internal Upload(gpuImage: IGpuImage): () =
+    Upload(gpuImage: IGpuImage): () =
         match (gpuImage.ImageKind)
         | GpuImageKind.Image =>
             this.Upload(Unsafe.Cast<GpuImage>(gpuImage))
@@ -2673,8 +2679,6 @@ class Gpu =
             gpuFrame.IsDirty <- true
 
     Free(gpuPipeline: GpuPipeline): () =
-        Vk.WaitForIdle(this.vk)
-
         if (gpuPipeline.VkPipelineLayout != VkPipelineLayout.NULL)
             Vk.WaitForIdle(this.vk)
 
@@ -3104,7 +3108,7 @@ class Gpu =
 
         Vk.Destroy(this.vk)
 
-    private RecreateSwapChainIfNecessary(): () =
+    RecreateSwapChainIfNecessary(): () =
         if (this.swapChain === unchecked default)
             this.RecreateSwapChain()
             

@@ -313,12 +313,14 @@ class Resources =
         let spriteShadowMaps = frameManager.Get("sprite_shadow_maps")
     
         let shaderManager = AssetManager<byte[]>((name, _bytes) -> Log("Freeing shader bytes '" + name + "'"))
+
+        let asyncLock = Object()
     
         let readImage(path: string) =
             match (path)
             | _ =>
                 let image = RenderingHelpers.CreateImage(path): IGpuImage // TODO-language-bug: We do not need the type annotation 'IGpuImage' here.
-                //r.Gpu.Sync(image)
+                //lock(asyncLock, () -> r.Gpu.Upload(image))
                 [(image: IGpuImage)]
     
         imageManager.RegisterFiles(".png", "Textures", fs, readImage)
