@@ -85,13 +85,13 @@ class VulkanApplication =
     GraphicsQueues: VkQueue[] get
     GraphicsQueueFamilyIndex: uint32 get
     GraphicsCommandPool: VkCommandPool get
-    ComputeQueue: VkQueue get
+    ComputeQueues: VkQueue[] get
     ComputeQueueFamilyIndex: uint32 get
     ComputeCommandPool: VkCommandPool get
     TransferQueues: VkQueue[] get
     TransferQueueFamilyIndex: uint32 get
     TransferCommandPool: VkCommandPool get
-    PresentQueue: VkQueue get
+    PresentQueues: VkQueue[] get
     PresentQueueFamilyIndex: uint32 get
     DebugMessenger: VkDebugUtilsMessengerEXT get
     ImageAvailableSemaphores: VkSemaphore[] get
@@ -148,11 +148,11 @@ class VulkanApplication =
         device: VkDevice, 
         graphicsQueues: VkQueue[], 
         graphicsQueueFamilyIndex: uint32, 
-        computeQueue: VkQueue, 
+        computeQueues: VkQueue[], 
         computeQueueFamilyIndex: uint32,
         transferQueues: VkQueue[], 
         transferQueueFamilyIndex: uint32, 
-        presentQueue: VkQueue, 
+        presentQueues: VkQueue[], 
         presentQueueFamilyIndex: uint32, 
         debugMessenger: VkDebugUtilsMessengerEXT, 
         imageAvailableSemaphores: VkSemaphore[], 
@@ -173,13 +173,13 @@ class VulkanApplication =
             GraphicsQueues = graphicsQueues
             GraphicsQueueFamilyIndex = graphicsQueueFamilyIndex
             GraphicsCommandPool = graphicsCommandPool
-            ComputeQueue = computeQueue
+            ComputeQueues = computeQueues
             ComputeQueueFamilyIndex = computeQueueFamilyIndex
             ComputeCommandPool = computeCommandPool
             TransferQueues = transferQueues
             TransferQueueFamilyIndex = transferQueueFamilyIndex
             TransferCommandPool = transferCommandPool
-            PresentQueue = presentQueue
+            PresentQueues = presentQueues
             PresentQueueFamilyIndex = presentQueueFamilyIndex
             DebugMessenger = debugMessenger
             ImageAvailableSemaphores = imageAvailableSemaphores
@@ -618,26 +618,20 @@ module Vk =
         //     else
         //         result
 
-        let graphicsQueueCount = 1: uint32//uint32(maxFramesInFlight)
+        let graphicsQueueCount = 1: uint32
         let computeQueueCount = 1: uint32
         let transferQueueCount = 1: uint32
         let presentQueueCount = 1: uint32
 
         let graphicsQueueCount =
             if (graphicsFamilyIndex == computeFamilyIndex)
-                graphicsQueueCount + 1
+                graphicsQueueCount + uint32(maxFramesInFlight)
             else
                 graphicsQueueCount
 
         let graphicsQueueCount =
             if (graphicsFamilyIndex == transferFamilyIndex)
-                graphicsQueueCount + 1//uint32(maxFramesInFlight)
-            else
-                graphicsQueueCount
-
-        let graphicsQueueCount =
-            if (graphicsFamilyIndex == presentFamilyIndex)
-                graphicsQueueCount + 1
+                graphicsQueueCount + uint32(maxFramesInFlight)
             else
                 graphicsQueueCount
 
@@ -672,6 +666,15 @@ module Vk =
 
         let mutable nextQueueIndex = 0
 
+        let presentQueues =
+            initArray(maxFramesInFlight,
+                i ->
+                    let mutable presentQueue = default
+                    vkGetDeviceQueue(device, uint32(presentFamilyIndex), uint32(nextQueueIndex), &&presentQueue)
+                    //nextQueueIndex <- nextQueueIndex + 1
+                    presentQueue
+            )
+
         let graphicsQueues =
             initArray(maxFramesInFlight,
                 i ->
@@ -681,14 +684,18 @@ module Vk =
                     graphicsQueue
             )
 
-        //nextQueueIndex <- nextQueueIndex + 1
-
+        nextQueueIndex <- nextQueueIndex + 1
         if (computeFamilyIndex != graphicsFamilyIndex)
             nextQueueIndex <- 0
 
-        let mutable computeQueue = default
-        vkGetDeviceQueue(device, uint32(computeFamilyIndex), uint32(nextQueueIndex), &&computeQueue)
-        //nextQueueIndex <- nextQueueIndex + 1
+        let computeQueues =
+            initArray(maxFramesInFlight,
+                i ->
+                    let mutable computeQueue = default
+                    vkGetDeviceQueue(device, uint32(computeFamilyIndex), uint32(nextQueueIndex), &&computeQueue)
+                    nextQueueIndex <- nextQueueIndex + 1
+                    computeQueue
+            )
 
         if (transferFamilyIndex != graphicsFamilyIndex)
             nextQueueIndex <- 0
@@ -698,17 +705,9 @@ module Vk =
                 i ->
                     let mutable transferQueue = default
                     vkGetDeviceQueue(device, uint32(transferFamilyIndex), uint32(nextQueueIndex), &&transferQueue)
-                    //nextQueueIndex <- nextQueueIndex + 1
+                    nextQueueIndex <- nextQueueIndex + 1
                     transferQueue
             )
-
-        //nextQueueIndex <- nextQueueIndex + 1
-
-        if (presentFamilyIndex != graphicsFamilyIndex)
-            nextQueueIndex <- 0
-
-        let mutable presentQueue = default
-        vkGetDeviceQueue(device, uint32(presentFamilyIndex), uint32(nextQueueIndex), &&presentQueue)
 
         // Sync objects
         let mutable semaphoreInfo = default: VkSemaphoreCreateInfo
@@ -758,7 +757,7 @@ module Vk =
         if (vmaCreateAllocator(&&allocatorCreateInfo, &&allocator) != VkResult.VK_SUCCESS)
             fail("Failed to create allocator.")
 
-        VulkanApplication(enableValidationLayers, asyncDrawEnabled, instance, surface, physicalDevice, device, graphicsQueues, uint32(graphicsFamilyIndex), computeQueue, uint32(computeFamilyIndex), transferQueues, uint32(transferFamilyIndex), presentQueue, uint32(presentFamilyIndex), debugMessenger, Unsafe.AsImmutable(imageAvailableSemaphores), Unsafe.AsImmutable(renderFinishedSemaphores), Unsafe.AsImmutable(inFlightFences), allocator)
+        VulkanApplication(enableValidationLayers, asyncDrawEnabled, instance, surface, physicalDevice, device, graphicsQueues, uint32(graphicsFamilyIndex), computeQueues, uint32(computeFamilyIndex), transferQueues, uint32(transferFamilyIndex), presentQueues, uint32(presentFamilyIndex), debugMessenger, Unsafe.AsImmutable(imageAvailableSemaphores), Unsafe.AsImmutable(renderFinishedSemaphores), Unsafe.AsImmutable(inFlightFences), allocator)
 
     TryCreateSwapChain(app: VulkanApplication, format: VkFormat, vsync: bool, swapChain: byref<VulkanSwapChain>): bool =
         tryCreateSwapChain(app, format, vsync, &swapChain)
@@ -997,10 +996,10 @@ module Vk =
                 submitInfo.commandBufferCount <- 1
                 submitInfo.pCommandBuffers <- &&commandBuffer
 
-                if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+                if (vkQueueSubmit(app.TransferQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
                     fail("Failed to submit queue.")
 
-                if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+                if (vkQueueWaitIdle(app.TransferQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
                     fail("Failed to wait for idle queue.")
 
                 vkFreeCommandBuffers(app.Device, app.TransferCommandPool, 1, &&commandBuffer)
@@ -1078,13 +1077,13 @@ module Vk =
         submitInfo.commandBufferCount <- 1
         submitInfo.pCommandBuffers <- &&commandBuffer
 
-        if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+        if (vkQueueSubmit(app.TransferQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
             fail("Failed to submit queue.")
 
-        if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+        if (vkQueueWaitIdle(app.TransferQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
             fail("Failed to wait for idle queue.")
 
-        vkFreeCommandBuffers(app.Device, app.GraphicsCommandPool, 1, &&commandBuffer)
+        vkFreeCommandBuffers(app.Device, app.TransferCommandPool, 1, &&commandBuffer)
 
     TransitionImageLayout(app: VulkanApplication, image: VkImage, width: uint32, height: uint32, format: VkFormat, targetLayout: VkImageLayout, mipLevels: uint32, layerCount: uint32): () =
         let size = uint64(width) * uint64(height) * 4 * uint64(layerCount)
@@ -1120,7 +1119,7 @@ module Vk =
                 extent.depth <- 1
                 extent
 
-            let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPool)
+            let mutable commandBuffer = createCommandBuffer(app.Device, app.TransferCommandPool)
 
             let mutable beginInfo = default: VkCommandBufferBeginInfo
             beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
@@ -1158,13 +1157,13 @@ module Vk =
             submitInfo.commandBufferCount <- 1
             submitInfo.pCommandBuffers <- &&commandBuffer
 
-            if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+            if (vkQueueSubmit(app.TransferQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
                 fail("Failed to submit queue.")
 
-            if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+            if (vkQueueWaitIdle(app.TransferQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
                 fail("Failed to wait for idle queue.")
 
-            vkFreeCommandBuffers(app.Device, app.GraphicsCommandPool, 1, &&commandBuffer)
+            vkFreeCommandBuffers(app.Device, app.TransferCommandPool, 1, &&commandBuffer)
 
             vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
 
@@ -1211,7 +1210,7 @@ module Vk =
                     extent.depth <- 1
                     extent
 
-                let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPool)
+                let mutable commandBuffer = createCommandBuffer(app.Device, app.TransferCommandPool)
 
                 let mutable beginInfo = default: VkCommandBufferBeginInfo
                 beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
@@ -1245,13 +1244,13 @@ module Vk =
                 submitInfo.commandBufferCount <- 1
                 submitInfo.pCommandBuffers <- &&commandBuffer
 
-                if (vkQueueSubmit(app.GraphicsQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
+                if (vkQueueSubmit(app.TransferQueues[app.CurrentFrame], 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
                     fail("Failed to submit queue.")
 
-                if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+                if (vkQueueWaitIdle(app.TransferQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
                     fail("Failed to wait for idle queue.")
 
-                vkFreeCommandBuffers(app.Device, app.GraphicsCommandPool, 1, &&commandBuffer)
+                vkFreeCommandBuffers(app.Device, app.TransferCommandPool, 1, &&commandBuffer)
 
                 vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
 
@@ -1345,10 +1344,10 @@ module Vk =
                 task <-
                     System.Threading.Tasks.Task.Run(
                         () ->
-                            draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueue, commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+                            draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
                     )
             else
-                let result = draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueue, commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+                let result = draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
                 
                 // TODO: Remove the commented code below when we feel comfortable that we do not need it.
                 //if (result == VkResult.VK_ERROR_OUT_OF_DATE_KHR || result == VkResult.VK_SUBOPTIMAL_KHR || app.isOutOfDate)
@@ -2819,6 +2818,12 @@ module Vk =
         
         submitInfo.signalSemaphoreCount <- 1
         submitInfo.pSignalSemaphores <- &&signalSemaphore
+
+        if (vkQueueWaitIdle(graphicsQueue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait graphics queue.")
+
+        if (vkQueueWaitIdle(presentQueue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait present queue.")
 
         if (vkQueueSubmit(graphicsQueue, 1, &&submitInfo, inFlightFence) != VkResult.VK_SUCCESS)
             fail("Failed to submit draw command buffer.")
