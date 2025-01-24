@@ -23,6 +23,7 @@ class RenderScene =
     implements IDisposable
 
     field Gpu: Gpu
+    field renv: RenderEnv
     field mutable WorldFront: RenderingWorld
     field mutable WorldBack: RenderingWorld
 
@@ -31,6 +32,7 @@ class RenderScene =
     new(renv: RenderEnv) =
         {
             Gpu = renv.Gpu
+            renv = renv
             WorldFront = RenderingWorld(renv)
             WorldBack = RenderingWorld(renv)
         }
@@ -118,5 +120,5 @@ class RenderScene =
 
     Dispose(): () =
         this.Gpu.Wait()
-        this.WorldFront.FreeResources(this.Gpu)
-        this.WorldBack.FreeResources(this.Gpu)
+        this.WorldFront.FreeResources(this.Gpu, this.renv)
+        this.WorldBack.FreeResources(this.Gpu, this.renv)

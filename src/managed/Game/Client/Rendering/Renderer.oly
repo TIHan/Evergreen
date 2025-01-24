@@ -405,12 +405,14 @@ struct RenderKey =
     public field Material: Material
     public field MeshKey: MeshKey
     public field Order: byte
-    new(pipelineId: Int32Id, meshKey: MeshKey, material: Material, order: byte) =
+    public field Placeholder: byte
+    new(pipelineId: Int32Id, meshKey: MeshKey, material: Material, order: byte, placeholder: byte) =
         {
             PipelineId = pipelineId
             Material = material
             MeshKey = meshKey
             Order = order
+            Placeholder = placeholder
         }
 
     static Comparer: IEqualityComparer<RenderKey> get =
@@ -425,7 +427,8 @@ struct RenderKey =
                     (key1.MeshKey.MaterialIndex == key2.MeshKey.MaterialIndex) &&
                     (key1.Material.Flags == key2.Material.Flags) &&
                     (key1.Order == key2.Order) &&
-                    (key1.PipelineId.Value == key2.PipelineId.Value)
+                    (key1.PipelineId.Value == key2.PipelineId.Value) &&
+                    (key1.Placeholder == key2.Placeholder)
         Impl()
 
 struct DrawBatchInfo =
@@ -451,6 +454,9 @@ struct DrawLightInfo =
         this.Camera.GetTransform(this.CameraPosition)
 
 module DrawHelpers =
+
+    /// TODO: Get rid of this global!
+    public field ImagesToDelete: System.Collections.Generic.HashSet<Int32Id> = System.Collections.Generic.HashSet()
 
     GetPipelineIdFromMaterial(renv: RenderEnv, isSprite: bool, material: inref<Material>): Int32Id =
         let flags = material.Flags
@@ -492,78 +498,84 @@ module DrawHelpers =
         let mutable resultKey = default
         let mutable resultInstanceIndex = -1
 
-        let images = images.Get(material.ImageId)
+        let (images, isPlaceholder) = (images.Get(material.ImageId), false)
             // match (images.GetNonBlocking(material.ImageId))
-            // | Some(images) => images
-            // | _ => images.Get(Int32Id(1))
+            // | Some(images) => (images, false)
+            // | _ => ([], true)
 
-        For(meshes.Length,
-            i ->
-                let mesh = meshes[i]
-                let meshKey = MeshKey(meshId, i, mesh.MaterialIndex)
+        if (!isPlaceholder)
+            let _ = ImagesToDelete.Add(material.ImageId)
 
-                if (meshKey.MaterialIndex < images.Length)
-                    let image = images[meshKey.MaterialIndex]
-                    let key = RenderKey(pipelineId, meshKey, material, order)           
-                    let (instanceList, aabb, gpuDescriptorSet, drawCmdIndex, drawQueue) =
-                        let mutable result = unchecked default
-                        if (lookup.TryGetValue(key, &result))
-                            result
-                        else
-                            let transformList = List()
-                            let gpuDescriptorSet = 
-                                GpuDescriptorSet(
-                                    GpuDescriptorSetLayout(
-                                        [
-                                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)
-                                        ]
-                                    ),
-                                    [outputInstances: IGpuInput]
-                                )
+        if (images.Length > 0)
+            For(meshes.Length,
+                i ->
+                    let mesh = meshes[i]
+                    let meshKey = MeshKey(meshId, i, mesh.MaterialIndex)
 
-                            let aabb =
-                                if (isSprite)
-                                    let value = float32(Math.Max(image.Width, image.Height))
-                                    let v = Vector3(value, value, value)
-                                    AABB(-v, v)
-                                else
-                                    mesh.AABB
+                    if (meshKey.MaterialIndex < images.Length)
+                        let image = images[meshKey.MaterialIndex]
+                        let key = RenderKey(pipelineId, meshKey, material, order, if (isPlaceholder) 1: byte else 0)           
+                        let (instanceList, aabb, gpuDescriptorSet, drawCmdIndex, drawQueue) =
+                            let mutable result = unchecked default
+                            if (lookup.TryGetValue(key, &result))
+                                result
+                            else
+                                let transformList = List()
+                                let gpuDescriptorSet = 
+                                    GpuDescriptorSet(
+                                        GpuDescriptorSetLayout(
+                                            [
+                                                GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)
+                                            ]
+                                        ),
+                                        [outputInstances: IGpuInput]
+                                    )
 
-                            let result = (transformList, aabb, gpuDescriptorSet, nextDrawCmdIndex, List())
+                                let aabb =
+                                    if (isSprite)
+                                        let value = float32(Math.Max(image.Width, image.Height))
+                                        let v = Vector3(value, value, value)
+                                        AABB(-v, v)
+                                    else
+                                        mesh.AABB
 
-                            drawCmds.Array[nextDrawCmdIndex] <-
-                                let mutable drawCmd = default: TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand
-                                drawCmd.indexCount <- uint32(mesh.Indices.Length)
-                                drawCmd
-                            drawCmds.NeedsUpdate <- true
+                                let result = (transformList, aabb, gpuDescriptorSet, nextDrawCmdIndex, List())
 
-                            nextDrawCmdIndex <- nextDrawCmdIndex + 1
-                            lookup[key] <- result
-                            result
+                                drawCmds.Array[nextDrawCmdIndex] <-
+                                    let mutable drawCmd = default: TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand
+                                    drawCmd.indexCount <- uint32(mesh.Indices.Length)
+                                    drawCmd
+                                drawCmds.NeedsUpdate <- true
 
-                    let mutable prevTransform = previousTransform
-                    let mutable transform = transform
+                                nextDrawCmdIndex <- nextDrawCmdIndex + 1
+                                lookup[key] <- result
+                                result
 
-                    if (isSprite)
-                        prevTransform.Translation <- prevTransform.Translation + Vector3(0, 0, (float32(image.Height) * 0.025))
-                        transform.Translation <- transform.Translation + Vector3(0, 0, (float32(image.Height) * 0.025))
+                        let mutable prevTransform = previousTransform
+                        let mutable transform = transform
 
-                    let textureIndex = textures.AddImage(image)
+                        if (isSprite)
+                            prevTransform.Translation <- prevTransform.Translation + Vector3(0, 0, (float32(image.Height) * 0.025))
+                            transform.Translation <- transform.Translation + Vector3(0, 0, (float32(image.Height) * 0.025))
 
-                    let mutable prevInstance = ShaderInstance()
-                    prevInstance.Transform <- prevTransform
-                    prevInstance.TextureIndex <- textureIndex
+                        let textureIndex = textures.AddImage(image)
 
-                    let mutable instance = ShaderInstance()
-                    instance.Transform <- transform
-                    instance.TextureIndex <- textureIndex
-                            
-                    resultKey <- key
-                    resultInstanceIndex <- instanceList.Count
-                    instanceList.Add((prevInstance, instance))
-        )
+                        let mutable prevInstance = ShaderInstance()
+                        prevInstance.Transform <- prevTransform
+                        prevInstance.TextureIndex <- textureIndex
 
-        (resultKey, resultInstanceIndex)
+                        let mutable instance = ShaderInstance()
+                        instance.Transform <- transform
+                        instance.TextureIndex <- textureIndex
+                                
+                        resultKey <- key
+                        resultInstanceIndex <- instanceList.Count
+                        instanceList.Add((prevInstance, instance))
+            )
+
+            (resultKey, resultInstanceIndex)
+        else
+            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0, 0), -1)
 
     PrepareDraw(
             textures: ShaderTextures,
@@ -586,7 +598,7 @@ module DrawHelpers =
             let transform = transform.Matrix
             PrepareDraw(textures, pipelineId, isSprite, meshes, images, &transformLerp, &transform, meshRef.MeshId, material, outputInstances, drawCmds, &nextDrawCmdIndex, lookup, order)
         else
-            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
+            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0, 0), -1)
 
     QueueDraw(memoryOffset: int32, mutable prevInstances: Memory<ShaderInstance>, mutable instances: Memory<ShaderInstance>, mutable aabbs: Memory<AABB>, mutable drawBatchIndices: Memory<DrawBatchInfo>, lookup: DrawLookup): int32 =
         if (memoryOffset < 0)
@@ -922,7 +934,7 @@ class Renderer =
                         DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
 
-    FreeResources(gpu: Gpu): () =
+    FreeResources(gpu: Gpu, renv: RenderEnv): () =
         ForEach(this.NoOutlineLookup,
             (mutable pair) ->
                 let (_, _, ds, _, drawQueue) = pair.Value
@@ -956,6 +968,9 @@ class Renderer =
         gpu.Free(this.DrawCommands)
         gpu.Free(this.LerpComputeDescriptorSet)
         gpu.Free(this.FrustumCullingComputeDescriptorSet)
+
+        ForEach(DrawHelpers.ImagesToDelete, x -> renv.ImageManager.Free(x))
+        DrawHelpers.ImagesToDelete.Clear()
 
     module Logic =
 

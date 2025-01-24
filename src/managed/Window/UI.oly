@@ -1307,7 +1307,7 @@ module UI =
                 if (view.descriptorSet != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
                     ImGui.DestroyTexture(context.ImGuiContext, view.descriptorSet)
                 view.descriptorSet <-
-                    context.Gpu.Upload(view.GpuImage)
+                    context.Gpu.Upload(view.GpuImage, /* isAsync */false)
                     ImGui.CreateTexture(context.ImGuiContext, view.GpuImage.GetVkSampler(), view.GpuImage.GetVkImageView(/* todo: ehh not good */ 0), view.GpuImage.GetVkImageLayout(),
                         () ->
                             view.descriptorSet <- Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL

@@ -1888,7 +1888,7 @@ class Gpu =
 
                 | GpuResourceKind.Image =>
                     let image = Unsafe.Cast<IGpuImage>(gpuResource)
-                    this.Upload(image)
+                    this.Upload(image, /* isAsync */false)
 
                     if (offset != -1)
                         fail("Invalid offset")
@@ -2025,18 +2025,20 @@ class Gpu =
             let result = this.gpuDescriptorSets.Remove(gpuDescriptorSet)
 
     // This is 'internal' instead of 'private' because ImGui needs to call this.
-    Upload(gpuImage: IGpuImage): () =
+    Upload(gpuImage: IGpuImage, isAsync: bool): () =
         match (gpuImage.ImageKind)
         | GpuImageKind.Image =>
-            this.Upload(Unsafe.Cast<GpuImage>(gpuImage))
+            this.Upload(Unsafe.Cast<GpuImage>(gpuImage), if (isAsync) VulkanQueueKind.Async else VulkanQueueKind.Standard)
         | GpuImageKind.Frame =>
+            if (isAsync) throw NotImplementedException()
             this.Upload(Unsafe.Cast<GpuFrameImage>(gpuImage).Frame)
         | GpuImageKind.FrameView =>
+            if (isAsync) throw NotImplementedException()
             this.Upload(Unsafe.Cast<GpuFrameImageView>(gpuImage).Frame)
         | _ =>
             fail("invalid image kind")
 
-    private Upload(gpuImage: GpuImage): () =
+    private Upload(gpuImage: GpuImage, vulkanQueueKind: VulkanQueueKind): () =
         if (gpuImage.IsDirty)
             gpuImage.IsDirty <- false
 
@@ -2046,7 +2048,7 @@ class Gpu =
             let mutable vulkanImageCreateInfo = VulkanImageCreateInfo(uint32(gpuImage.Width), uint32(gpuImage.Height), format)
             vulkanImageCreateInfo.MipLevels <- mipLevels
             let vulkanImage = Vk.CreateImage(this.vk, vulkanImageCreateInfo)
-            Vk.UpdateImage(this.vk, vulkanImage, gpuImage.Bytes.Span)
+            Vk.UpdateImage(this.vk, vulkanImage, gpuImage.Bytes.Span, vulkanQueueKind)
 
             let filter =
                 match (gpuImage.FilterKind)
@@ -2288,7 +2290,7 @@ class Gpu =
                     i ->
                         let resource = resource.Inputs[i]
                         let image = Unsafe.Cast<IGpuImage>(resource)
-                        this.Upload(image)
+                        this.Upload(image, /* isAsync */false)
                 )
 
             | _ =>
@@ -2784,10 +2786,10 @@ class Gpu =
                                     let image = Unsafe.Cast<IGpuImage>(resource)
                                     match (image.ImageKind)
                                     | GpuImageKind.Image =>
-                                        this.Upload(Unsafe.Cast<GpuImage>(resource))
+                                        this.Upload(Unsafe.Cast<GpuImage>(resource), /* isAsync */false)
                                     | GpuImageKind.Frame =>
                                         let frameInput = Unsafe.Cast<GpuFrameImage>(resource)
-                                        this.Upload(frameInput)
+                                        this.Upload(frameInput, /* isAsync */false)
                                     | _ =>
                                         fail("Invalid image")
                                 | GpuResourceKind.Array =>

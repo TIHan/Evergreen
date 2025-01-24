@@ -195,8 +195,9 @@ class AssetManager<T> where T: not struct =
     Invalidate(name: string): () =
         this.Reload(name)
 
-    Free(name: string): () =
-        let item = this.GetItem(this.FindId(name).Value)
+    Free(assetId: Int32Id): () =
+        let item = this.GetItem(assetId.Value)
+        let name = item.Name
 
         lock(item.LockObject, 
             () ->
@@ -212,6 +213,8 @@ class AssetManager<T> where T: not struct =
                     fail("'" + name + "' already freed")
         )
             
+    Free(name: string): () =
+        this.Free(this.FindId(name))
 
     AddChangedHandler(name: string, handler: () -> ()): () =
         let assetId = this.FindId(name)

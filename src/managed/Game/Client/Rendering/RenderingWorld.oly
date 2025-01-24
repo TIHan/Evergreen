@@ -108,10 +108,10 @@ class RenderingWorld =
             cmds
         )
 
-    FreeResources(gpu: Gpu): () =
+    FreeResources(gpu: Gpu, renv: RenderEnv): () =
         ForEach(this.renderers,
             renderer ->
-                renderer.FreeResources(gpu)
+                renderer.FreeResources(gpu, renv)
         )
         gpu.Free(this.rfenv.Textures.Images)
         this.rfenv.Textures.Clear()

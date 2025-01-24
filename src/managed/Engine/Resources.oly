@@ -320,7 +320,7 @@ class Resources =
             match (path)
             | _ =>
                 let image = RenderingHelpers.CreateImage(path): IGpuImage // TODO-language-bug: We do not need the type annotation 'IGpuImage' here.
-                //lock(asyncLock, () -> r.Gpu.Upload(image))
+                //lock(asyncLock, () -> r.Gpu.Upload(image, /* isAsync */true))
                 [(image: IGpuImage)]
     
         imageManager.RegisterFiles(".png", "Textures", fs, readImage)
