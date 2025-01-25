@@ -97,7 +97,6 @@ class VulkanApplication =
     TransferQueueFamilyIndex: uint32 get
     TransferCommandPools: VkCommandPool[] get
     TransferAsyncQueue: VkQueue get
-    TransferAsyncQueueFamilyIndex: uint32 get
     TransferAsyncCommandPool: VkCommandPool get
     PresentQueues: VkQueue[] get
     PresentQueueFamilyIndex: uint32 get
@@ -169,12 +168,11 @@ class VulkanApplication =
         renderFinishedSemaphores: VkSemaphore[], 
         inFlightFences: VkFence[], 
         allocator: VmaAllocator,
-        transferAsyncQueue: VkQueue,
-        transferAsyncQueueFamilyIndex: uint32) =
+        transferAsyncQueue: VkQueue) =
         let graphicsCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, graphicsQueueFamilyIndex))
         let computeCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, computeQueueFamilyIndex))
         let transferCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, transferQueueFamilyIndex))
-        let transferAsyncCommandPool = Vk.createCommandPool(device, transferAsyncQueueFamilyIndex)
+        let transferAsyncCommandPool = Vk.createCommandPool(device, transferQueueFamilyIndex)
         {
             ValidationLayersEnabled = validationLayersEnabled
             MaxFramesInFlight = maxFramesInFlight
@@ -194,7 +192,6 @@ class VulkanApplication =
             TransferQueueFamilyIndex = transferQueueFamilyIndex
             TransferCommandPools = transferCommandPools
             TransferAsyncQueue = transferAsyncQueue
-            TransferAsyncQueueFamilyIndex = transferAsyncQueueFamilyIndex
             TransferAsyncCommandPool = transferAsyncCommandPool
             PresentQueues = presentQueues
             PresentQueueFamilyIndex = presentQueueFamilyIndex
@@ -621,20 +618,20 @@ module Vk =
                     isPresentSupported == VkBool32.TRUE
             )
             
-        let transferAsyncFamilyIndex =
-            let result =
-                tryFindIndex(queueFamilyProperties,
-                    (i, x) ->
-                        if (i != transferFamilyIndex)
-                            (x.queueFlags & VkQueueFlags.VK_QUEUE_TRANSFER_BIT) == VkQueueFlags.VK_QUEUE_TRANSFER_BIT &&
-                                (x.queueFlags & VkQueueFlags.VK_QUEUE_GRAPHICS_BIT) == VkQueueFlags.VK_QUEUE_GRAPHICS_BIT
-                        else
-                            false
-                )
-            if (result == -1)
-                transferFamilyIndex
-            else
-                result
+        // let transferAsyncFamilyIndex =
+        //     let result =
+        //         tryFindIndex(queueFamilyProperties,
+        //             (i, x) ->
+        //                 if (i != transferFamilyIndex)
+        //                     (x.queueFlags & VkQueueFlags.VK_QUEUE_TRANSFER_BIT) == VkQueueFlags.VK_QUEUE_TRANSFER_BIT &&
+        //                         (x.queueFlags & VkQueueFlags.VK_QUEUE_GRAPHICS_BIT) == VkQueueFlags.VK_QUEUE_GRAPHICS_BIT
+        //                 else
+        //                     false
+        //         )
+        //     if (result == -1)
+        //         transferFamilyIndex
+        //     else
+        //         result
 
         let graphicsQueueCount = 1: uint32//uint32(maxFramesInFlight)
 
@@ -676,7 +673,6 @@ module Vk =
                 graphicsFamilyIndex, graphicsQueueCount,
                 computeFamilyIndex, computeQueueCount,
                 transferFamilyIndex, transferQueueCount,
-                transferAsyncFamilyIndex,
                 presentFamilyIndex, presentQueueCount
             )
 
@@ -732,11 +728,8 @@ module Vk =
 
         nextQueueIndex <- nextQueueIndex + 1
 
-        if (transferAsyncFamilyIndex != transferFamilyIndex)
-            nextQueueIndex <- 0
-
         let mutable transferAsyncQueue = default
-        vkGetDeviceQueue(device, uint32(transferAsyncFamilyIndex), uint32(nextQueueIndex), &&transferAsyncQueue)
+        vkGetDeviceQueue(device, uint32(transferFamilyIndex), uint32(nextQueueIndex), &&transferAsyncQueue)
 
         // Sync objects
         let mutable semaphoreInfo = default: VkSemaphoreCreateInfo
@@ -807,8 +800,7 @@ module Vk =
             Unsafe.AsImmutable(renderFinishedSemaphores), 
             Unsafe.AsImmutable(inFlightFences),
             allocator,
-            transferAsyncQueue,
-            uint32(transferAsyncFamilyIndex)
+            transferAsyncQueue
         )
 
     TryCreateSwapChain(app: VulkanApplication, format: VkFormat, vsync: bool, swapChain: byref<VulkanSwapChain>): bool =
@@ -1585,7 +1577,6 @@ module Vk =
             computeQueueCount: uint32,
             transferFamilyIndex: int32,
             transferQueueCount: uint32,
-            transferAsyncFamilyIndex: int32,
             presentFamilyIndex: int32,
             presentQueueCount: uint32): VkDevice =
         // Graphics Queue
@@ -1614,15 +1605,6 @@ module Vk =
         transferQueueCreateInfo.queueFamilyIndex <- uint32(transferFamilyIndex)
         transferQueueCreateInfo.queueCount <- transferQueueCount
         transferQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(transferQueuePrioritiesHandle.AddrOfPinnedObject())
-
-        // Transfer Async Queue
-        let mutable transferAsyncQueuePriorities = initArray(1, i -> 1.0: float32)
-        let mutable transferAsyncQueueCreateInfo = default: VkDeviceQueueCreateInfo
-        let mutable transferAsyncQueuePrioritiesHandle = fixed(transferAsyncQueuePriorities)
-        transferAsyncQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
-        transferAsyncQueueCreateInfo.queueFamilyIndex <- uint32(transferAsyncFamilyIndex)
-        transferAsyncQueueCreateInfo.queueCount <- 1
-        transferAsyncQueueCreateInfo.pQueuePriorities <- Unsafe.AsPointer(transferAsyncQueuePrioritiesHandle.AddrOfPinnedObject())
 
         // Present Queue
         let mutable presentQueuePriorities = initArray(int32(presentQueueCount), i -> 1.0: float32)
@@ -1667,7 +1649,7 @@ module Vk =
         createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
 
         // Queues
-        let queueCreateInfos = [graphicsQueueCreateInfo;computeQueueCreateInfo;transferQueueCreateInfo;transferAsyncQueueCreateInfo;presentQueueCreateInfo]
+        let queueCreateInfos = [graphicsQueueCreateInfo;computeQueueCreateInfo;transferQueueCreateInfo;presentQueueCreateInfo]
         let queueCreateInfos = filter(distinctBy(queueCreateInfos, x -> x.queueFamilyIndex), x -> x.queueCount > 0)
         let mutable queueCreateInfosHandle = fixed(queueCreateInfos)
         createInfo.queueCreateInfoCount <- uint32(queueCreateInfos.Length)
@@ -1698,7 +1680,6 @@ module Vk =
         graphicsQueuePrioritiesHandle.Free()
         computeQueuePrioritiesHandle.Free()
         transferQueuePrioritiesHandle.Free()
-        transferAsyncQueuePrioritiesHandle.Free()
         presentQueuePrioritiesHandle.Free()
         queueCreateInfosHandle.Free()
         requiredDeviceExtensionsHandle.Dispose()
