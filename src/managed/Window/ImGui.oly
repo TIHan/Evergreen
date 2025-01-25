@@ -22,7 +22,7 @@ private CheckIntializeVulkan(result: VkResult): () =
 
 CreateContext(window: WindowVulkan, app: Evergreen.Graphics.Backend.Vulkan.VulkanApplication, minImageCount: uint32, imageCount: uint32, renderPass: VkRenderPass): ImGuiContext =
     let ctx = egImGuiCreateContextVulkan(window.Internal, app.Instance, app.PhysicalDevice, app.Device, app.GraphicsQueueFamilyIndex, app.GraphicsQueues[0], minImageCount, imageCount, renderPass, Unsafe.Cast(&&CheckIntializeVulkan))
-    let context = ImGuiContext(ctx, window.HWND)
+    let context = ImGuiContext(app, ctx, window.HWND)
     SetCurrentContext(context)
     context
 
@@ -109,6 +109,10 @@ PopFont(context: ImGuiContext): () =
     egImGuiPopFont(context.Context)
 
 UploadFonts(context: ImGuiContext): () =
+    // if (TerraFX.Interop.Vulkan.Vulkan.vkQueueWaitIdle(context.vk.GraphicsQueues[0]) != TerraFX.Interop.Vulkan.VkResult.VK_SUCCESS)
+    //     fail("Failed to wait for graphics queue.")
+    if (TerraFX.Interop.Vulkan.Vulkan.vkDeviceWaitIdle(context.vk.Device) != TerraFX.Interop.Vulkan.VkResult.VK_SUCCESS)
+        fail("Failed to wait for device.")
     egImGuiUploadFontsVulkan(context.Context)
 
 SetDarkMode(context: ImGuiContext): () =

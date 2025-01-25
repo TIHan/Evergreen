@@ -122,3 +122,4 @@ class RenderScene =
         this.Gpu.Wait()
         this.WorldFront.FreeResources(this.Gpu, this.renv)
         this.WorldBack.FreeResources(this.Gpu, this.renv)
+        this.Gpu.Wait()

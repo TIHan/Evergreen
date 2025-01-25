@@ -405,14 +405,12 @@ struct RenderKey =
     public field Material: Material
     public field MeshKey: MeshKey
     public field Order: byte
-    public field Placeholder: byte
-    new(pipelineId: Int32Id, meshKey: MeshKey, material: Material, order: byte, placeholder: byte) =
+    new(pipelineId: Int32Id, meshKey: MeshKey, material: Material, order: byte) =
         {
             PipelineId = pipelineId
             Material = material
             MeshKey = meshKey
             Order = order
-            Placeholder = placeholder
         }
 
     static Comparer: IEqualityComparer<RenderKey> get =
@@ -427,8 +425,7 @@ struct RenderKey =
                     (key1.MeshKey.MaterialIndex == key2.MeshKey.MaterialIndex) &&
                     (key1.Material.Flags == key2.Material.Flags) &&
                     (key1.Order == key2.Order) &&
-                    (key1.PipelineId.Value == key2.PipelineId.Value) &&
-                    (key1.Placeholder == key2.Placeholder)
+                    (key1.PipelineId.Value == key2.PipelineId.Value)
         Impl()
 
 struct DrawBatchInfo =
@@ -498,15 +495,13 @@ module DrawHelpers =
         let mutable resultKey = default
         let mutable resultInstanceIndex = -1
 
-        let (images, isPlaceholder) = (images.Get(material.ImageId), false)
-            // match (images.GetNonBlocking(material.ImageId))
-            // | Some(images) => (images, false)
-            // | _ => ([], true)
-
-        if (!isPlaceholder)
-            let _ = ImagesToDelete.Add(material.ImageId)
+        let images = //images.Get(material.ImageId)
+            match (images.GetNonBlocking(material.ImageId))
+            | Some(images) => images
+            | _ => []
 
         if (images.Length > 0)
+            let _ = ImagesToDelete.Add(material.ImageId)
             For(meshes.Length,
                 i ->
                     let mesh = meshes[i]
@@ -514,7 +509,7 @@ module DrawHelpers =
 
                     if (meshKey.MaterialIndex < images.Length)
                         let image = images[meshKey.MaterialIndex]
-                        let key = RenderKey(pipelineId, meshKey, material, order, if (isPlaceholder) 1: byte else 0)           
+                        let key = RenderKey(pipelineId, meshKey, material, order)           
                         let (instanceList, aabb, gpuDescriptorSet, drawCmdIndex, drawQueue) =
                             let mutable result = unchecked default
                             if (lookup.TryGetValue(key, &result))
@@ -575,7 +570,7 @@ module DrawHelpers =
 
             (resultKey, resultInstanceIndex)
         else
-            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0, 0), -1)
+            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
 
     PrepareDraw(
             textures: ShaderTextures,
@@ -598,7 +593,7 @@ module DrawHelpers =
             let transform = transform.Matrix
             PrepareDraw(textures, pipelineId, isSprite, meshes, images, &transformLerp, &transform, meshRef.MeshId, material, outputInstances, drawCmds, &nextDrawCmdIndex, lookup, order)
         else
-            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0, 0), -1)
+            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
 
     QueueDraw(memoryOffset: int32, mutable prevInstances: Memory<ShaderInstance>, mutable instances: Memory<ShaderInstance>, mutable aabbs: Memory<AABB>, mutable drawBatchIndices: Memory<DrawBatchInfo>, lookup: DrawLookup): int32 =
         if (memoryOffset < 0)
@@ -637,6 +632,7 @@ module DrawHelpers =
 
     Draw(
             meshManager: AssetManager<RenderMeshGroup>,
+            imageManager: AssetManager<IGpuImage[]>,
             drawQueue: ReadOnlyDrawQueue,
             drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>,
             globalsDs: GpuDescriptorSet,
@@ -651,13 +647,17 @@ module DrawHelpers =
         while (i < drawQueue.Count)
             let (key, count, offset, ds, drawCmdIndex) = drawQueue[i]
 
-            let meshData = meshManager.Get(key.MeshKey.Id).Meshes[key.MeshKey.Offset]
-            let vertices = meshData.Vertices
-            let indices = meshData.Indices
-            draw(key, ds, gpuCommands)
+            match (imageManager.GetNonBlocking(key.Material.ImageId))
+            | Some(_) =>
+                let meshData = meshManager.Get(key.MeshKey.Id).Meshes[key.MeshKey.Offset]
+                let vertices = meshData.Vertices
+                let indices = meshData.Indices
+                draw(key, ds, gpuCommands)
 
-            let drawCmdSize = DotNet.SizeOf<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>
-            gpuCommands.DrawIndexedIndirectVulkan(vertices, indices, drawCmds,uint64(drawCmdIndex * drawCmdSize), 1, uint32(drawCmdSize))
+                let drawCmdSize = DotNet.SizeOf<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>
+                gpuCommands.DrawIndexedIndirectVulkan(vertices, indices, drawCmds,uint64(drawCmdIndex * drawCmdSize), 1, uint32(drawCmdSize))
+            | _ =>
+                ()
 
             i <- i + 1
 
@@ -861,7 +861,7 @@ class Renderer =
                 let (_, _, _, _, drawQueue) = pair.Value
 
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, renv.GlobalsDescriptorSet, pipeline, gpuCommands,
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, renv.GlobalsDescriptorSet, pipeline, gpuCommands,
                         (key, instancesDs, gpuCommands) ->
                             this.Behavior.DrawOutlineMask(renv, rfenv, key, instancesDs, outlineOccluderFrame.DepthImage.GetVertexDescriptorSet(), gpuCommands)
                     )
@@ -875,7 +875,7 @@ class Renderer =
                 let (_, _, _, _, drawQueue) = pair.Value
 
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, renv.GlobalsVertexDescriptorSet, pipeline, gpuCommands,
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, renv.GlobalsVertexDescriptorSet, pipeline, gpuCommands,
                         (key, instancesDs, gpuCommands) ->
                             let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
                             gpuCommands.BindDescriptorSet(1, instancesDs)
@@ -888,19 +888,19 @@ class Renderer =
             (mutable pair) ->
                 let (_, _, _, _, drawQueue) = pair.Value
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
         ForEach(this.OutlineLookup,
             (mutable pair) ->
                 let (_, _, _, _, drawQueue) = pair.Value
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
         ForEach(this.TransparencyLookup,
             (mutable pair) ->
                 let (_, _, _, _, drawQueue) = pair.Value
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuCommands: GpuCommandList, draw: scoped (RenderKey, instancesDs: GpuDescriptorSet, GpuCommandList) -> ()): () =
@@ -911,7 +911,7 @@ class Renderer =
                     let (_, _, _, _, drawQueue) = pair.Value
                     if (drawQueue.Count > 0)
                         let gpuPipeline = renv.PipelineManager.Get(pipelineId)
-                        DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                        DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
         ForEach(this.OutlineLookup,
             (mutable pair) ->
@@ -920,7 +920,7 @@ class Renderer =
                     let (_, _, _, _, drawQueue) = pair.Value
                     if (drawQueue.Count > 0)
                         let gpuPipeline = renv.PipelineManager.Get(pipelineId)
-                        DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                        DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
 
     DrawTransparency(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuCommands: GpuCommandList, draw: scoped (RenderKey, instancesDs: GpuDescriptorSet, GpuCommandList) -> ()): () =
@@ -931,7 +931,7 @@ class Renderer =
                     let (_, _, _, _, drawQueue) = pair.Value
                     if (drawQueue.Count > 0)
                         let gpuPipeline = renv.PipelineManager.Get(pipelineId)
-                        DrawHelpers.Draw(renv.MeshManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                        DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
         )
 
     FreeResources(gpu: Gpu, renv: RenderEnv): () =

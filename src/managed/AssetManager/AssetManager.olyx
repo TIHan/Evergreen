@@ -209,6 +209,8 @@ class AssetManager<T> where T: not struct =
                     item.Observable <- None
                     this.freeAsset(item.Info.RealLocation, itemVar.Value)
                     itemVar.Value <- unchecked default
+                    let mutable result = unchecked default
+                    let _ = this.AsyncTasks.TryRemove(assetId, &result)
                 | _ =>
                     fail("'" + name + "' already freed")
         )
@@ -294,12 +296,26 @@ class AssetManager<T> where T: not struct =
             this.ComputeItem(item)
             item
 
-    Get(assetId: Int32Id): T =
+    private GetCore(assetId: Int32Id): T =
         let index = assetId.Value
         let mutable item = this.GetItem(index)
         match (item.Observable)
         | Some(observable) => observable.Value
         | _ => fail("should not happen")
+
+    Get(assetId: Int32Id): T =
+        //this.GetAsync(assetId).Result
+        lock<T>(this.AsyncLock,
+            () ->
+                let mutable task: Task<T> = null
+                if (this.AsyncTasks.TryGetValue(assetId, &task))
+                    if (task.IsCompletedSuccessfully)
+                        task.Result
+                    else
+                        fail("is async")
+                else
+                    this.GetCore(assetId)
+        )
 
     private GetAsync(assetId: Int32Id): Task<T> =
         let mutable task: Task<T> = null
@@ -314,8 +330,8 @@ class AssetManager<T> where T: not struct =
                         let task: Task<T> = // TODO-language-bug: Should not need to annotate 'Task<T>'
                             Task.Factory.StartNew(
                                 () ->
-                                    System.Threading.Thread.Sleep(10000)
-                                    this.Get(assetId)
+                                  //  System.Threading.Thread.Sleep(1000)
+                                    this.GetCore(assetId)
                             )
                         this.AsyncTasks[assetId] <- task
                         task
@@ -323,10 +339,11 @@ class AssetManager<T> where T: not struct =
 
     GetNonBlocking(assetId: Int32Id): Option<T> =
         let task = this.GetAsync(assetId)
-        if (task.IsCompletedSuccessfully)
-            Some(task.Result)
-        else
-            None
+        Some(task.Result)
+        // if (task.IsCompletedSuccessfully)
+        //     Some(task.Result)
+        // else
+        //     None
 
     TryGetName(assetId: Int32Id): Option<string> =
         if (assetId.IsValid)

@@ -29,26 +29,43 @@ BenchmarkMap(resx: Resources): Stream =
     let mutable z = 0: float32
     resx.Images.ForEach(
         asset ->
-            let mutable material = default: Material
-            material.ImageId <- asset.Id
-            material.Flags <- MaterialFlags.None
+            if (asset.Id.Value > 50)
+                let mutable material = default: Material
+                material.ImageId <- asset.Id
+                material.Flags <- MaterialFlags.None
 
-            let mutable transform = Transform()
-            transform.Position <- Vector3(x, y, 0)
-            if (x >= 300: float32)
-                y <- y + 3
-                x <- 0
-            else
-                x <- x + 3
+                let mutable transform = Transform()
+                transform.Position <- Vector3(x, y, 0)
+                if (x >= 300: float32)
+                    y <- y + 3
+                    x <- 0
+                else
+                    x <- x + 3
 
-            let meshRef = MeshReference(resx.RenderMeshes.FindId("cube.obj"))
-            
-            if (asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.Frame && asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.FrameView)
-                For(1, 
-                    i -> 
-                        let _ = db.Create(transform, material, meshRef)
-                )
+                let meshRef = MeshReference(resx.RenderMeshes.FindId("cube.obj"))
+                
+                if (asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.Frame && asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.FrameView)
+                    For(1, 
+                        i -> 
+                            let _ = db.Create(transform, material, meshRef)
+                    )
     )
+
+    let mutable material = default: Material
+    material.ImageId <- resx.Images.FindId("Flats/Freedoom/aqf063.png")
+    material.Flags <- MaterialFlags.None
+
+    let mutable transform = Transform()
+    transform.Position <- Vector3(0, 0, -10)
+    transform.Scale <- Vector3(100, 100, 1)
+
+    let meshRef = MeshReference(resx.RenderMeshes.FindId("cube.obj"))
+
+    let mutable phys = StaticRigidBody()
+    let mutable collider = MeshCollider()
+    collider.MeshId <- resx.Meshes.FindId("cube.obj")
+
+    let _ = db.Create(material, transform, meshRef, phys, collider)
     
     let ms = System.IO.MemoryStream()
     EntityDatabase.SerializeJson(db, ms)

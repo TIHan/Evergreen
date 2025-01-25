@@ -1817,7 +1817,7 @@ class Gpu =
             let vkCmdBuffers = zeroArray(vk.MaxFramesInFlight)
             let mutable i = 0
             while (i < vkCmdBuffers.Length)
-                vkCmdBuffers[i] <- Vk.CreateGraphicsCommandBuffer(vk)
+                vkCmdBuffers[i] <- Vk.CreateGraphicsCommandBuffer(vk, i)
                 i <- i + 1
             vkCmdBuffers
         {
@@ -2129,7 +2129,7 @@ class Gpu =
                         let mutable vulkanImageCreateInfo = VulkanImageCreateInfo(width, height, format, VkImageUsageFlags.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
                         vulkanImageCreateInfo.ArrayLayers <- layerCount
                         let image = Vk.CreateImage(this.vk, vulkanImageCreateInfo)
-                        Vk.TransitionImageLayout(this.vk, image.Image, width, height, format, VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vulkanImageCreateInfo.MipLevels, vulkanImageCreateInfo.ArrayLayers)
+                        Vk.TransitionImageLayout(this.vk, image.Image, width, height, format, VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, vulkanImageCreateInfo.MipLevels, vulkanImageCreateInfo.ArrayLayers, VulkanQueueKind.Standard)
                         image
                 )
             let imageViews =
@@ -2144,7 +2144,7 @@ class Gpu =
                         let mutable vulkanImageCreateInfo = VulkanImageCreateInfo(width, height, depthImageFormat, VkImageUsageFlags.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
                         vulkanImageCreateInfo.ArrayLayers <- layerCount
                         let image = Vk.CreateImage(this.vk, vulkanImageCreateInfo)
-                        Vk.TransitionImageLayout(this.vk, image.Image, width, height, depthImageFormat, VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, vulkanImageCreateInfo.MipLevels, vulkanImageCreateInfo.ArrayLayers)
+                        Vk.TransitionImageLayout(this.vk, image.Image, width, height, depthImageFormat, VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, vulkanImageCreateInfo.MipLevels, vulkanImageCreateInfo.ArrayLayers, VulkanQueueKind.Standard)
                         image
                 )
             let depthImageViews =

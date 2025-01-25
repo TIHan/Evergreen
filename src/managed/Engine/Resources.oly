@@ -314,14 +314,17 @@ class Resources =
     
         let shaderManager = AssetManager<byte[]>((name, _bytes) -> Log("Freeing shader bytes '" + name + "'"))
 
-        let asyncLock = Object()
+        let asyncLock = System.Object()
     
         let readImage(path: string) =
             match (path)
             | _ =>
-                let image = RenderingHelpers.CreateImage(path): IGpuImage // TODO-language-bug: We do not need the type annotation 'IGpuImage' here.
-                //lock(asyncLock, () -> r.Gpu.Upload(image, /* isAsync */true))
-                [(image: IGpuImage)]
+                lock(Evergreen.Graphics.Backend.Vulkan.VulkanApplication.AsyncLock, 
+                    () ->
+                        let image = RenderingHelpers.CreateImage(path): IGpuImage // TODO-language-bug: We do not need the type annotation 'IGpuImage' here.
+                        r.Gpu.Upload(image, /* isAsync */true)
+                        [(image: IGpuImage)]
+                )
     
         imageManager.RegisterFiles(".png", "Textures", fs, readImage)
 

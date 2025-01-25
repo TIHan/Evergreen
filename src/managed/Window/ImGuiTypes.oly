@@ -11,13 +11,15 @@ alias ImGuiChildFlags = EgImGuiChildFlags
 alias ImFont = EgImFont
 
 class ImGuiContext =
+    internal vk: Evergreen.Graphics.Backend.Vulkan.VulkanApplication get
     internal Context: EgImGuiContext get
     internal VkDescriptorSets: System.Collections.Concurrent.ConcurrentDictionary<VkDescriptorSet, () -> ()> get
     internal field mutable isFirstFrame: bool
     internal DestroyTextureQueue: System.Collections.Concurrent.ConcurrentQueue<VkDescriptorSet> get
 
-    internal new(context: EgImGuiContext, hwnd: nint) =
+    internal new(vk: Evergreen.Graphics.Backend.Vulkan.VulkanApplication, context: EgImGuiContext, hwnd: nint) =
         {
+            vk = vk
             Context = context
             isFirstFrame = true
             VkDescriptorSets = System.Collections.Concurrent.ConcurrentDictionary()

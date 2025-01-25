@@ -165,6 +165,7 @@ internal class ClientScene =
         let id = genv.Maps.TryFindId(sceneName)
         if (id.IsValid)
             let fs = genv.Maps.Get(id)
+            fs.Position <- 0
             EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
             genv.Maps.Free(sceneName)
         else
