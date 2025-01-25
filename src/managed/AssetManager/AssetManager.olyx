@@ -330,7 +330,7 @@ class AssetManager<T> where T: not struct =
                         let task: Task<T> = // TODO-language-bug: Should not need to annotate 'Task<T>'
                             Task.Factory.StartNew(
                                 () ->
-                                  //  System.Threading.Thread.Sleep(1000)
+                                    //System.Threading.Thread.Sleep(10000)
                                     this.GetCore(assetId)
                             )
                         this.AsyncTasks[assetId] <- task

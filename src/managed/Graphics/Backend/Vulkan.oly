@@ -605,9 +605,13 @@ module Vk =
         let physicalDevice = findSuitableDevice(physicalDevices)
 
         let queueFamilyProperties = getPhysicalDeviceQueueFamilyProperties(physicalDevice)
-        let graphicsFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_GRAPHICS_BIT) == VkQueueFlags.VK_QUEUE_GRAPHICS_BIT)
+        let graphicsFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_GRAPHICS_BIT) == VkQueueFlags.VK_QUEUE_GRAPHICS_BIT && x.queueCount >= 5)
         let computeFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_COMPUTE_BIT) == VkQueueFlags.VK_QUEUE_COMPUTE_BIT)
         let transferFamilyIndex = findIndex(queueFamilyProperties, x -> (x.queueFlags & VkQueueFlags.VK_QUEUE_TRANSFER_BIT) == VkQueueFlags.VK_QUEUE_TRANSFER_BIT)
+        if (graphicsFamilyIndex != computeFamilyIndex)
+            fail("Device not supported.")
+        if (graphicsFamilyIndex != transferFamilyIndex)
+            fail("Device not supported.")
         let presentFamilyIndex = 
             findIndex(queueFamilyProperties, 
                 // TODO-language-bug: should not have to do 'i: int32'. There is a bug with a scoped lambda.
@@ -615,7 +619,7 @@ module Vk =
                     let mutable isPresentSupported = VkBool32.FALSE
                     if (vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, uint32(i), surface, &&isPresentSupported) != VkResult.VK_SUCCESS)
                         fail("Failed to get physical device surface support.")
-                    isPresentSupported == VkBool32.TRUE
+                    isPresentSupported == VkBool32.TRUE && i == graphicsFamilyIndex
             )
             
         // let transferAsyncFamilyIndex =
@@ -663,7 +667,7 @@ module Vk =
             if (presentFamilyIndex == graphicsFamilyIndex)
                 0: uint32
             else
-                throw NotImplementedException()
+                1
 
         let device = 
             createDevice(
@@ -739,9 +743,9 @@ module Vk =
         fenceInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
         fenceInfo.flags <- VkFenceCreateFlags.VK_FENCE_CREATE_SIGNALED_BIT
 
-        let inFlightFences = zeroArray(Math.Max(maxFramesInFlight - 1, 1))
-        let imageAvailableSemaphores = zeroArray(Math.Max(maxFramesInFlight - 1, 1))
-        let renderFinishedSemaphores = zeroArray(Math.Max(maxFramesInFlight - 1, 1))
+        let inFlightFences = zeroArray(maxFramesInFlight)
+        let imageAvailableSemaphores = zeroArray(maxFramesInFlight + 1)
+        let renderFinishedSemaphores = zeroArray(maxFramesInFlight + 1)
 
         let mutable i = 0
         while (i < inFlightFences.Length)
@@ -1030,7 +1034,7 @@ module Vk =
                 bufferCopy.dstOffset <- 0
                 bufferCopy.size <- uint64(DotNet.SizeOf<T> * bufferData.Length)
 
-                let mutable commandBuffer = createCommandBuffer(app.Device, app.TransferCommandPools[app.CurrentFrame])
+                let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPools[app.CurrentFrame])
 
                 let mutable beginInfo = default: VkCommandBufferBeginInfo
                 beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
@@ -1042,7 +1046,7 @@ module Vk =
 
                 vkCmdCopyBuffer(commandBuffer, stagingBuffer, buffer.Buffer, 1, &&bufferCopy)
 
-                endAndSubmitCommands(app.Device, app.TransferCommandPools[app.CurrentFrame], commandBuffer, app.TransferQueues[app.CurrentFrame])
+                endAndSubmitCommands(app.Device, app.GraphicsCommandPools[app.CurrentFrame], commandBuffer, app.GraphicsQueues[app.CurrentFrame])
 
                 vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
 
@@ -1095,7 +1099,7 @@ module Vk =
             extent.depth <- 1
             extent
 
-        let mutable commandBuffer = createCommandBuffer(app.Device, app.TransferCommandPools[app.CurrentFrame])
+        let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPools[app.CurrentFrame])
 
         let mutable beginInfo = default: VkCommandBufferBeginInfo
         beginInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO
@@ -1109,7 +1113,7 @@ module Vk =
         transitionImageLayout(commandBuffer, srcImage, srcFormat, srcLayout, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_REMAINING_MIP_LEVELS, 1)
         vkCmdCopyImageToBuffer(commandBuffer, srcImage, VkImageLayout.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vulkanDstBuffer.Buffer, 1, &&imageCopy)
 
-        endAndSubmitCommands(app.Device, app.TransferCommandPools[app.CurrentFrame], commandBuffer, app.TransferQueues[app.CurrentFrame])
+        endAndSubmitCommands(app.Device, app.GraphicsCommandPools[app.CurrentFrame], commandBuffer, app.GraphicsQueues[app.CurrentFrame])
 
     TransitionImageLayout(app: VulkanApplication, image: VkImage, width: uint32, height: uint32, format: VkFormat, targetLayout: VkImageLayout, mipLevels: uint32, layerCount: uint32, queueKind: VulkanQueueKind): () =
         let size = uint64(width) * uint64(height) * 4 * uint64(layerCount)
@@ -1148,7 +1152,7 @@ module Vk =
             let commandPool =
                 match (queueKind)
                 | VulkanQueueKind.Async => app.TransferAsyncCommandPool
-                | _ => app.TransferCommandPools[app.CurrentFrame]
+                | _ => app.GraphicsCommandPools[app.CurrentFrame]
 
             let mutable commandBuffer = createCommandBuffer(app.Device, commandPool)
 
@@ -1183,7 +1187,7 @@ module Vk =
             let queue =
                 match (queueKind)
                 | VulkanQueueKind.Async => app.TransferAsyncQueue
-                | _ => app.TransferQueues[app.CurrentFrame]
+                | _ => app.GraphicsQueues[app.CurrentFrame]
 
             endAndSubmitCommands(app.Device, commandPool, commandBuffer, queue)
 
@@ -1244,7 +1248,7 @@ module Vk =
                 let commandPool =
                     match (queueKind)
                     | VulkanQueueKind.Async => app.TransferAsyncCommandPool
-                    | _ => app.TransferCommandPools[app.CurrentFrame]
+                    | _ => app.GraphicsCommandPools[app.CurrentFrame]
 
                 let mutable commandBuffer = createCommandBuffer(app.Device, commandPool)
 
@@ -1275,7 +1279,7 @@ module Vk =
                 let queue =
                     match (queueKind)
                     | VulkanQueueKind.Async => app.TransferAsyncQueue
-                    | _ => app.TransferQueues[app.CurrentFrame]
+                    | _ => app.GraphicsQueues[app.CurrentFrame]
 
                 endAndSubmitCommands(app.Device, commandPool, commandBuffer, queue)
 
@@ -1337,7 +1341,7 @@ module Vk =
     field mutable task: System.Threading.Tasks.Task<VkResult> = null
 
     Draw(app: VulkanApplication, swapChain: VulkanSwapChain, acquireCommandBuffer: (framebufferIndex: int32, frame: int32) -> VulkanCommandBuffer): () =
-        let mutable inFlightFence = app.InFlightFences[app.currentSemaphoreIndex]
+        let mutable inFlightFence = app.InFlightFences[app.CurrentFrame]
         let imageAvailableSemaphore = app.ImageAvailableSemaphores[app.currentSemaphoreIndex]
         let renderFinishedSemaphore = app.RenderFinishedSemaphores[app.currentSemaphoreIndex]
 
@@ -1580,7 +1584,7 @@ module Vk =
             presentFamilyIndex: int32,
             presentQueueCount: uint32): VkDevice =
         // Graphics Queue
-        let mutable graphicsQueuePriorities = initArray(int32(graphicsQueueCount), i -> 1.0: float32)
+        let mutable graphicsQueuePriorities = initArray(int32(graphicsQueueCount), i -> 0.5: float32)
         let mutable graphicsQueueCreateInfo = default: VkDeviceQueueCreateInfo
         let mutable graphicsQueuePrioritiesHandle = fixed(graphicsQueuePriorities)
         graphicsQueueCreateInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO

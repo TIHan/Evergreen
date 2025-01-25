@@ -29,7 +29,7 @@ BenchmarkMap(resx: Resources): Stream =
     let mutable z = 0: float32
     resx.Images.ForEach(
         asset ->
-            if (asset.Id.Value > 50)
+            if (asset.Id.Value > 200)
                 let mutable material = default: Material
                 material.ImageId <- asset.Id
                 material.Flags <- MaterialFlags.None
