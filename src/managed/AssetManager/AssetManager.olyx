@@ -339,11 +339,11 @@ class AssetManager<T> where T: not struct =
 
     GetNonBlocking(assetId: Int32Id): Option<T> =
         let task = this.GetAsync(assetId)
-        Some(task.Result)
-        // if (task.IsCompletedSuccessfully)
-        //     Some(task.Result)
-        // else
-        //     None
+        //Some(task.Result)
+        if (task.IsCompletedSuccessfully)
+            Some(task.Result)
+        else
+            None
 
     TryGetName(assetId: Int32Id): Option<string> =
         if (assetId.IsValid)

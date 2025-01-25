@@ -80,6 +80,7 @@ class VulkanValidationException =
 
 class VulkanApplication =
     ValidationLayersEnabled: bool get
+    MaxFramesInFlight: int32 get
     AsyncDrawEnabled: bool get
     Instance: VkInstance get
     Surface: VkSurfaceKHR get
@@ -115,7 +116,6 @@ class VulkanApplication =
     internal field mutable lastImageIndex: uint32
     internal field mutable hasDrawnOnce: bool
 
-    MaxFramesInFlight: int32 get() = this.InFlightFences.Length
     CurrentFrame: int32 get() = this.currentFrame
     PreviousFrame: int32 get() = this.previousFrame
     LastImageIndex: int32 get() = int32(this.lastImageIndex)
@@ -150,6 +150,7 @@ class VulkanApplication =
 
     new(
         validationLayersEnabled: bool, 
+        maxFramesInFlight: int32,
         asyncDrawEnabled: bool, 
         instance: VkInstance, 
         surface: VkSurfaceKHR, 
@@ -170,12 +171,13 @@ class VulkanApplication =
         allocator: VmaAllocator,
         transferAsyncQueue: VkQueue,
         transferAsyncQueueFamilyIndex: uint32) =
-        let graphicsCommandPools = initArray(inFlightFences.Length, (_) -> Vk.createCommandPool(device, graphicsQueueFamilyIndex))
-        let computeCommandPools = initArray(inFlightFences.Length, (_) -> Vk.createCommandPool(device, computeQueueFamilyIndex))
-        let transferCommandPools = initArray(inFlightFences.Length, (_) -> Vk.createCommandPool(device, transferQueueFamilyIndex))
+        let graphicsCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, graphicsQueueFamilyIndex))
+        let computeCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, computeQueueFamilyIndex))
+        let transferCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, transferQueueFamilyIndex))
         let transferAsyncCommandPool = Vk.createCommandPool(device, transferAsyncQueueFamilyIndex)
         {
             ValidationLayersEnabled = validationLayersEnabled
+            MaxFramesInFlight = maxFramesInFlight
             AsyncDrawEnabled = asyncDrawEnabled
             Instance = instance
             Surface = surface
@@ -588,7 +590,7 @@ module Vk =
     Initialize(hwnd: nint, hinstance: nint, options: VulkanApplicationOptions): VulkanApplication =
         validateOptions(options)
 
-        let asyncDrawEnabled = false
+        let asyncDrawEnabled = false//true
 
         let maxFramesInFlight = 2 // double buffering - do not change
         let enableValidationLayers = options.ValidationFlags.HasFlag(VulkanValidationFlags.Standard)
@@ -634,17 +636,17 @@ module Vk =
             else
                 result
 
-        let graphicsQueueCount = uint32(maxFramesInFlight)
+        let graphicsQueueCount = 1: uint32//uint32(maxFramesInFlight)
 
         let graphicsQueueCount =
             if (graphicsFamilyIndex == computeFamilyIndex)
-                graphicsQueueCount + uint32(maxFramesInFlight)
+                graphicsQueueCount + 1//uint32(maxFramesInFlight)
             else
                 throw NotImplementedException()
 
         let graphicsQueueCount =
             if (graphicsFamilyIndex == transferFamilyIndex)
-                graphicsQueueCount + uint32(maxFramesInFlight) + 1
+                graphicsQueueCount + 2//uint32(maxFramesInFlight) + 1
             else
                 throw NotImplementedException()
 
@@ -685,7 +687,7 @@ module Vk =
                 i ->
                     let mutable presentQueue = default
                     vkGetDeviceQueue(device, uint32(presentFamilyIndex), uint32(nextQueueIndex), &&presentQueue)
-                    nextQueueIndex <- nextQueueIndex + 1
+                    //nextQueueIndex <- nextQueueIndex + 1
                     presentQueue
             )
 
@@ -696,9 +698,11 @@ module Vk =
                 i ->
                     let mutable graphicsQueue = default
                     vkGetDeviceQueue(device, uint32(graphicsFamilyIndex), uint32(nextQueueIndex), &&graphicsQueue)
-                    nextQueueIndex <- nextQueueIndex + 1
+                    //nextQueueIndex <- nextQueueIndex + 1
                     graphicsQueue
             )
+
+        nextQueueIndex <- nextQueueIndex + 1
 
         if (computeFamilyIndex != graphicsFamilyIndex)
             nextQueueIndex <- 0
@@ -708,9 +712,11 @@ module Vk =
                 i ->
                     let mutable computeQueue = default
                     vkGetDeviceQueue(device, uint32(computeFamilyIndex), uint32(nextQueueIndex), &&computeQueue)
-                    nextQueueIndex <- nextQueueIndex + 1
+                    //nextQueueIndex <- nextQueueIndex + 1
                     computeQueue
             )
+
+        nextQueueIndex <- nextQueueIndex + 1
 
         if (transferFamilyIndex != graphicsFamilyIndex)
             nextQueueIndex <- 0
@@ -720,11 +726,11 @@ module Vk =
                 i ->
                     let mutable transferQueue = default
                     vkGetDeviceQueue(device, uint32(transferFamilyIndex), uint32(nextQueueIndex), &&transferQueue)
-                    nextQueueIndex <- nextQueueIndex + 1
+                    //nextQueueIndex <- nextQueueIndex + 1
                     transferQueue
             )
 
-        //nextQueueIndex <- nextQueueIndex + 1
+        nextQueueIndex <- nextQueueIndex + 1
 
         if (transferAsyncFamilyIndex != transferFamilyIndex)
             nextQueueIndex <- 0
@@ -740,9 +746,9 @@ module Vk =
         fenceInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO
         fenceInfo.flags <- VkFenceCreateFlags.VK_FENCE_CREATE_SIGNALED_BIT
 
-        let inFlightFences = zeroArray(maxFramesInFlight)
-        let imageAvailableSemaphores = zeroArray(inFlightFences.Length + 1)
-        let renderFinishedSemaphores = zeroArray(inFlightFences.Length + 1)
+        let inFlightFences = zeroArray(Math.Max(maxFramesInFlight - 1, 1))
+        let imageAvailableSemaphores = zeroArray(Math.Max(maxFramesInFlight - 1, 1))
+        let renderFinishedSemaphores = zeroArray(Math.Max(maxFramesInFlight - 1, 1))
 
         let mutable i = 0
         while (i < inFlightFences.Length)
@@ -781,7 +787,8 @@ module Vk =
             fail("Failed to create allocator.")
 
         VulkanApplication(
-            enableValidationLayers, 
+            enableValidationLayers,
+            maxFramesInFlight,
             asyncDrawEnabled, 
             instance, 
             surface, 
@@ -1338,12 +1345,9 @@ module Vk =
     field mutable task: System.Threading.Tasks.Task<VkResult> = null
 
     Draw(app: VulkanApplication, swapChain: VulkanSwapChain, acquireCommandBuffer: (framebufferIndex: int32, frame: int32) -> VulkanCommandBuffer): () =
-        let currentFrame = app.currentFrame
-        let currentSemaphoreIndex = app.currentSemaphoreIndex
-
-        let mutable inFlightFence = app.InFlightFences[currentFrame]
-        let imageAvailableSemaphore = app.ImageAvailableSemaphores[currentSemaphoreIndex]
-        let renderFinishedSemaphore = app.RenderFinishedSemaphores[currentSemaphoreIndex]
+        let mutable inFlightFence = app.InFlightFences[app.currentSemaphoreIndex]
+        let imageAvailableSemaphore = app.ImageAvailableSemaphores[app.currentSemaphoreIndex]
+        let renderFinishedSemaphore = app.RenderFinishedSemaphores[app.currentSemaphoreIndex]
 
         if (task !== null)
             task.Wait()
@@ -1366,7 +1370,7 @@ module Vk =
             if (vkResetFences(app.Device, 1, &&inFlightFence) != VkResult.VK_SUCCESS)
                 fail("Failed to reset fences.")
     
-            let commandBuffer = acquireCommandBuffer(int32(imageIndex), currentFrame)
+            let commandBuffer = acquireCommandBuffer(int32(imageIndex), app.CurrentFrame)
                 
             if (app.AsyncDrawEnabled)
                 task <-
@@ -1375,6 +1379,7 @@ module Vk =
                             draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
                     )
             else
+                ()
                 let result = draw(swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
                 
                 // TODO: Remove the commented code below when we feel comfortable that we do not need it.
@@ -1384,8 +1389,8 @@ module Vk =
                 if (result != VkResult.VK_SUCCESS)
                     fail("Failed to present.")
 
-            app.previousFrame <- currentFrame
-            app.currentFrame <- (app.currentFrame + 1) % app.InFlightFences.Length
+            app.previousFrame <- app.CurrentFrame
+            app.currentFrame <- (app.currentFrame + 1) % app.MaxFramesInFlight
             app.currentSemaphoreIndex <- (app.currentSemaphoreIndex + 1) % app.ImageAvailableSemaphores.Length
             app.lastImageIndex <- imageIndex
             app.hasDrawnOnce <- true
