@@ -18,7 +18,7 @@ private alias Unsafe = OlyPrelude.Unsafe
 
 class GpuDescriptorSet =
     internal IsInitialized: bool get, set
-    IsUpdated: bool get, set
+    internal IsUpdated: bool get, set
     internal FrameUpdates: mutable bool[] get, set
 
     internal VkDescriptorPool: VkDescriptorPool get, set
@@ -827,6 +827,8 @@ class GpuInputArray =
                 throw ArgumentOutOfRangeException("value")
             this.IsDirty <- true
             this.totalCount <- value
+            if (this.descriptorSet !== unchecked default)
+                this.descriptorSet.IsUpdated <- false
 
     field descriptorKind: GpuDescriptorKind
     field mutable descriptorSet: GpuDescriptorSet

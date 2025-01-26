@@ -176,9 +176,7 @@ class MeshRendererBehavior =
         gpuCommands.BindDescriptorSet(2, instancesDs)
         gpuCommands.BindDescriptorSet(3, lightsDs)
         gpuCommands.BindDescriptorSet(4, renv.Lit_DescriptorSet)
-        let ds = rfenv.Textures.Images.GetVertexDescriptorSet()
-        ds.IsUpdated <- false
-        gpuCommands.BindDescriptorSet(5, rfenv.Textures.Images.GetVertexDescriptorSet())
+        gpuCommands.BindDescriptorSet(5, rfenv.Textures.DescriptorSet)
 
     DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
         gpuCommands.BindDescriptorSet(1, instancesDs)

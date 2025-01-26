@@ -125,6 +125,7 @@ class ShaderTextures =
 
     field lookup: Dictionary<IGpuImage, int32> = Dictionary()
     Images: GpuInputArray get = GpuInputArray(GpuDescriptorKind.Image, GpuResourceKind.Image, 5000)
+    DescriptorSet: GpuDescriptorSet get() = this.Images.GetVertexDescriptorSet()
 
     Count: int32 get() = this.Images.Count
 
