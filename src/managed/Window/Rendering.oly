@@ -18,7 +18,7 @@ private alias Unsafe = OlyPrelude.Unsafe
 
 class GpuDescriptorSet =
     internal IsInitialized: bool get, set
-    internal IsUpdated: bool get, set
+    internal NeedsUpdate: bool get, set
     internal FrameUpdates: mutable bool[] get, set
 
     internal VkDescriptorPool: VkDescriptorPool get, set
@@ -41,7 +41,7 @@ class GpuDescriptorSet =
 
         {
             IsInitialized = false
-            IsUpdated = false
+            NeedsUpdate = true
 
             FrameUpdates = mutable []
             VkDescriptorPool = VkDescriptorPool.NULL
@@ -59,7 +59,7 @@ class GpuDescriptorSet =
         let (currentOffset, currentSize) = this.resourceRanges[resourceIndex]
         
         if (currentOffset != offset || currentSize != size)
-            this.IsUpdated <- false
+            this.NeedsUpdate <- true
             this.resourceRanges[resourceIndex] <- (offset, size)
 
 internal module Helpers =
@@ -828,7 +828,7 @@ class GpuInputArray =
             this.IsDirty <- true
             this.totalCount <- value
             if (this.descriptorSet !== unchecked default)
-                this.descriptorSet.IsUpdated <- false
+                this.descriptorSet.NeedsUpdate <- true
 
     field descriptorKind: GpuDescriptorKind
     field mutable descriptorSet: GpuDescriptorSet
@@ -1947,7 +1947,7 @@ class Gpu =
     private Initialize(gpuDescriptorSet: GpuDescriptorSet): () =
         if (!gpuDescriptorSet.IsInitialized)
             gpuDescriptorSet.IsInitialized <- true
-            gpuDescriptorSet.IsUpdated <- true
+            gpuDescriptorSet.NeedsUpdate <- false
 
             let gpuDescriptorSetLayoutBindings = gpuDescriptorSet.Layout.Bindings
 
@@ -1996,8 +1996,8 @@ class Gpu =
                 frameIndex <- frameIndex + 1
 
             let _ = this.gpuDescriptorSets.Add(gpuDescriptorSet)
-        else if (!gpuDescriptorSet.IsUpdated)
-            gpuDescriptorSet.IsUpdated <- true
+        else if (gpuDescriptorSet.NeedsUpdate)
+            gpuDescriptorSet.NeedsUpdate <- false
 
             let mutable frameIndex = 0
             while (frameIndex < this.vk.MaxFramesInFlight) 
@@ -2017,7 +2017,7 @@ class Gpu =
             this.setLayoutManager.Destroy(gpuDescriptorSet.VkDescriptorSetLayout)
 
             gpuDescriptorSet.IsInitialized <- false
-            gpuDescriptorSet.IsUpdated <- false
+            gpuDescriptorSet.NeedsUpdate <- true
             gpuDescriptorSet.FrameUpdates <- mutable []
             gpuDescriptorSet.VkDescriptorPool <- VkDescriptorPool.NULL
             gpuDescriptorSet.VkDescriptorSets <- []
