@@ -62,6 +62,12 @@ class GpuDescriptorSet =
             this.IsUpdated <- false
             this.resourceRanges[resourceIndex] <- (offset, size)
 
+    UpdateNextFrame(): () =
+        let mutable i = 0
+        while (i < this.FrameUpdates.Length)
+            this.FrameUpdates[i] <- false
+            i <- i + 1
+
 internal module Helpers =
 
     CreateVulkanDescriptorSetLayoutBinding(inputKind: GpuDescriptorKind, flags: GpuDescriptorSetLayoutBindingFlags, stageFlags: GpuStageFlags, descriptorCount: uint32): VulkanDescriptorSetLayoutBinding =
