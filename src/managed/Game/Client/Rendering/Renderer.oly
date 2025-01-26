@@ -647,17 +647,13 @@ module DrawHelpers =
         while (i < drawQueue.Count)
             let (key, count, offset, ds, drawCmdIndex) = drawQueue[i]
 
-            match (imageManager.GetNonBlocking(key.Material.ImageId))
-            | Some(_) =>
-                let meshData = meshManager.Get(key.MeshKey.Id).Meshes[key.MeshKey.Offset]
-                let vertices = meshData.Vertices
-                let indices = meshData.Indices
-                draw(key, ds, gpuCommands)
+            let meshData = meshManager.Get(key.MeshKey.Id).Meshes[key.MeshKey.Offset]
+            let vertices = meshData.Vertices
+            let indices = meshData.Indices
+            draw(key, ds, gpuCommands)
 
-                let drawCmdSize = DotNet.SizeOf<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>
-                gpuCommands.DrawIndexedIndirectVulkan(vertices, indices, drawCmds,uint64(drawCmdIndex * drawCmdSize), 1, uint32(drawCmdSize))
-            | _ =>
-                ()
+            let drawCmdSize = DotNet.SizeOf<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>
+            gpuCommands.DrawIndexedIndirectVulkan(vertices, indices, drawCmds, uint64(drawCmdIndex * drawCmdSize), 1, uint32(drawCmdSize))
 
             i <- i + 1
 

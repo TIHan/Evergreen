@@ -18,7 +18,7 @@ private alias Unsafe = OlyPrelude.Unsafe
 
 class GpuDescriptorSet =
     internal IsInitialized: bool get, set
-    internal IsUpdated: bool get, set
+    IsUpdated: bool get, set
     internal FrameUpdates: mutable bool[] get, set
 
     internal VkDescriptorPool: VkDescriptorPool get, set
@@ -61,12 +61,6 @@ class GpuDescriptorSet =
         if (currentOffset != offset || currentSize != size)
             this.IsUpdated <- false
             this.resourceRanges[resourceIndex] <- (offset, size)
-
-    UpdateNextFrame(): () =
-        let mutable i = 0
-        while (i < this.FrameUpdates.Length)
-            this.FrameUpdates[i] <- false
-            i <- i + 1
 
 internal module Helpers =
 
