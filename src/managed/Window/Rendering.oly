@@ -2008,6 +2008,13 @@ class Gpu =
         this.Initialize(gpuDescriptorSet)
         this.Update(gpuDescriptorSet, frameIndex)
 
+    Update(gpuDescriptorSet: GpuDescriptorSet): () =
+        this.Initialize(gpuDescriptorSet)
+        let mutable i = 0
+        while (i < this.vk.MaxFramesInFlight)
+            this.Update(gpuDescriptorSet, i)
+            i <- i + 1
+
     Free(gpuDescriptorSet: GpuDescriptorSet): () =
         Vk.WaitForIdle(this.vk)
 
