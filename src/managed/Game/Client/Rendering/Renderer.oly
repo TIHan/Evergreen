@@ -496,13 +496,14 @@ module DrawHelpers =
         let mutable resultKey = default
         let mutable resultInstanceIndex = -1
 
-        let images = //images.Get(material.ImageId)
+        let images =
             match (images.GetNonBlocking(material.ImageId))
             | Some(images) => images
             | _ => []
 
         if (images.Length > 0)
-            let _ = ImagesToDelete.Add(material.ImageId)
+            // TODO: Can't do this yet as we have a dep issue with ImGui?
+            //let _ = ImagesToDelete.Add(material.ImageId)
             For(meshes.Length,
                 i ->
                     let mesh = meshes[i]
@@ -849,7 +850,8 @@ class Renderer =
         drawBatchIndices.NeedsUpdate <- true
         drawCmds.NeedsUpdate <- true
 
-        renv.Gpu.Update(rfenv.Textures.DescriptorSet)
+        // TODO: Can't do this yet as concurrency issues with a queue
+        //renv.Gpu.Update(rfenv.Textures.DescriptorSet)
 
     DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, gpuCommands: GpuCommandList): () =
         let pipeline = this.Behavior.GetOutlineMaskPipeline(renv)
@@ -968,8 +970,18 @@ class Renderer =
         gpu.Free(this.LerpComputeDescriptorSet)
         gpu.Free(this.FrustumCullingComputeDescriptorSet)
 
-        ForEach(DrawHelpers.ImagesToDelete, x -> renv.ImageManager.Free(x))
-        DrawHelpers.ImagesToDelete.Clear()
+        // TODO: Can't do this yet as we have a dep issue with ImGui?
+        // ForEach(DrawHelpers.ImagesToDelete, 
+        //     x -> 
+        //         let nameOpt = renv.ImageManager.TryGetName(x)
+        //         match (nameOpt)
+        //         | Some(name) =>
+        //             if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+        //                 renv.ImageManager.Free(x)
+        //         | _ =>
+        //             ()
+        // )
+        // DrawHelpers.ImagesToDelete.Clear()
 
     module Logic =
 

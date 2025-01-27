@@ -160,7 +160,7 @@ class Resources =
 
         let maps = AssetManager<Stream>((_, fs) -> fs.Dispose())
         maps.RegisterFiles(".json", "Maps", fs, 
-            filePath -> 
+            (filePath, _) -> 
                 let result = File.OpenRead(filePath): Stream
                 result
         ) // TODO-language-bug: Should not have to annotate ': Stream'.
@@ -169,11 +169,11 @@ class Resources =
         let soundManager = AssetManager<Sound>((_, sound) -> ())
     
         soundManager.RegisterFiles(".wav", "Sounds", fs,
-            path -> audio.CreateSound(File.Open(path, FileMode.Open), SoundEncoding.Wave, true, 0)
+            (path, _) -> audio.CreateSound(File.Open(path, FileMode.Open), SoundEncoding.Wave, true, 0)
         )
 
         soundManager.RegisterFiles(".ogg", "Sounds", fs,
-            (path: string) -> // TODO-language-bug: Should not have to be explicit with annotation 'path: string'? Maybe? 
+            (path: string, _) -> // TODO-language-bug: Should not have to be explicit with annotation 'path: string'? Maybe? 
                 let category =
                     if (path.Contains("Music"))
                         1: byte
@@ -185,7 +185,7 @@ class Resources =
         let meshManager = AssetManager<MeshGroup>((_, bytes) -> ())
 
         meshManager.RegisterFiles(".obj", "Models", fs,
-            path -> AssetHelpers.CreateMesh(path)
+            (path, _) -> AssetHelpers.CreateMesh(path)
         )
 
         let frameManager = 
@@ -196,7 +196,7 @@ class Resources =
             )
     
         frameManager.Register("shadow_maps",
-            () ->
+            (_) ->
                 let mutable options = GpuFrameOptions()
                 options.FilterMode <- GpuFilterMode.Linear
                 options.MipmapMode <- GpuMipmapMode.Linear
@@ -208,7 +208,7 @@ class Resources =
         )
 
         frameManager.Register("sprite_shadow_maps",
-            () ->
+            (_) ->
                 let mutable options = GpuFrameOptions()
                 options.FilterMode <- GpuFilterMode.Linear
                 options.MipmapMode <- GpuMipmapMode.Linear
@@ -220,47 +220,47 @@ class Resources =
         )
     
         frameManager.Register("mask", 
-            () -> 
+            (_) -> 
                 let options = GpuFrameOptions()
                 return GpuFrame(options)
         )
         frameManager.Register("mask_blur", 
-            () -> 
+            (_) -> 
                 let mutable options = GpuFrameOptions()
                 options.SizeMode <- GpuFrameSizeMode.Custom
                 return GpuFrame(options, 1280, 720)
         )
         frameManager.Register("vertical_blur", 
-            () -> 
+            (_) -> 
                 let mutable options = GpuFrameOptions()
                 options.SizeMode <- GpuFrameSizeMode.WindowDownscaledX3
                 return GpuFrame(options)
         )
         frameManager.Register("final_horizontal_blur", 
-            () -> 
+            (_) -> 
                 let mutable options = GpuFrameOptions()
                 options.SizeMode <- GpuFrameSizeMode.WindowDownscaledX3
                 return GpuFrame(options)
         )
         frameManager.Register("transparency",
-            () ->
+            (_) ->
                 let mutable options = GpuFrameOptions()
                 return GpuFrame(options)
         )
         frameManager.Register("screen", 
-            () -> 
+            (_) -> 
                 let mutable options = GpuFrameOptions()
                 options.SizeMode <- GpuFrameSizeMode.WindowSuperSampled
                 return GpuFrame(options)
         )
         frameManager.Register("screen_no_outlines", 
-            () -> 
+            (_) -> 
                 let mutable options = GpuFrameOptions()
                 options.RenderPassFlags <- GpuRenderPassFlags.ClearDepthStencil
                 return GpuFrame(options)
         )
         frameManager.Register("console_background",
-            () ->
+            (_) ->
                 let mutable options = GpuFrameOptions()
                 options.SizeMode <- GpuFrameSizeMode.WindowDownscaledX3
                 return GpuFrame(options)
@@ -274,37 +274,37 @@ class Resources =
             )
     
         imageManager.Register("mask",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("mask")
                 return [frame.ColorImage]
         )
         imageManager.Register("mask_depth",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("mask")
                 return [frame.DepthImage]
         )
         imageManager.Register("mask_stencil",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("mask")
                 return [frame.StencilImage]
         )
         imageManager.Register("vertical_blur",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("vertical_blur")
                 return [frame.ColorImage]
         )
         imageManager.Register("final_horizontal_blur",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("final_horizontal_blur")
                 return [frame.ColorImage]
         )
         imageManager.Register("screen",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("screen")
                 return [frame.ColorImage]
         )
         imageManager.Register("screen_no_outlines",
-            () ->
+            (_) ->
                 let! frame = frameManager.GetAdaptive("screen_no_outlines")
                 return [frame.ColorImage]
         )
@@ -313,23 +313,19 @@ class Resources =
         let spriteShadowMaps = frameManager.Get("sprite_shadow_maps")
     
         let shaderManager = AssetManager<byte[]>((name, _bytes) -> Log("Freeing shader bytes '" + name + "'"))
-
-        let asyncLock = System.Object()
     
-        let readImage(path: string) =
+        let readImage(path: string, isAsync: bool) =
             match (path)
             | _ =>
-                lock(Evergreen.Graphics.Backend.Vulkan.VulkanApplication.AsyncLock, 
-                    () ->
-                        let image = RenderingHelpers.CreateImage(path): IGpuImage // TODO-language-bug: We do not need the type annotation 'IGpuImage' here.
-                        r.Gpu.Upload(image, /* isAsync */true)
-                        [(image: IGpuImage)]
-                )
+                let image = RenderingHelpers.CreateImage(path): IGpuImage
+                if (isAsync)
+                    r.Gpu.Upload(image, /* isAsync */true)
+                [image]
     
         imageManager.RegisterFiles(".png", "Textures", fs, readImage)
 
         imageManager.RegisterFiles(".mtl", "Models", fs,
-            filePath ->
+            (filePath, _) ->
                 let text = File.ReadAllText(filePath)
                 let lines = filter(text.Split(mutable ["\n"], StringSplitOptions.RemoveEmptyEntries), x -> x.StartsWith("Kd "))
                 let colors =
@@ -352,11 +348,11 @@ class Resources =
                 Unsafe.AsImmutable(images)
         )
     
-        shaderManager.RegisterFiles(".vert", "Shaders", fs, filePath -> RenderingHelpers.CompileShader(filePath))
-        shaderManager.RegisterFiles(".frag", "Shaders", fs, filePath -> RenderingHelpers.CompileShader(filePath))
-        shaderManager.RegisterFiles(".comp", "Shaders", fs, filePath -> RenderingHelpers.CompileShader(filePath))
+        shaderManager.RegisterFiles(".vert", "Shaders", fs, (filePath, _) -> RenderingHelpers.CompileShader(filePath))
+        shaderManager.RegisterFiles(".frag", "Shaders", fs, (filePath, _) -> RenderingHelpers.CompileShader(filePath))
+        shaderManager.RegisterFiles(".comp", "Shaders", fs, (filePath, _) -> RenderingHelpers.CompileShader(filePath))
         shaderManager.RegisterFiles(".glsl", "Shaders", fs, 
-            name -> [] // Do not actually load this! We register so we can track dependencies.
+            (name, _) -> [] // Do not actually load this! We register so we can track dependencies.
         )
 
         // Make sure to invalidate shaders that reference other shaders.
@@ -381,7 +377,7 @@ class Resources =
             )
             
         gpuPipelineManager.RegisterFiles(".json", "Shaders", fs,
-            filePath ->
+            (filePath, _) ->
                 let file = File.OpenRead(filePath)
                 let (shaderName, options, layouts) = Helpers.ParseShaderJson(file)
                 file.Dispose()
@@ -420,7 +416,7 @@ class Resources =
         let renderMeshManager = AssetManager<RenderMeshGroup>((_, meshDataGroup) -> ())
 
         renderMeshManager.RegisterFiles(".obj", "Models", fs,
-            path -> 
+            (path, _) -> 
                 // TODO: We should re-use the 'MeshGroup' from 'meshManager'.
                 let meshDescs = AssetHelpers.CreateMesh(path)
                 let renderMeshes =
@@ -442,7 +438,7 @@ class Resources =
         let globalsManager = AssetManager<GpuBuffer<ShaderGlobals>>((_, x) -> ()) // TODO: add Free(arr: IGpuArray) to Rendering //r.Free(x))
 
         globalsManager.Register("console_background", 
-                () ->
+                (_) ->
                     return
                         GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1,
                             i -> ShaderGlobals()
@@ -451,7 +447,7 @@ class Resources =
 
         let registerShadowMapGlobals(name) =
             globalsManager.Register(name, 
-                () ->
+                (_) ->
                     return
                         GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1,
                             i -> ShaderGlobals()

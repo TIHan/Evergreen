@@ -2037,7 +2037,13 @@ class Gpu =
     Upload(gpuImage: IGpuImage, isAsync: bool): () =
         match (gpuImage.ImageKind)
         | GpuImageKind.Image =>
-            this.Upload(Unsafe.Cast<GpuImage>(gpuImage), if (isAsync) VulkanQueueKind.Async else VulkanQueueKind.Standard)
+            if (isAsync)
+                lock(Evergreen.Graphics.Backend.Vulkan.VulkanApplication.AsyncLock, 
+                    () ->
+                        this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Async)
+                )
+            else
+                this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Standard)
         | GpuImageKind.Frame =>
             if (isAsync) throw NotImplementedException()
             this.Upload(Unsafe.Cast<GpuFrameImage>(gpuImage).Frame)

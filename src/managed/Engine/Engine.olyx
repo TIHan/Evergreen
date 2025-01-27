@@ -97,7 +97,7 @@ main(args: string[]): () =
         let resx = Resources(r) // TODO-language-bug: crashes when doing 'Resources.Initialize(r)'. note: 'Initialize' doesn't exist.
 
         resx.Maps.Register("benchmark.test",
-            () -> return BenchmarkMap(resx)
+            (_) -> return BenchmarkMap(resx)
         )
 
         let connectionKey = "oly" + engineHash

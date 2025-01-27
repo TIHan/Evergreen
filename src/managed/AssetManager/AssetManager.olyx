@@ -141,12 +141,12 @@ class AssetManager<T> where T: not struct =
         public field GroupName: string
         public field FileName: string
         public field Info: Info
-        public field Compute: () -> AVal<T>
+        public field Compute: bool -> AVal<T>
         public field mutable Reload: bool
         public field mutable Observable: Option<Var<T>>
         public field mutable Adaptive: Option<AVal<T>>
 
-        new(name: string, groupName: string, fileName: string, info: Info, compute: () -> AVal<T>) =
+        new(name: string, groupName: string, fileName: string, info: Info, compute: bool -> AVal<T>) =
             {
                 LockObject = System.Object()
                 Name = name
@@ -159,7 +159,7 @@ class AssetManager<T> where T: not struct =
                 Compute = compute
             }
 
-        static Create(directory: string, filePath: string, index: int32, compute: () -> AVal<T>): Item =
+        static Create(directory: string, filePath: string, index: int32, compute: bool -> AVal<T>): Item =
             let fileName = Path.GetFileName(filePath)
             let info = Info(index, filePath)
             let (name, groupName, fileName) = createNameFromDirectoryAndFilePath(directory, filePath)
@@ -196,7 +196,7 @@ class AssetManager<T> where T: not struct =
         this.Reload(name)
 
     Free(assetId: Int32Id): () =
-        let item = this.GetItem(assetId.Value)
+        let item = this.GetItem(assetId.Value, false)
         let name = item.Name
 
         lock(item.LockObject, 
@@ -220,7 +220,7 @@ class AssetManager<T> where T: not struct =
 
     AddChangedHandler(name: string, handler: () -> ()): () =
         let assetId = this.FindId(name)
-        let item = this.GetItem(assetId.Value)
+        let item = this.GetItem(assetId.Value, false)
         match (item.Observable)
         | Some(var) =>
             var.Add((_) -> handler())
@@ -232,7 +232,7 @@ class AssetManager<T> where T: not struct =
         let count = items.Count
         let mutable i = 1
         while (i < count)
-            let item = this.GetItem(i)
+            let item = this.GetItem(i, false)
             let value =
                 match (item.Observable)
                 | Some(var) => var.Value
@@ -242,7 +242,7 @@ class AssetManager<T> where T: not struct =
 
     Count: int32 get() = this.items.Count - 1
 
-    private ComputeItem(item: Item): () =
+    private ComputeItem(item: Item, isAsync: bool): () =
         if (item.Observable.IsSome)
             if (item.Reload)
                 lock(item.LockObject,
@@ -250,7 +250,7 @@ class AssetManager<T> where T: not struct =
                         if (item.Reload)
                             try
                                 item.Reload <- false
-                                let itemValue = item.Compute().Evaluate().Value
+                                let itemValue = item.Compute(isAsync).Evaluate().Value
                                 match (item.Observable)
                                 | Some(observable) =>
                                     if (observable.Value !== itemValue)
@@ -266,7 +266,7 @@ class AssetManager<T> where T: not struct =
             lock(item.LockObject,
                 () ->
                     if (item.Observable.IsNone)
-                        let aval = item.Compute()
+                        let aval = item.Compute(isAsync)
                         let var = 
                             aval.Evaluate(
                                 SomeStruct(
@@ -286,19 +286,19 @@ class AssetManager<T> where T: not struct =
                         item.Adaptive <- Some(aval)
             )
 
-    private GetItem(index: int32): Item =
+    private GetItem(index: int32, isAsync: bool): Item =
         if (index == 0)
             throw IndexOutOfRangeException("index")
         let item = this.items[index]
         if (item.Observable.IsSome && (!item.Reload))
             item
         else
-            this.ComputeItem(item)
+            this.ComputeItem(item, isAsync)
             item
 
-    private GetCore(assetId: Int32Id): T =
+    private GetCore(assetId: Int32Id, isAsync: bool): T =
         let index = assetId.Value
-        let mutable item = this.GetItem(index)
+        let mutable item = this.GetItem(index, isAsync)
         match (item.Observable)
         | Some(observable) => observable.Value
         | _ => fail("should not happen")
@@ -314,7 +314,7 @@ class AssetManager<T> where T: not struct =
                     else
                         fail("is async")
                 else
-                    this.GetCore(assetId)
+                    this.GetCore(assetId, false)
         )
 
     private GetAsync(assetId: Int32Id): Task<T> =
@@ -331,7 +331,7 @@ class AssetManager<T> where T: not struct =
                             Task.Factory.StartNew(
                                 () ->
                                     System.Threading.Thread.Sleep(1000)
-                                    this.GetCore(assetId)
+                                    this.GetCore(assetId, true)
                             )
                         this.AsyncTasks[assetId] <- task
                         task
@@ -356,7 +356,7 @@ class AssetManager<T> where T: not struct =
 
     GetAdaptive(assetId: Int32Id): AVal<T> =
         let index = assetId.Value
-        let mutable item = this.GetItem(index)
+        let mutable item = this.GetItem(index, false)
         match (item.Adaptive)
         | Some(aval) =>
             aval
@@ -394,14 +394,14 @@ class AssetManager<T> where T: not struct =
                 this.items[index] <- item
             | _ =>
                 ()
-            let _ = this.GetItem(index)
+            let _ = this.GetItem(index, false)
             let mutable result = unchecked default
             let _ = this.AsyncTasks.TryRemove(assetId, &result)
 
-    RegisterFiles(extensionName: string, directory: string, fs: IVirtualFileSystem, read: string -> T): () =
-        this.RegisterFiles(extensionName, directory, fs, filePath -> return read(filePath))
+    RegisterFiles(extensionName: string, directory: string, fs: IVirtualFileSystem, read: (string, isAsync: bool)-> T): () =
+        this.RegisterFiles(extensionName, directory, fs, (filePath, isAsync) -> (return read(filePath, isAsync)): AVal<_>)
 
-    RegisterFiles(extensionName: string, directory: string, fs: IVirtualFileSystem, read: string -> AVal<T>): () =
+    RegisterFiles(extensionName: string, directory: string, fs: IVirtualFileSystem, read: (string, isAsync: bool) -> AVal<T>): () =
         let directory = Path.Combine(Environment.CurrentDirectory, directory)
         let filePaths = fs.GetAllFilePaths(directory)
         let filePaths = filter(filePaths, x -> x.EndsWith(extensionName, StringComparison.OrdinalIgnoreCase))
@@ -409,7 +409,7 @@ class AssetManager<T> where T: not struct =
         ForEach(filePaths,
             filePath ->
                 let index = this.items.Count
-                let item = Item.Create(directory, filePath, index, () -> read(filePath))
+                let item = Item.Create(directory, filePath, index, isAsync -> read(filePath, isAsync))
                 this.items.Add(item)
                 if (!this.mappings.TryAdd(item.Name, item.Info))
                     fail("File already assigned an index.")
@@ -435,10 +435,10 @@ class AssetManager<T> where T: not struct =
         fsw.EnableRaisingEvents <- true
         this.watchers.Add(fsw)
 
-    Register(fileName: string, f: () -> AVal<T>): () =
+    Register(fileName: string, f: bool -> AVal<T>): () =
         this.Register("", fileName, f)
 
-    Register(groupName: string, fileName: string, f: () -> AVal<T>): () =
+    Register(groupName: string, fileName: string, f: bool -> AVal<T>): () =
         let index = this.items.Count
         let info = Info(index, fileName)
         let name = createName(groupName, fileName)

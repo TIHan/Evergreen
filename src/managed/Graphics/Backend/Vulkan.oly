@@ -1345,6 +1345,12 @@ module Vk =
         let imageAvailableSemaphore = app.ImageAvailableSemaphores[app.currentSemaphoreIndex]
         let renderFinishedSemaphore = app.RenderFinishedSemaphores[app.currentSemaphoreIndex]
 
+        if (vkWaitForFences(app.Device, 1, &&inFlightFence, VkBool32.TRUE, uint64.MaxValue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait for fences.")
+
+        if (vkResetFences(app.Device, 1, &&inFlightFence) != VkResult.VK_SUCCESS)
+            fail("Failed to reset fences.")    
+
         if (task !== null)
             task.Wait()
 
@@ -1360,12 +1366,6 @@ module Vk =
             fail("Failed to acquire next image.")
         else
             ()
-            if (vkWaitForFences(app.Device, 1, &&inFlightFence, VkBool32.TRUE, uint64.MaxValue) != VkResult.VK_SUCCESS)
-                fail("Failed to wait for fences.")
-    
-            if (vkResetFences(app.Device, 1, &&inFlightFence) != VkResult.VK_SUCCESS)
-                fail("Failed to reset fences.")
-    
             let commandBuffer = acquireCommandBuffer(int32(imageIndex), app.CurrentFrame)
                 
             if (app.AsyncDrawEnabled)
