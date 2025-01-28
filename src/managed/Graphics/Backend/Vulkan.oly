@@ -96,8 +96,8 @@ class VulkanApplication =
     TransferQueues: VkQueue[] get
     TransferQueueFamilyIndex: uint32 get
     TransferCommandPools: VkCommandPool[] get
-    TransferAsyncQueue: VkQueue get
-    TransferAsyncCommandPool: VkCommandPool get
+    AsyncGraphicsQueue: VkQueue get
+    AsyncGraphicsCommandPool: VkCommandPool get
     PresentQueues: VkQueue[] get
     PresentQueueFamilyIndex: uint32 get
     DebugMessenger: VkDebugUtilsMessengerEXT get
@@ -106,7 +106,7 @@ class VulkanApplication =
     InFlightFences: VkFence[] get
     Allocator: VmaAllocator get
 
-    public static field AsyncLock: object = System.Object()
+    internal static field AsyncLock: object = System.Object()
 
     internal field mutable currentFrame: int32
     internal field mutable previousFrame: int32
@@ -168,11 +168,11 @@ class VulkanApplication =
         renderFinishedSemaphores: VkSemaphore[], 
         inFlightFences: VkFence[], 
         allocator: VmaAllocator,
-        transferAsyncQueue: VkQueue) =
+        asyncGraphicsQueue: VkQueue) =
         let graphicsCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, graphicsQueueFamilyIndex))
         let computeCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, computeQueueFamilyIndex))
         let transferCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, transferQueueFamilyIndex))
-        let transferAsyncCommandPool = Vk.createCommandPool(device, transferQueueFamilyIndex)
+        let asyncGraphicsCommandPool = Vk.createCommandPool(device, transferQueueFamilyIndex)
         {
             ValidationLayersEnabled = validationLayersEnabled
             MaxFramesInFlight = maxFramesInFlight
@@ -191,8 +191,8 @@ class VulkanApplication =
             TransferQueues = transferQueues
             TransferQueueFamilyIndex = transferQueueFamilyIndex
             TransferCommandPools = transferCommandPools
-            TransferAsyncQueue = transferAsyncQueue
-            TransferAsyncCommandPool = transferAsyncCommandPool
+            AsyncGraphicsQueue = asyncGraphicsQueue
+            AsyncGraphicsCommandPool = asyncGraphicsCommandPool
             PresentQueues = presentQueues
             PresentQueueFamilyIndex = presentQueueFamilyIndex
             DebugMessenger = debugMessenger
@@ -852,7 +852,7 @@ module Vk =
             commandPool ->
                 vkDestroyCommandPool(app.Device, commandPool, nullptr)
         )
-        vkDestroyCommandPool(app.Device, app.TransferAsyncCommandPool, nullptr)
+        vkDestroyCommandPool(app.Device, app.AsyncGraphicsCommandPool, nullptr)
         vkDestroyDevice(app.Device, nullptr)
 
         vkDestroySurfaceKHR(app.Instance, app.Surface, nullptr)
@@ -1151,7 +1151,7 @@ module Vk =
 
             let commandPool =
                 match (queueKind)
-                | VulkanQueueKind.Async => app.TransferAsyncCommandPool
+                | VulkanQueueKind.Async => app.AsyncGraphicsCommandPool
                 | _ => app.GraphicsCommandPools[app.CurrentFrame]
 
             let mutable commandBuffer = createCommandBuffer(app.Device, commandPool)
@@ -1186,7 +1186,7 @@ module Vk =
 
             let queue =
                 match (queueKind)
-                | VulkanQueueKind.Async => app.TransferAsyncQueue
+                | VulkanQueueKind.Async => app.AsyncGraphicsQueue
                 | _ => app.GraphicsQueues[app.CurrentFrame]
 
             endAndSubmitCommands(app.Device, commandPool, commandBuffer, queue)
@@ -1194,13 +1194,13 @@ module Vk =
             vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
 
     UpdateImage(app: VulkanApplication, image: VulkanImage, mutable imageData: ReadOnlySpan<byte>, queueKind: VulkanQueueKind): () =
-        // match (queueKind)
-        // | VulkanQueueKind.Async =>
-        //     lock(VulkanApplication.AsyncLock,
-        //         () ->
-        //             UpdateImageCore(app, image, imageData, queueKind)
-        //     )
-        // | _ =>
+        match (queueKind)
+        | VulkanQueueKind.Async =>
+            lock(VulkanApplication.AsyncLock,
+                () ->
+                    UpdateImageCore(app, image, imageData, queueKind)
+            )
+        | _ =>
             UpdateImageCore(app, image, imageData, queueKind)
     private UpdateImageCore(app: VulkanApplication, image: VulkanImage, mutable imageData: ReadOnlySpan<byte>, queueKind: VulkanQueueKind): () =
         let mipLevels = image.MipLevels
@@ -1247,7 +1247,7 @@ module Vk =
 
                 let commandPool =
                     match (queueKind)
-                    | VulkanQueueKind.Async => app.TransferAsyncCommandPool
+                    | VulkanQueueKind.Async => app.AsyncGraphicsCommandPool
                     | _ => app.GraphicsCommandPools[app.CurrentFrame]
 
                 let mutable commandBuffer = createCommandBuffer(app.Device, commandPool)
@@ -1278,7 +1278,7 @@ module Vk =
 
                 let queue =
                     match (queueKind)
-                    | VulkanQueueKind.Async => app.TransferAsyncQueue
+                    | VulkanQueueKind.Async => app.AsyncGraphicsQueue
                     | _ => app.GraphicsQueues[app.CurrentFrame]
 
                 endAndSubmitCommands(app.Device, commandPool, commandBuffer, queue)

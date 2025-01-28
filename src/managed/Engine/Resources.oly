@@ -319,7 +319,7 @@ class Resources =
             | _ =>
                 let image = RenderingHelpers.CreateImage(path): IGpuImage
                 if (isAsync)
-                    r.Gpu.Upload(image, /* isAsync */true)
+                    r.Gpu.UploadAsync(image)
                 [image]
     
         imageManager.RegisterFiles(".png", "Textures", fs, readImage)
@@ -340,7 +340,7 @@ class Resources =
                     map(colors,
                         (mutable color) ->
                             let bytes = mutable [color.R; color.G; color.B; color.A]
-                            let result = GpuImage(GpuFilterKind.Nearest, 1, 1, ReadOnlyMemory(bytes))
+                            let result = GpuImage(filePath, GpuFilterKind.Nearest, 1, 1, ReadOnlyMemory(bytes))
                             let result = result: IGpuImage
                             result
                     )

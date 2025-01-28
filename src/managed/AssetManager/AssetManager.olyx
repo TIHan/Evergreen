@@ -196,23 +196,28 @@ class AssetManager<T> where T: not struct =
         this.Reload(name)
 
     Free(assetId: Int32Id): () =
-        let item = this.GetItem(assetId.Value, false)
-        let name = item.Name
-
-        lock(item.LockObject, 
+        lock(this.AsyncLock,
             () ->
-                match (item.Observable)
-                | Some(itemVar) =>
-                    if (itemVar.SubscriberCount > 0)
-                        fail("Cannot free '" + name + "' because it is a dependency on another asset")
-                    item.Reload <- true
-                    item.Observable <- None
-                    this.freeAsset(item.Info.RealLocation, itemVar.Value)
-                    itemVar.Value <- unchecked default
-                    let mutable result = unchecked default
-                    let _ = this.AsyncTasks.TryRemove(assetId, &result)
-                | _ =>
-                    fail("'" + name + "' already freed")
+                let mutable task = unchecked default
+                if (this.AsyncTasks.TryRemove(assetId, &task))
+                    task.Wait() // we need to wait for the current task to finish
+        
+                let item = this.GetItemAndCompute(assetId.Value, false)
+                let name = item.Name
+        
+                lock(item.LockObject, 
+                    () ->
+                        match (item.Observable)
+                        | Some(itemVar) =>
+                            if (itemVar.SubscriberCount > 0)
+                                fail("Cannot free '" + name + "' because it is a dependency on another asset")
+                            item.Reload <- true
+                            item.Observable <- None
+                            this.freeAsset(item.Info.RealLocation, itemVar.Value)
+                            itemVar.Value <- unchecked default
+                        | _ =>
+                            fail("'" + name + "' already freed")
+                )
         )
             
     Free(name: string): () =
@@ -220,7 +225,7 @@ class AssetManager<T> where T: not struct =
 
     AddChangedHandler(name: string, handler: () -> ()): () =
         let assetId = this.FindId(name)
-        let item = this.GetItem(assetId.Value, false)
+        let item = this.GetItemAndCompute(assetId.Value, false)
         match (item.Observable)
         | Some(var) =>
             var.Add((_) -> handler())
@@ -232,7 +237,7 @@ class AssetManager<T> where T: not struct =
         let count = items.Count
         let mutable i = 1
         while (i < count)
-            let item = this.GetItem(i, false)
+            let item = this.GetItemAndCompute(i, false)
             let value =
                 match (item.Observable)
                 | Some(var) => var.Value
@@ -245,77 +250,92 @@ class AssetManager<T> where T: not struct =
     private ComputeItem(item: Item, isAsync: bool): () =
         if (item.Observable.IsSome)
             if (item.Reload)
-                lock(item.LockObject,
-                    () ->
-                        if (item.Reload)
-                            try
-                                item.Reload <- false
-                                let itemValue = item.Compute(isAsync).Evaluate().Value
-                                match (item.Observable)
-                                | Some(observable) =>
-                                    if (observable.Value !== itemValue)
-                                        let oldValue = observable.Value
-                                        observable.Value <- itemValue       
-                                        AssetManager.Queue.Enqueue(() -> this.freeAsset(item.Name, oldValue))         
-                                | _ =>
-                                    fail("should not happen")
-                            catch (ex: Exception) =>
-                                LogMultipleErrors("failed to reload '" + item.Name + "'\n" + ex.Message)
-                )
+                try
+                    item.Reload <- false
+                    let itemValue = item.Compute(isAsync).Evaluate().Value
+                    match (item.Observable)
+                    | Some(observable) =>
+                        if (observable.Value !== itemValue)
+                            let oldValue = observable.Value
+                            observable.Value <- itemValue       
+                            AssetManager.Queue.Enqueue(() -> this.freeAsset(item.Name, oldValue))         
+                    | _ =>
+                        fail("should not happen")
+                catch (ex: Exception) =>
+                    LogMultipleErrors("failed to reload '" + item.Name + "'\n" + ex.Message)
         else
-            lock(item.LockObject,
-                () ->
-                    if (item.Observable.IsNone)
-                        let aval = item.Compute(isAsync)
-                        let var = 
-                            aval.Evaluate(
-                                SomeStruct(
-                                    () ->
-                                        match (item.Observable)
-                                        | Some(observable) =>
-                                            item.Reload <- true
-                                            item.Observable <- None
-                                            AssetManager.Queue.Enqueue(() -> this.freeAsset(item.Name, observable.Value))
-                                        | _ =>
-                                            () 
-                                )
-                            )
-                        let itemValue = var.Value
-                        item.Reload <- false
-                        item.Observable <- Some(var)
-                        item.Adaptive <- Some(aval)
-            )
+            let aval = item.Compute(isAsync)
+            let var = 
+                aval.Evaluate(
+                    SomeStruct(
+                        () ->
+                            match (item.Observable)
+                            | Some(observable) =>
+                                item.Reload <- true
+                                item.Observable <- None
+                                AssetManager.Queue.Enqueue(() -> this.freeAsset(item.Name, observable.Value))
+                            | _ =>
+                                () 
+                    )
+                )
+            let itemValue = var.Value
+            item.Reload <- false
+            item.Observable <- Some(var)
+            item.Adaptive <- Some(aval)
 
-    private GetItem(index: int32, isAsync: bool): Item =
+    private GetItemAndCompute(index: int32, isAsync: bool): Item =
         if (index == 0)
             throw IndexOutOfRangeException("index")
         let item = this.items[index]
-        if (item.Observable.IsSome && (!item.Reload))
+        if (item.Observable.IsSome && !item.Reload)
             item
         else
-            this.ComputeItem(item, isAsync)
+            lock(item.LockObject,
+                () -> this.ComputeItem(item, isAsync)
+            )
             item
 
-    private GetCore(assetId: Int32Id, isAsync: bool): T =
+    private GetComputedItem(assetId: Int32Id, isAsync: bool): T =
         let index = assetId.Value
-        let mutable item = this.GetItem(index, isAsync)
+        let mutable item = this.GetItemAndCompute(index, isAsync)
         match (item.Observable)
         | Some(observable) => observable.Value
         | _ => fail("should not happen")
 
+    private TryGetItemValue(assetId: Int32Id): Option<T> =
+        let item = this.items[assetId.Value]
+        if (item.Observable.IsSome && !item.Reload)
+            match (item.Observable)
+            | Some(observable) => Some(observable.Value)
+            | _ => fail("should not happen")
+        else
+            None
+
     Get(assetId: Int32Id): T =
-        //this.GetAsync(assetId).Result
-        lock<T>(this.AsyncLock,
-            () ->
-                let mutable task: Task<T> = null
-                if (this.AsyncTasks.TryGetValue(assetId, &task))
-                    if (task.IsCompletedSuccessfully)
-                        task.Result
-                    else
-                        fail("is async")
-                else
-                    this.GetCore(assetId, false)
-        )
+        let item = this.items[assetId.Value]
+        if (item.Observable.IsSome && !item.Reload)
+            match (item.Observable)
+            | Some(observable) => observable.Value
+            | _ => fail("should not happen")
+        else
+            let mutable task: Task<T> = null
+            if (this.AsyncTasks.TryGetValue(assetId, &task))
+                task.Result
+            else
+                lock<T>(this.AsyncLock,
+                    () ->
+                        let item = this.items[assetId.Value]
+                        if (item.Observable.IsSome && !item.Reload)
+                            match (item.Observable)
+                            | Some(observable) => observable.Value
+                            | _ => fail("should not happen")
+                        else
+                            let mutable task: Task<T> = null
+                            if (this.AsyncTasks.TryGetValue(assetId, &task))
+                                task.Result
+                            else
+                                this.GetComputedItem(assetId, false)
+                )
 
     private GetAsync(assetId: Int32Id): Task<T> =
         let mutable task: Task<T> = null
@@ -330,8 +350,8 @@ class AssetManager<T> where T: not struct =
                         let task: Task<T> = // TODO-language-bug: Should not need to annotate 'Task<T>'
                             Task.Factory.StartNew(
                                 () ->
-                                    System.Threading.Thread.Sleep(1000)
-                                    this.GetCore(assetId, true)
+                                    System.Threading.Thread.Sleep(1000) // artificial delay to test
+                                    this.GetComputedItem(assetId, true)
                             )
                         this.AsyncTasks[assetId] <- task
                         task
@@ -356,7 +376,7 @@ class AssetManager<T> where T: not struct =
 
     GetAdaptive(assetId: Int32Id): AVal<T> =
         let index = assetId.Value
-        let mutable item = this.GetItem(index, false)
+        let mutable item = this.GetItemAndCompute(index, false)
         match (item.Adaptive)
         | Some(aval) =>
             aval
@@ -383,9 +403,20 @@ class AssetManager<T> where T: not struct =
         else
             fail("Unable to find asset '" + name + "'.")
 
+    IsLoaded(assetId: Int32Id): bool =
+        let item = this.items[assetId.Value]
+        if (item.Observable.IsSome && !item.Reload)
+            false
+        else
+            true
+
     private Reload(name: string): () =
         let assetId = this.TryFindId(name)
         if (assetId.IsValid)
+            let mutable task = unchecked default
+            if (this.AsyncTasks.TryRemove(assetId, &task))
+                task.Wait() // we need to wait for the current task to finish
+
             let index = assetId.Value
             let mutable item = this.items[index]
             match (item.Observable)
@@ -394,9 +425,7 @@ class AssetManager<T> where T: not struct =
                 this.items[index] <- item
             | _ =>
                 ()
-            let _ = this.GetItem(index, false)
-            let mutable result = unchecked default
-            let _ = this.AsyncTasks.TryRemove(assetId, &result)
+            let _ = this.GetItemAndCompute(index, false)
 
     RegisterFiles(extensionName: string, directory: string, fs: IVirtualFileSystem, read: (string, isAsync: bool)-> T): () =
         this.RegisterFiles(extensionName, directory, fs, (filePath, isAsync) -> (return read(filePath, isAsync)): AVal<_>)

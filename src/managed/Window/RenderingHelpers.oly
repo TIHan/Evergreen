@@ -83,6 +83,6 @@ module RenderingHelpers =
             let mutable bytes = zeroArray<byte>(length)
             Span(Unsafe.Cast<void*>(image.rawData), length).CopyTo(Span(bytes))
             egAssetFreeImage(image)
-            GpuImage(GpuFilterKind.Nearest, image.width, image.height, ReadOnlyMemory(bytes))      
+            GpuImage(filePath, GpuFilterKind.Nearest, image.width, image.height, ReadOnlyMemory(bytes))      
         finally
             fileBytesHandle.Free()

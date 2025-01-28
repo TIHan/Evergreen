@@ -17,6 +17,7 @@ open Evergreen.Graphics.Rendering.UI
 private alias Unsafe = OlyPrelude.Unsafe
 
 class GpuDescriptorSet =
+    Name: string get
     internal IsInitialized: bool get, set
     internal NeedsUpdate: bool get, set
     internal FrameUpdates: mutable bool[] get, set
@@ -33,13 +34,14 @@ class GpuDescriptorSet =
 
     ResourceRanges: ReadOnlySpan<(offset: int32, size: int32)> get() = this.resourceRanges.AsReadOnlySpan()
 
-    new(gpuSetLayout: GpuDescriptorSetLayout, gpuResources: IGpuInput[]) =
+    new(name: string, gpuSetLayout: GpuDescriptorSetLayout, gpuResources: IGpuInput[]) =
         if (gpuSetLayout.Bindings.Length <= 0)
             throw ArgumentOutOfRangeException("GpuDescriptorSetLayout.Bindings")
         if (gpuSetLayout.Bindings.Length != gpuResources.Length)
             throw ArgumentException("Descriptor set layout binding count does not match number of resources")
 
         {
+            Name = name
             IsInitialized = false
             NeedsUpdate = true
 
@@ -486,6 +488,7 @@ class GpuBuffer<T> where T: unmanaged =
         if (this.VertexDescriptorSet === unchecked default)
             this.VertexDescriptorSet <-
                 GpuDescriptorSet(
+                    string.Empty, // TODO: Use a better name.
                     GpuDescriptorSetLayout(
                         let kind =
                             match (this.BufferKind)
@@ -504,6 +507,7 @@ class GpuBuffer<T> where T: unmanaged =
         if (this.VertexFragmentDescriptorSet === unchecked default)
             this.VertexFragmentDescriptorSet <-
                 GpuDescriptorSet(
+                    string.Empty, // TODO: Use a better name.
                     GpuDescriptorSetLayout(
                         let kind =
                             match (this.BufferKind)
@@ -522,6 +526,7 @@ class GpuBuffer<T> where T: unmanaged =
         if (this.ComputeDescriptorSet === unchecked default)
             this.ComputeDescriptorSet <-
                 GpuDescriptorSet(
+                    string.Empty, // TODO: Use a better name.
                     GpuDescriptorSetLayout(
                         let kind =
                             match (this.BufferKind)
@@ -559,6 +564,7 @@ enum GpuFilterKind =
 interface IGpuImage =
     inherits IGpuInput
 
+    Name: string get
     ImageKind: GpuImageKind get
     Width: int32 get
     Height: int32 get
@@ -576,6 +582,7 @@ abstract default class GpuImage =
     field mutable refCount: int32
     internal RefCount: byref<int32> get() = &this.refCount
 
+    Name: string get
     ResourceKind: GpuResourceKind get() = GpuResourceKind.Image
 
     ImageKind: GpuImageKind
@@ -606,7 +613,7 @@ abstract default class GpuImage =
 
     internal DescriptorSet: GpuDescriptorSet get, set
 
-    new(filterKind: GpuFilterKind, width: int32, height: int32, mutable bytes: ReadOnlyMemory<byte>) =
+    new(name: string, filterKind: GpuFilterKind, width: int32, height: int32, mutable bytes: ReadOnlyMemory<byte>) =
         if (width < 0)
             fail("Invalid width.")
         if (height < 0)
@@ -614,6 +621,7 @@ abstract default class GpuImage =
         if (bytes.IsEmpty)
             fail("Invalid bytes.")
         {
+            Name = name
             refCount = 0
                 
             IsDirty = true
@@ -641,6 +649,7 @@ abstract default class GpuImage =
         if (this.DescriptorSet === unchecked default)
             this.DescriptorSet <-
                 GpuDescriptorSet(
+                    this.Name,
                     DescriptorSetLayout,
                     [this: IGpuInput]
                 )
@@ -662,6 +671,7 @@ internal class GpuFrameImage =
 
     field frame: GpuFrame
 
+    Name: string get() = string.Empty
     Frame: GpuFrame get() = this.frame
     Kind: GpuFrameImageKind get
     Width: int32
@@ -724,6 +734,7 @@ internal class GpuFrameImage =
         if (this.DescriptorSet === unchecked default)
             this.DescriptorSet <-
                 GpuDescriptorSet(
+                    this.Name,
                     GpuImage.DescriptorSetLayout,
                     [this: IGpuInput]
                 )
@@ -740,6 +751,7 @@ internal class GpuFrameImageView =
 
     internal DescriptorSet: GpuDescriptorSet get, set
 
+    Name: string get() = string.Empty
     Frame: GpuFrame get
     Kind: GpuFrameImageKind get
     LayerIndex: int32 get
@@ -801,6 +813,7 @@ internal class GpuFrameImageView =
         if (this.DescriptorSet === unchecked default)
             this.DescriptorSet <-
                 GpuDescriptorSet(
+                    this.Name,
                     GpuImage.DescriptorSetLayout,
                     [this: IGpuInput]
                 )
@@ -836,6 +849,7 @@ class GpuInputArray =
         if (this.descriptorSet === unchecked default)
             this.descriptorSet <-
                 GpuDescriptorSet(
+                    string.Empty, // TODO: Use a better name.
                     GpuDescriptorSetLayout(
                         [GpuDescriptorSetLayoutBinding(this.descriptorKind, GpuDescriptorSetLayoutBindingFlags.Bindless, GpuStageFlags.Vertex | GpuStageFlags.Fragment, this.Inputs.Length)]
                     ),
@@ -2034,14 +2048,11 @@ class Gpu =
             let result = this.gpuDescriptorSets.Remove(gpuDescriptorSet)
 
     // This is 'internal' instead of 'private' because ImGui needs to call this.
-    Upload(gpuImage: IGpuImage, isAsync: bool): () =
+    internal Upload(gpuImage: IGpuImage, isAsync: bool): () =
         match (gpuImage.ImageKind)
         | GpuImageKind.Image =>
             if (isAsync)
-                lock(Evergreen.Graphics.Backend.Vulkan.VulkanApplication.AsyncLock, 
-                    () ->
-                        this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Async)
-                )
+                this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Async)
             else
                 this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Standard)
         | GpuImageKind.Frame =>
@@ -2052,6 +2063,14 @@ class Gpu =
             this.Upload(Unsafe.Cast<GpuFrameImageView>(gpuImage).Frame)
         | _ =>
             fail("invalid image kind")
+
+    /// Not thread-safe.
+    Upload(gpuImage: IGpuImage): () =
+        this.Upload(gpuImage, false)
+
+    /// Thread-safe.
+    UploadAsync(gpuImage: IGpuImage): () =
+        this.Upload(gpuImage, true)
 
     private Upload(gpuImage: GpuImage, vulkanQueueKind: VulkanQueueKind): () =
         if (gpuImage.IsDirty)

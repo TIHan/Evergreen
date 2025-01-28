@@ -278,6 +278,7 @@ class RenderEnv =
 
         let globalsDs =
             GpuDescriptorSet(
+                "globals",
                 GpuDescriptorSetLayout(
                     [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)]
                 ),
@@ -286,6 +287,7 @@ class RenderEnv =
 
         let globalsComputeDs =
             GpuDescriptorSet(
+                "globals_compute",
                 GpuDescriptorSetLayout(
                     [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)]
                 ),
@@ -294,6 +296,7 @@ class RenderEnv =
 
         let globalsVertexDs =
             GpuDescriptorSet(
+                "globals_vertex",
                 GpuDescriptorSetLayout(
                     [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)]
                 ),
@@ -302,6 +305,7 @@ class RenderEnv =
 
         let lit_descriptorSet = 
             GpuDescriptorSet(
+                "lit",
                 GpuImage.DescriptorSetLayout.AddBinding(
                     GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Image, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)
                 ).AddBinding(
@@ -370,6 +374,7 @@ class RenderEnv =
             ConsoleBackgroundFrameDataDescriptorSet = 
                 let frameData = globalsManager.Get("console_background")
                 GpuDescriptorSet(
+                    "console_background",
                     GpuDescriptorSetLayout(
                         [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)]
                     ),
@@ -496,14 +501,17 @@ module DrawHelpers =
         let mutable resultKey = default
         let mutable resultInstanceIndex = -1
 
+        let alreadyExists = images.IsLoaded(material.ImageId)
+
         let images =
             match (images.GetNonBlocking(material.ImageId))
             | Some(images) => images
             | _ => []
 
         if (images.Length > 0)
-            // TODO: Can't do this yet as we have a dep issue with ImGui?
-            //let _ = ImagesToDelete.Add(material.ImageId)
+            // Only add images to delete if these images were not loaded before the renderer.
+            if (!alreadyExists)
+                let _ = ImagesToDelete.Add(material.ImageId)
             For(meshes.Length,
                 i ->
                     let mesh = meshes[i]
@@ -520,6 +528,7 @@ module DrawHelpers =
                                 let transformList = List()
                                 let gpuDescriptorSet = 
                                     GpuDescriptorSet(
+                                        "mesh_instance",
                                         GpuDescriptorSetLayout(
                                             [
                                                 GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)
@@ -729,6 +738,7 @@ class Renderer =
 
         let lerpComputeDescriptorSet =
             GpuDescriptorSet(
+                "lerp_compute",
                 GpuDescriptorSetLayout(
                     [
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
@@ -741,6 +751,7 @@ class Renderer =
 
         let frustumCullingComputeDescriptorSet =
             GpuDescriptorSet(
+                "frustum_culling_compute",
                 GpuDescriptorSetLayout(
                     [
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
@@ -755,6 +766,7 @@ class Renderer =
         let aabbs = GpuBuffer.ZeroCreate<AABB>(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
         let aabbComputeDs =
             GpuDescriptorSet(
+                "aabb_compute",
                 GpuDescriptorSetLayout(
                     [
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
@@ -970,18 +982,10 @@ class Renderer =
         gpu.Free(this.LerpComputeDescriptorSet)
         gpu.Free(this.FrustumCullingComputeDescriptorSet)
 
-        // TODO: Can't do this yet as we have a dep issue with ImGui?
-        // ForEach(DrawHelpers.ImagesToDelete, 
-        //     x -> 
-        //         let nameOpt = renv.ImageManager.TryGetName(x)
-        //         match (nameOpt)
-        //         | Some(name) =>
-        //             if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-        //                 renv.ImageManager.Free(x)
-        //         | _ =>
-        //             ()
-        // )
-        // DrawHelpers.ImagesToDelete.Clear()
+        ForEach(DrawHelpers.ImagesToDelete, 
+            x -> renv.ImageManager.Free(x)
+        )
+        DrawHelpers.ImagesToDelete.Clear()
 
     module Logic =
 
