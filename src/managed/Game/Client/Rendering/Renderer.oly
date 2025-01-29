@@ -501,17 +501,13 @@ module DrawHelpers =
         let mutable resultKey = default
         let mutable resultInstanceIndex = -1
 
-        let alreadyExists = images.IsLoaded(material.ImageId)
-
         let images =
             match (images.GetNonBlocking(material.ImageId))
             | Some(images) => images
             | _ => []
 
         if (images.Length > 0)
-            // Only add images to delete if these images were not loaded before the renderer.
-            if (!alreadyExists)
-                let _ = ImagesToDelete.Add(material.ImageId)
+            let _ = ImagesToDelete.Add(material.ImageId)
             For(meshes.Length,
                 i ->
                     let mesh = meshes[i]

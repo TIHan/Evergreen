@@ -136,6 +136,7 @@ class AssetManager<T> where T: not struct =
     private AsyncTasks: ConcurrentDictionary<Int32Id, Task<T>> get
 
     private class Item =
+        public field References: HashSet<int32>
         public field LockObject: object
         public field Name: string
         public field GroupName: string
@@ -148,6 +149,7 @@ class AssetManager<T> where T: not struct =
 
         new(name: string, groupName: string, fileName: string, info: Info, compute: bool -> AVal<T>) =
             {
+                References = HashSet()
                 LockObject = System.Object()
                 Name = name
                 GroupName = groupName
@@ -196,29 +198,31 @@ class AssetManager<T> where T: not struct =
         this.Reload(name)
 
     Free(assetId: Int32Id): () =
-        lock(this.AsyncLock,
-            () ->
-                let mutable task = unchecked default
-                if (this.AsyncTasks.TryRemove(assetId, &task))
-                    task.Wait() // we need to wait for the current task to finish
-        
-                let item = this.GetItemAndCompute(assetId.Value, false)
-                let name = item.Name
-        
-                lock(item.LockObject, 
-                    () ->
-                        match (item.Observable)
-                        | Some(itemVar) =>
-                            if (itemVar.SubscriberCount > 0)
-                                fail("Cannot free '" + name + "' because it is a dependency on another asset")
-                            item.Reload <- true
-                            item.Observable <- None
-                            this.freeAsset(item.Info.RealLocation, itemVar.Value)
-                            itemVar.Value <- unchecked default
-                        | _ =>
-                            fail("'" + name + "' already freed")
-                )
-        )
+        let item = this.items[assetId.Value]
+        if (item.References.Count == 0)
+            lock(this.AsyncLock,
+                () ->
+                    let mutable task = unchecked default
+                    if (this.AsyncTasks.TryRemove(assetId, &task))
+                        task.Wait() // we need to wait for the current task to finish
+            
+                    let item = this.GetItemAndCompute(assetId.Value, false)
+                    let name = item.Name
+            
+                    lock(item.LockObject, 
+                        () ->
+                            match (item.Observable)
+                            | Some(itemVar) =>
+                                if (itemVar.SubscriberCount > 0)
+                                    fail("Cannot free '" + name + "' because it is a dependency on another asset")
+                                item.Reload <- true
+                                item.Observable <- None
+                                this.freeAsset(item.Info.RealLocation, itemVar.Value)
+                                itemVar.Value <- unchecked default
+                            | _ =>
+                                fail("'" + name + "' already freed")
+                    )
+            )
             
     Free(name: string): () =
         this.Free(this.FindId(name))
@@ -409,6 +413,27 @@ class AssetManager<T> where T: not struct =
             false
         else
             true
+
+    SetReference(assetId: Int32Id, refId: int32): bool =
+        let item = this.items[assetId.Value]
+        item.References.Add(refId)
+
+    RemoveReference(assetId: Int32Id, refId: int32): bool =
+        let item = this.items[assetId.Value]
+        item.References.Remove(refId)
+
+    HasReference(assetId: Int32Id, refId: int32): bool =
+        let item = this.items[assetId.Value]
+        item.References.Contains(refId)
+
+    GetReferenceCount(assetId: Int32Id, refId: int32): int32 =
+        let item = this.items[assetId.Value]
+        item.References.Count
+
+    GetAndSetReference(name: string, refId: int32): T =
+        let assetId = this.FindId(name)
+        let _ = this.SetReference(assetId, refId)
+        this.Get(assetId)
 
     private Reload(name: string): () =
         let assetId = this.TryFindId(name)

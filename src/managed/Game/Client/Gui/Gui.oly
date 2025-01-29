@@ -121,7 +121,7 @@ class GuiEnv =
 
             NavigationStack = Stack()
 
-            Title = CreateTitle(images.Get("Freedoom/titlepic/freedm_title.png")[0])
+            Title = CreateTitle(images.GetAndSetReference("Freedoom/titlepic/freedm_title.png", 0)[0])
             MainMenu = CreateMainMenu(mainMenuModel, clientEventPublisher)
             MultiplayerMenu = CreateMultiplayerMenu(multiplayerMenuModel, clientEventPublisher)
             SettingsMenu = CreateSettingsMenu(settingsMenuModel, clientEventPublisher)
@@ -167,8 +167,8 @@ module Gui =
         let settingsVm = guiEnv.SettingsMenuModel
         settingsVm.DisplayModes.Value <- map(displayModes, x -> DisplayModeItem(x.Width, x.Height, x.RefreshRate))
         settingsVm.SelectedDisplayModeIndex.Value <- defaultDisplayModeIndex
-        settingsVm.OlyLogo.Value <- Some(images.Get("Logos/oly-dark.png")[0])
-        settingsVm.DotNetLogo.Value <- Some(images.Get("Logos/dotnet-bot.png")[0])      
+        settingsVm.OlyLogo.Value <- Some(images.GetAndSetReference("Logos/oly-dark.png", 0)[0])
+        settingsVm.DotNetLogo.Value <- Some(images.GetAndSetReference("Logos/dotnet-bot.png", 0)[0])      
 
         let diagsVm = guiEnv.DiagnosticsModel
         diagsVm.GpuDeviceName.Value <- gpu.GetName()
