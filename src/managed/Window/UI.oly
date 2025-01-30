@@ -522,7 +522,7 @@ class ImageView =
     new() =
         base(ViewTag.Image) with {
             IsScaling = true
-            descriptorSet = Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL
+            descriptorSets = mutable []
             gpuImage = unchecked default
             isDirty = false
             BorderColor = Vector4.Zero
@@ -532,7 +532,7 @@ class ImageView =
     BorderColor: Vector4 get, set
 
     internal field mutable isDirty: bool
-    internal field mutable descriptorSet: Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet
+    internal field mutable descriptorSets: mutable Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet[]
 
     field mutable gpuImage: IGpuImage
     GpuImage: IGpuImage 
@@ -1300,17 +1300,23 @@ module UI =
         ImGui.LabelText(context.ImGuiContext, view.LabelSpan, view.TextSpan)
 
     private MakeImage(context: UIContext, view: ImageView): () =
-        if (view.isDirty || view.descriptorSet == Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
+        if (view.isDirty || view.descriptorSets.Length == 0 || view.descriptorSets[context.Gpu.CurrentFrameIndex] == Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
             view.isDirty <- false
             
             if (view.GpuImage !== null && view.GpuImage.IsValid())
-                if (view.descriptorSet != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
-                    ImGui.DestroyTexture(context.ImGuiContext, view.descriptorSet)
-                view.descriptorSet <-
-                    context.Gpu.Upload(view.GpuImage, /* isAsync */false)
-                    ImGui.CreateTexture(context.ImGuiContext, view.GpuImage.GetVkSampler(), view.GpuImage.GetVkImageView(/* todo: ehh not good */ 0), view.GpuImage.GetVkImageLayout(),
-                        () ->
-                            view.descriptorSet <- Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL
+                ForEach(view.descriptorSets,
+                    ds ->
+                        if (ds != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
+                            ImGui.DestroyTexture(context.ImGuiContext, ds)
+                )
+                context.Gpu.Upload(view.GpuImage, /* isAsync */false)
+                view.descriptorSets <-
+                    initMutableArray(context.Gpu.MaxFramesInFlight,
+                        i ->
+                            ImGui.CreateTexture(context.ImGuiContext, view.GpuImage.GetVkSampler(), view.GpuImage.GetVkImageView(i), view.GpuImage.GetVkImageLayout(),
+                                () ->
+                                    view.descriptorSets[i] <- Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL
+                            )
                     )
 
         let size =
@@ -1319,8 +1325,8 @@ module UI =
             else
                 view.Size
 
-        if (view.descriptorSet != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
-            ImGui.Image(context.ImGuiContext, view.descriptorSet, size, Vector2.Zero, Vector2.One, view.BorderColor)
+        if (view.descriptorSets.Length > 0 && view.descriptorSets[context.Gpu.CurrentFrameIndex] != Evergreen.Graphics.Backend.Vulkan.VkDescriptorSet.NULL)
+            ImGui.Image(context.ImGuiContext, view.descriptorSets[context.Gpu.CurrentFrameIndex], size, Vector2.Zero, Vector2.One, view.BorderColor)
         else
             // Fallback, we must display something.
             ImGui.BeginDisabled(context.ImGuiContext, true)

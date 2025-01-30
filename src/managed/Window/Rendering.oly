@@ -1866,6 +1866,9 @@ class Gpu =
 
     GetCurrentWindowSize(): Vector2 = this.window.Size
 
+    CurrentFrameIndex: int32 get() = this.vk.CurrentFrame
+    MaxFramesInFlight: int32 get() = this.vk.MaxFramesInFlight
+
     SetUIContext(gpuPipelineUI: GpuPipelineUI): () =
         if (gpuPipelineUI.ImGuiContext !== unchecked default)
             ImGui.SetCurrentContext(gpuPipelineUI.ImGuiContext)

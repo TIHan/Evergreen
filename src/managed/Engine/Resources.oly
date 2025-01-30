@@ -273,42 +273,6 @@ class Resources =
                     ForEach(images, x -> r.Gpu.Free(x))
             )
     
-        imageManager.Register("mask",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("mask")
-                return [frame.ColorImage]
-        )
-        imageManager.Register("mask_depth",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("mask")
-                return [frame.DepthImage]
-        )
-        imageManager.Register("mask_stencil",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("mask")
-                return [frame.StencilImage]
-        )
-        imageManager.Register("vertical_blur",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("vertical_blur")
-                return [frame.ColorImage]
-        )
-        imageManager.Register("final_horizontal_blur",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("final_horizontal_blur")
-                return [frame.ColorImage]
-        )
-        imageManager.Register("screen",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("screen")
-                return [frame.ColorImage]
-        )
-        imageManager.Register("screen_no_outlines",
-            (_) ->
-                let! frame = frameManager.GetAdaptive("screen_no_outlines")
-                return [frame.ColorImage]
-        )
-    
         let shadowMaps = frameManager.Get("shadow_maps")
         let spriteShadowMaps = frameManager.Get("sprite_shadow_maps")
     
