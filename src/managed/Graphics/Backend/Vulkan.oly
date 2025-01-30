@@ -1052,9 +1052,10 @@ module Vk =
 
                 endAndSubmitCommands(app, app.GraphicsCommandPools[app.CurrentFrame], commandBuffer, app.GraphicsQueues[app.CurrentFrame])
 
+                vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
                 // TODO:
                 //if (queue == app.AsyncGraphicsQueue)
-                app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
+                //app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
 
     UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, bufferData: mutable T[]): () where T: unmanaged =
         UpdateBuffer<T>(app, buffer, ReadOnlySpan(bufferData))
@@ -1197,10 +1198,12 @@ module Vk =
 
             endAndSubmitCommands(app, commandPool, commandBuffer, queue)
 
-            if (queue == app.AsyncGraphicsQueue)
-                vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
-            else
-                app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
+            vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+
+            // if (queue == app.AsyncGraphicsQueue)
+            //     vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+            // else
+            //     app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
 
     UpdateImage(app: VulkanApplication, image: VulkanImage, mutable imageData: ReadOnlySpan<byte>, queueKind: VulkanQueueKind): () =
         match (queueKind)
@@ -1292,10 +1295,12 @@ module Vk =
 
                 endAndSubmitCommands(app, commandPool, commandBuffer, queue)
 
-                if (queue == app.AsyncGraphicsQueue)
-                    vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
-                else
-                    app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
+                vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+
+                // if (queue == app.AsyncGraphicsQueue)
+                //     vmaDestroyBuffer(app.Allocator, stagingBuffer, stagingAllocation)
+                // else
+                //     app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
                 
 
     DestroyImage(app: VulkanApplication, image: VulkanImage): () =
@@ -2867,18 +2872,18 @@ module Vk =
         submitInfo.signalSemaphoreCount <- 1
         submitInfo.pSignalSemaphores <- &&signalSemaphore
 
-        if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
-            fail("Failed to wait graphics queue.")
+        // if (vkQueueWaitIdle(app.GraphicsQueues[app.CurrentFrame]) != VkResult.VK_SUCCESS)
+        //     fail("Failed to wait graphics queue.")
 
-        let mutable result = unchecked default
-        while (app.DestroyStagingBufferQueues[app.CurrentFrame].TryDequeue(&result))
-            let (allocator, buffer, allocation) = result
-            vmaDestroyBuffer(allocator, buffer, allocation)
+        // let mutable result = unchecked default
+        // while (app.DestroyStagingBufferQueues[app.CurrentFrame].TryDequeue(&result))
+        //     let (allocator, buffer, allocation) = result
+        //     vmaDestroyBuffer(allocator, buffer, allocation)
 
-        let mutable result = unchecked default
-        while (app.FreeCommandBufferQueues[app.CurrentFrame].TryDequeue(&result))
-            let (commandPool, commandBuffer) = result
-            vkFreeCommandBuffers(app.Device, commandPool, 1, &&commandBuffer)
+        // let mutable result = unchecked default
+        // while (app.FreeCommandBufferQueues[app.CurrentFrame].TryDequeue(&result))
+        //     let (commandPool, commandBuffer) = result
+        //     vkFreeCommandBuffers(app.Device, commandPool, 1, &&commandBuffer)
 
         if (vkQueueSubmit(graphicsQueue, 1, &&submitInfo, inFlightFence) != VkResult.VK_SUCCESS)
             fail("Failed to submit draw command buffer.")
@@ -2911,14 +2916,20 @@ module Vk =
         if (vkQueueSubmit(queue, 1, &&submitInfo, default) != VkResult.VK_SUCCESS)
             fail("Failed to submit queue.")
 
-        if (queue == app.AsyncGraphicsQueue)
-            let mutable commandBuffer = commandBuffer
-            if (vkQueueWaitIdle(queue) != VkResult.VK_SUCCESS)
-                fail("Failed to wait idle on queue.")
+        let mutable commandBuffer = commandBuffer
+        if (vkQueueWaitIdle(queue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait idle on queue.")
 
-            vkFreeCommandBuffers(device, commandPool, 1, &&commandBuffer)
-        else
-            app.FreeCommandBufferQueues[app.CurrentFrame].Enqueue((commandPool, commandBuffer))
+        vkFreeCommandBuffers(device, commandPool, 1, &&commandBuffer)
+
+        // if (queue == app.AsyncGraphicsQueue)
+        //     let mutable commandBuffer = commandBuffer
+        //     if (vkQueueWaitIdle(queue) != VkResult.VK_SUCCESS)
+        //         fail("Failed to wait idle on queue.")
+
+        //     vkFreeCommandBuffers(device, commandPool, 1, &&commandBuffer)
+        // else
+        //     app.FreeCommandBufferQueues[app.CurrentFrame].Enqueue((commandPool, commandBuffer))
 
     private generateMipMaps(commandBuffer: VkCommandBuffer, image: VkImage, width: int32, height: int32, mipLevels: uint32, layerCount: uint32): () =
       //  let commandBuffer = createCommandBuffer(device, commandPool)
