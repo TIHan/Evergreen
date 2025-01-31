@@ -460,7 +460,7 @@ class GpuBuffer<T> where T: unmanaged =
     DataSize: int32 get
     BufferKind: GpuBufferKind get
     MemoryKind: GpuMemoryKind get
-    Length: int32 get() = this.Array.Length
+    Length: int32 get
 
     Array: mutable T[] get
     UpdateRanges: List<(start: int32, length: int32)> get
@@ -469,7 +469,9 @@ class GpuBuffer<T> where T: unmanaged =
     internal VertexFragmentDescriptorSet: GpuDescriptorSet get, set
     internal ComputeDescriptorSet: GpuDescriptorSet get, set
 
-    internal new(kind: GpuBufferKind, memoryKind: GpuMemoryKind, array: mutable T[]) =
+    internal new(kind: GpuBufferKind, memoryKind: GpuMemoryKind, array: mutable T[], length: int32) =
+        if (length <= 0)
+            throw ArgumentOutOfRangeException("length")
         base(GpuResourceKind.Buffer) with {
             refCount = 0
             IsDirty = false
@@ -482,6 +484,7 @@ class GpuBuffer<T> where T: unmanaged =
             VertexDescriptorSet = unchecked default
             VertexFragmentDescriptorSet = unchecked default
             ComputeDescriptorSet = unchecked default
+            Length = length
         }
 
     GetVertexDescriptorSet(): GpuDescriptorSet =
@@ -544,13 +547,13 @@ class GpuBuffer<T> where T: unmanaged =
 module GpuBuffer =
 
     Initialize<T>(kind: GpuBufferKind, memoryKind: GpuMemoryKind, length: int32, f: scoped int32 -> T): GpuBuffer<T> where T: unmanaged =
-        let gpuBuffer = GpuBuffer(kind, memoryKind, initMutableArray(length, f))
+        let gpuBuffer = GpuBuffer(kind, memoryKind, initMutableArray(length, f), length)
         gpuBuffer.UpdateRanges.Add((0, length))
         gpuBuffer.NeedsUpdate <- true
         gpuBuffer
         
     ZeroCreate<T>(kind: GpuBufferKind, memoryKind: GpuMemoryKind, length: int32): GpuBuffer<T> where T: unmanaged =
-        GpuBuffer(kind, memoryKind, zeroArray(length))
+        GpuBuffer(kind, memoryKind, zeroArray(length), length)
 
 enum GpuImageKind =
     | Image
@@ -673,7 +676,7 @@ internal class GpuFrameImage =
 
     Name: string get() = string.Empty
     Frame: GpuFrame get() = this.frame
-    Kind: GpuFrameImageKind get
+    FrameImageKind: GpuFrameImageKind get
     Width: int32
         get() = 
             match (this.Frame.Options.SizeMode)
@@ -690,16 +693,16 @@ internal class GpuFrameImage =
                 int32(this.Frame.Height)
     
     
-    new(frame: GpuFrame, kind: GpuFrameImageKind) =
+    new(frame: GpuFrame, frameImageKind: GpuFrameImageKind) =
         {
             refCount = 0
             frame = frame
-            Kind = kind
+            FrameImageKind = frameImageKind
             DescriptorSet = unchecked default
         }
 
-    IsDepth: bool get() = this.Kind == GpuFrameImageKind.Depth
-    IsStencil: bool get() = this.Kind == GpuFrameImageKind.Stencil
+    IsDepth: bool get() = this.FrameImageKind == GpuFrameImageKind.Depth
+    IsStencil: bool get() = this.FrameImageKind == GpuFrameImageKind.Stencil
 
     ResourceKind: GpuResourceKind get() = GpuResourceKind.Image
 
@@ -753,7 +756,7 @@ internal class GpuFrameImageView =
 
     Name: string get() = string.Empty
     Frame: GpuFrame get
-    Kind: GpuFrameImageKind get
+    FrameImageKind: GpuFrameImageKind get
     LayerIndex: int32 get
     Width: int32 
         get() = 
@@ -770,17 +773,17 @@ internal class GpuFrameImageView =
             | _ =>
                 int32(this.Frame.Height)
     
-    new(frame: GpuFrame, kind: GpuFrameImageKind, layerIndex: int32) =
+    new(frame: GpuFrame, frameImageKind: GpuFrameImageKind, layerIndex: int32) =
         {
             refCount = 0
             DescriptorSet = unchecked default
             Frame = frame
-            Kind = kind
+            FrameImageKind = frameImageKind
             LayerIndex = layerIndex
         }
 
-    IsDepth: bool get() = this.Kind == GpuFrameImageKind.Depth
-    IsStencil: bool get() = this.Kind == GpuFrameImageKind.Stencil
+    IsDepth: bool get() = this.FrameImageKind == GpuFrameImageKind.Depth
+    IsStencil: bool get() = this.FrameImageKind == GpuFrameImageKind.Stencil
 
     ResourceKind: GpuResourceKind get() = GpuResourceKind.Image
 
