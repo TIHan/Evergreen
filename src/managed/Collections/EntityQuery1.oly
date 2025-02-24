@@ -100,7 +100,7 @@ extension EntityDatabaseQuery1Extension =
         while (i < archetypeGroup.Length)
             let archetype = archetypeGroup[i]
             let entIds = entIdGroup[i]
-            let buffer0 = bufferGroup1[i].Store
+            let buffer1 = bufferGroup1[i].Store
             let count = archetype.Count
 
             let sliceCount = if (count == 0) 0 else (count / ComponentBuffer.MaxNumberOfEntitiesPerSlice) + 1
@@ -113,12 +113,12 @@ extension EntityDatabaseQuery1Extension =
                     let length = count - start
                     f(
                         entIds.GetReadOnlyChunkAs(j).Slice(0, length),
-                        buffer0.GetChunkAs(j).Slice(0, length)
+                        buffer1.GetChunkAs(j).Slice(0, length)
                     )
                 else
                     f(
                         entIds.GetReadOnlyChunkAs(j),
-                        buffer0.GetChunkAs(j)
+                        buffer1.GetChunkAs(j)
                     )
                 j <- j + 1
 
@@ -126,8 +126,9 @@ extension EntityDatabaseQuery1Extension =
         this.DecrementDepth()
 
     #[inline]
-    ForEach<T0>(query: EntityQuery<T0>, #[inline] f: scoped (EntityId, byref<T0>) -> ()): () where T0: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.ForEachSpan<T0>(query,
+    ForEach<T1>(query: EntityQuery<T1>, #[inline] f: scoped (EntityId, byref<T1>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.ForEachSpan<T1>(query,
             (mutable entIds, mutable buffer0) ->
                 let count = entIds.Length
                 let mutable i = 0
