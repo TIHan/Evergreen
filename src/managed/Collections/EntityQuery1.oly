@@ -1,0 +1,91 @@
+namespace Evergreen.Collections
+
+open System
+open System.IO
+open System.Text
+open System.Text.Json
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+
+// TODO: Change all the queries to be like this one with ArchetypeGroup.
+class EntityQuery<T0> where T0: blittable, struct, ValueType =
+
+    internal ArchetypeGroup: List<Archetype>       get = List()
+    internal EntIdGroup    : List<EntityIdStore>   get = List()
+    internal BufferGroup0  : List<ComponentBuffer> get = List()
+
+#[open]
+extension EntityDatabaseQuery1Extension =
+    inherits EntityDatabase
+
+    CreateQuery<T1>(): EntityQuery<T1> where T1: blittable, struct, ValueType, { new() }, trait IComponent =
+        let query = EntityQuery<T1>()
+        
+        let indices = this.GetArchetypedIndices(GetArchetypeId<T1>())
+
+        let mutable i = 0
+        while (i < indices.Length)
+            let index = indices[i]
+            let archetype = this.GetArchetype(index)
+            
+            query.ArchetypeGroup.Add(archetype)
+            query.EntIdGroup.Add(archetype.EntityIds)
+            query.BufferGroup0.Add(archetype.GetComponentBuffer(archetype.BufferLookup[T1.GetId()]))
+
+            i <- i + 1
+
+        query
+
+    #[inline]
+    ForEachSpan<T1>(query: EntityQuery<T1>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.IncrementDepth()
+
+        let archetypeGroup   = query.ArchetypeGroup
+        let entIdGroup       = query.EntIdGroup
+        let bufferGroup0     = query.BufferGroup0
+
+        let mutable i = 0
+        while (i < archetypeGroup.Count)
+            let archetype = archetypeGroup[i]
+            let entIds = entIdGroup[i]
+            let buffer0 = bufferGroup0[i].Store
+            let count = archetype.Count
+
+            let sliceCount = if (count == 0) 0 else (count / ComponentBuffer.MaxNumberOfEntitiesPerSlice) + 1
+            let sliceNumber = ComponentBuffer.MaxNumberOfEntitiesPerSlice
+
+            let mutable j = 0
+            while (j < sliceCount)
+                if (j == sliceCount - 1)
+                    let start = j * sliceNumber
+                    let length = count - start
+                    f(
+                        entIds.GetReadOnlyChunkAs(j).Slice(0, length),
+                        buffer0.GetChunkAs(j).Slice(0, length)
+                    )
+                else
+                    f(
+                        entIds.GetReadOnlyChunkAs(j),
+                        buffer0.GetChunkAs(j)
+                    )
+                j <- j + 1
+
+            i <- i + 1
+        this.DecrementDepth()
+
+    #[inline]
+    ForEach<T0>(query: EntityQuery<T0>, #[inline] f: scoped (EntityId, byref<T0>) -> ()): () where T0: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.ForEachSpan<T0>(query,
+            (mutable entIds, mutable buffer0) ->
+                let count = entIds.Length
+                let mutable i = 0
+                while (i < count)
+                    f(entIds[i], &buffer0[i])
+                    i <- i + 1
+        )

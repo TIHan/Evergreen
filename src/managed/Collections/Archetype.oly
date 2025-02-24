@@ -1,0 +1,243 @@
+namespace Evergreen.Collections
+
+open System
+open System.IO
+open System.Text
+open System.Text.Json
+open System.Numerics
+open System.Diagnostics
+open System.Collections.Generic
+open System.Collections.Concurrent
+open System.Runtime.InteropServices
+
+open Evergreen.Utilities
+
+internal class Archetype =
+
+    new(size: int32, buffers: ComponentBuffer[], archetypeId: ArchetypeId, attachmentId: ArchetypeId) =
+        let bufferLookup = Dictionary(BitSet512EqualityComparer())
+        let bufferLookupByIndex = Dictionary()
+
+        let nonAttachmentBuffers = List<ComponentBuffer>()
+        let attachmentBuffers = List<ComponentBuffer>()
+
+        let mutable i = 0
+        while (i < buffers.Length)
+            let buffer = buffers[i]
+            bufferLookup[buffer.ComponentId] <- i
+            bufferLookupByIndex[buffer.ComponentIndex] <- i
+            if (buffer.ComponentId & attachmentId == buffer.ComponentId)
+                attachmentBuffers.Add(buffer)
+            else
+                nonAttachmentBuffers.Add(buffer)
+            i <- i + 1
+
+        {
+            IsServerSide = archetypeId.IsSet(0) // TOOD-language-bug: We should be able to do 'BuiltInComponents.ServerSide.GetIndex()'
+            IsClientSide = archetypeId.IsSet(1) // TOOD-language-bug: We should be able to do 'BuiltInComponents.ClientSide.GetIndex()'
+            Id = archetypeId
+            AttachmentId = attachmentId
+            FullId = archetypeId | attachmentId
+            totalCount = 0
+            Capacity = size
+            EntityIds = ChunkedItemStore(DotNet.SizeOf<EntityId>)
+            Buffers = buffers
+            NonAttachmentBuffers = Unsafe.AsImmutable(nonAttachmentBuffers.ToArray())
+            AttachmentBuffers = Unsafe.AsImmutable(attachmentBuffers.ToArray())
+            BufferLookup = bufferLookup
+            BufferLookupByIndex = bufferLookupByIndex
+        }
+    
+    IsLocal: bool get() = this.IsClientSide || this.IsServerSide
+    IsClientSide: bool get
+    IsServerSide: bool get
+    Id: ArchetypeId get
+    AttachmentId: ArchetypeId get
+    FullId: ArchetypeId get
+    Capacity: int32 get
+    EntityIds: EntityIdStore get
+    Buffers: ComponentBuffer[] get
+    NonAttachmentBuffers: ComponentBuffer[] get
+    AttachmentBuffers: ComponentBuffer[] get
+    BufferLookup: Dictionary<ComponentId, int32> get
+    BufferLookupByIndex: Dictionary<int32, int32> get
+
+    ComponentListText: string 
+        get() =
+            let str = StringBuilder()
+            ForEach(this.Buffers,
+                x ->
+                    let _ = str.Append(x.ComponentName + ",")
+            )
+            str.ToString()
+
+    ComponentListNoAttachmentsText: string 
+        get() =
+            let str = StringBuilder()
+            ForEach(this.Buffers,
+                x ->
+                    if (this.AttachmentId & x.ComponentId != x.ComponentId)
+                        let _ = str.Append(x.ComponentName + ",")
+            )
+            str.ToString()
+
+    field mutable totalCount: int32
+    Count: int32
+        get() = this.totalCount
+        set(value) =
+            this.EnsureCapacity(value)
+            this.totalCount <- value
+
+    CopyTo(dst: Archetype): () =
+        let count = this.Count
+        dst.Count <- count
+        this.EntityIds.CopyTo(dst.EntityIds, count)
+
+        let mutable i = 0
+        while (i < this.Buffers.Length)
+            let buffer = this.Buffers[i]
+            let store = buffer.Store
+            let mutable dstBufferIndex = unchecked default
+            if (dst.BufferLookupByIndex.TryGetValue(buffer.ComponentIndex, &dstBufferIndex))
+                store.CopyTo(dst.Buffers[dstBufferIndex].Store, count)
+            i <- i + 1 
+
+    CopyOneTo(srcIndex: int32, dst: Archetype, dstIndex: int32): () =
+        let mutable i = 0
+        while (i < this.Buffers.Length)
+            let buffer = this.Buffers[i]
+            let store = buffer.Store
+            let mutable dstBufferIndex = unchecked default
+            if (dst.BufferLookupByIndex.TryGetValue(buffer.ComponentIndex, &dstBufferIndex))
+                store.CopyOneTo(srcIndex, dst.Buffers[dstBufferIndex].Store, dstIndex)
+
+            i <- i + 1
+
+    Set<T>(typedIndex: int32, index: int32, item: T): () where T: blittable, struct, ValueType, { new() } =
+        this.GetComponentBuffer(typedIndex).Store.SetAs<T>(index, item)
+
+    Get<T>(typedIndex: int32, index: int32): byref<T> where T: blittable, struct, ValueType, { new() } =
+        &this.GetComponentBuffer(typedIndex).Store.GetAs<T>(index)
+
+    #[inline]
+    GetComponentBuffer(typedIndex: int32): ComponentBuffer =
+        this.Buffers[typedIndex]
+
+    ClearAll(): () =
+        this.Count <- 0
+        this.EntityIds.Clear()
+
+        let mutable i = 0
+        while (i < this.Buffers.Length)
+            this.Buffers[i].Store.Clear()
+            i <- i + 1
+
+    ClearComponentsAt(index: int32): () =
+        let mutable i = 0
+        while (i < this.Buffers.Length)
+            let buffer = this.Buffers[i]
+            buffer.Store.ClearAt(index)
+            i <- i + 1
+
+    EnsureCapacity(count: int32): () =
+        this.EntityIds.EnsureCapacity(count)
+
+        let buffers = this.Buffers
+        let bufferLength = buffers.Length
+
+        let mutable i = 0
+        while (i < bufferLength)
+            buffers[i].Store.EnsureCapacity(count)
+            i <- i + 1
+
+    ClearComponentAttachmentsAt(index: int32): () =
+        let buffers = this.AttachmentBuffers
+        let bufferLength = buffers.Length
+
+        let mutable i = 0
+        while (i < bufferLength)
+            buffers[i].Store.ClearAt(index)
+            i <- i + 1
+
+    ClearSubscribers(): () =
+        ForEach(this.Buffers,
+            x ->
+                x.ComponentAdded.ClearSubscribers()
+                x.ComponentRemoving.ClearSubscribers()
+        )
+
+    TriggerComponentRemoving(id: ArchetypeId, index: int32): () =
+        ForEach(this.Buffers,
+            x ->
+                if (id.IsSet(x.ComponentIndex))
+                    x.ComponentRemoving.Trigger(index)
+        )
+
+    TriggerComponentAdded(id: ArchetypeId, index: int32): () =
+        ForEach(this.Buffers,
+            x ->
+                if (id.IsSet(x.ComponentIndex))
+                    x.ComponentAdded.Trigger(index)
+        )
+
+internal class ArchetypeManager =
+
+    private Archetypes: List<Archetype> get = List()
+    private ArchetypeLookup: Dictionary<ArchetypeId, int32> get = Dictionary(BitSet512EqualityComparer())
+
+    Clear(): () =
+        this.Archetypes.Clear()
+        this.ArchetypeLookup.Clear()
+
+    Count: int32
+        #[inline] 
+        get() = this.Archetypes.Count
+
+    #[inline]
+    get_Item(index: int32): Archetype = this.Archetypes[index]
+
+    #[inline]
+    Contains(archetypeId: ArchetypeId): bool =
+        this.ArchetypeLookup.ContainsKey(archetypeId)
+
+    #[inline]
+    TryGetValue(archetypeId: ArchetypeId, outArchetypeIndex: byref<int32>): bool =
+        this.ArchetypeLookup.TryGetValue(archetypeId, &outArchetypeIndex)
+
+    Create(archetypeId: ArchetypeId, registry: ComponentRegistry): int32 =
+        let origArchetypeId = archetypeId
+        let origCompIds = GetComponentIds(origArchetypeId)
+
+        let mutable attachmentId = BitSet512.Create(0): ArchetypeId
+
+        let archetypeId =
+            let mutable archetypeId = archetypeId
+            let mutable i = 0
+            while (i < origCompIds.Length)
+                let mutable result = unchecked default
+                if (registry.AttachmentLookup.TryGetValue(origCompIds[i], &result))
+                    archetypeId <- archetypeId | result
+                    attachmentId <- attachmentId | result
+                i <- i + 1
+            archetypeId
+
+        let compIds = GetComponentIds(archetypeId)
+
+        let buffers = List(compIds.Length)
+        let mutable i = 0
+        while (i < compIds.Length)
+            let compId = compIds[i]
+            if (registry.Contains(compId))
+                let size = registry.GetSize(compId)
+                let ty = registry.GetType(compId)
+                let index = registry.GetIndex(compId)
+                let (compName, serializeDelta, deserializeDelta) = registry.GetFunctions(compId)
+                let buffer = ComponentBuffer(compId, index, size, ty, compName, serializeDelta, deserializeDelta)
+                buffers.Add(buffer)
+            i <- i + 1
+
+        let archetype = Archetype(EntityDatabase.MaxNumberOfEntities, Unsafe.AsImmutable(buffers.ToArray()), origArchetypeId, attachmentId)
+        let index = this.Archetypes.Count
+        this.Archetypes.Add(archetype)
+        this.ArchetypeLookup.Add(origArchetypeId, index)
+        index
