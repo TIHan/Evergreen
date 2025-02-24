@@ -634,24 +634,6 @@ class EntityDatabase =
             i <- i + 1
 
         Unsafe.AsImmutable(indices.ToArray())
-        
-    CreateQuery<T0>(): EntityQuery<T0> where T0: blittable, struct, ValueType, { new() }, trait IComponent =
-        let query = EntityQuery<T0>()
-        
-        let indices = this.GetArchetypedIndices(GetArchetypeId<T0>())
-
-        let mutable i = 0
-        while (i < indices.Length)
-            let index = indices[i]
-            let archetype = this.GetArchetype(index)
-            
-            query.ArchetypeGroup.Add(archetype)
-            query.EntIdGroup.Add(archetype.EntityIds)
-            query.BufferGroup0.Add(archetype.GetComponentBuffer(archetype.BufferLookup[T0.GetId()]))
-
-            i <- i + 1
-
-        query
 
     CreateQuery<T0, T1>(): EntityQuery<T0, T1> 
             where T0: blittable, struct, ValueType, { new() }, trait IComponent 
