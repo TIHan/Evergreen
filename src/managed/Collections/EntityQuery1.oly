@@ -129,10 +129,10 @@ extension EntityDatabaseQuery1Extension =
     ForEach<T1>(query: EntityQuery<T1>, #[inline] f: scoped (EntityId, byref<T1>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent =
         this.ForEachSpan<T1>(query,
-            (mutable entIds, mutable buffer0) ->
+            (mutable entIds, mutable buffer1) ->
                 let count = entIds.Length
                 let mutable i = 0
                 while (i < count)
-                    f(entIds[i], &buffer0[i])
+                    f(entIds[i], &buffer1[i])
                     i <- i + 1
         )
