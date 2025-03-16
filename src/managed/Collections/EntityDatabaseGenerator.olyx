@@ -1,9 +1,47 @@
 #target "dotnet: net8"
 
+#reference "C:/work/Oly/src/Compiler/Oly.Compiler.Syntax/Oly.Compiler.Syntax.fsproj"
+
 open System
 open System.IO
+open System.Collections.Immutable
+open Microsoft.FSharp.Core
+open Oly.Core
+open Oly.Compiler
+open Oly.Compiler.Syntax
+
+#[open]
+extension SyntaxTreeExtensions =
+    inherits OlySyntaxTree
+
+    GetDescendants(filter: OlySyntaxNode -> bool): ImmutableArray<OlySyntaxNode> =
+        class DescendantFilter =
+            inherits FSharpFunc<OlySyntaxNode, bool>
+
+            field f: OlySyntaxNode -> bool
+
+            new(f: OlySyntaxNode -> bool) =
+                base() with { f = f }
+    
+            overrides Invoke(node: OlySyntaxNode): bool =
+                this.f(node)
+
+        let results = OlySyntaxTreeExtensions.`OlySyntaxNode.GetDescendants`(this.GetRoot(default), FSharpOption<_>.Some(DescendantFilter(filter): FSharpFunc<OlySyntaxNode, bool>))
+        ()
 
 main(): () =
     let text = File.ReadAllText("Collections/EntityQuery1.oly")
+    let syntaxTree = OlySyntaxTreeExtensions.`OlySyntaxTree.Parse.Static`(OlyPath.Create("EntityQuery1.oly"), text, null)
+    if (syntaxTree.HasErrors)
+        fail("syntax tree has errors")
+    let root = syntaxTree.GetRoot(default)
+
+    class DescendantFilter =
+        inherits FSharpFunc<OlySyntaxNode, bool>
+
+        overrides Invoke(node: OlySyntaxNode): bool =
+            true
+
+    let descendants = System.Linq.Enumerable.OfType<OlySyntaxName>(syntaxTree.GetDescendants((_) -> true))
     print("hello")
     ()
