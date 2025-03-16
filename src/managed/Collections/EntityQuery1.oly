@@ -5,33 +5,39 @@ open System.Collections.Generic
 open Evergreen.Utilities
 
 class EntityQuery<T1> 
-        where T1: blittable, struct, ValueType =
+        where T1: blittable, struct, ValueType 
+        /*def(n):where T{n}: blittable, struct, ValueType*/
+        =
 
     internal Database      : EntityDatabase    get
     internal ArchetypeGroup: Archetype[]       get
     internal EntIdGroup    : EntityIdStore[]   get
     internal BufferGroup1  : ComponentBuffer[] get
+    /*def(n):internal BufferGroup{n}  : ComponentBuffer[] get*/
 
     internal new(
         database: EntityDatabase, 
-        archetypeGroup: Archetype[], 
-        entIdGroup: EntityIdStore[], 
-        bufferGroup1: ComponentBuffer[]
+        archetypeGroup: Archetype[],
+        bufferGroup1: ComponentBuffer[],
+        /*def(n):bufferGroup{n}: ComponentBuffer[],*/ 
+        entIdGroup: EntityIdStore[]
     ) =
         {
             Database = database
             ArchetypeGroup = archetypeGroup
-            EntIdGroup = entIdGroup
             BufferGroup1 = bufferGroup1
+            /*def(n):BufferGroup{n} = bufferGroup{n}*/
+            EntIdGroup = entIdGroup
         }
 
-    private Filter<U>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1>
-            where U: blittable, struct, ValueType, { new() }, trait IComponent =
+    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1>
+            where T: blittable, struct, ValueType, { new() }, trait IComponent =
         let archetypeGroup = List()
         let entIdGroup = List()
         let bufferGroup1 = List()
+        /*def(n):let bufferGroup2 = List()*/
 
-        let filterId = GetArchetypeId<U>()
+        let filterId = GetArchetypeId<T>()
 
         For(this.ArchetypeGroup.Length,
             i ->
@@ -40,22 +46,24 @@ class EntityQuery<T1>
                     archetypeGroup.Add(archetype)
                     entIdGroup.Add(this.EntIdGroup[i])
                     bufferGroup1.Add(this.BufferGroup1[i])
+                    /*def(n):bufferGroup{n}.Add(this.BufferGroup{n}[i])*/
         )
 
         EntityQuery(
             this.Database,
             Unsafe.AsImmutable(archetypeGroup.ToArray()),
-            Unsafe.AsImmutable(entIdGroup.ToArray()),
-            Unsafe.AsImmutable(bufferGroup1.ToArray())
+            Unsafe.AsImmutable(bufferGroup1.ToArray()),
+            /*def(n):Unsafe.AsImmutable(bufferGroup{n}.ToArray()),*/
+            Unsafe.AsImmutable(entIdGroup.ToArray())
         )
 
-    public WhereContains<U>(): EntityQuery<T1>
-            where U: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.Filter<U>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
+    public WhereContains<T>(): EntityQuery<T1>
+            where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.Filter<T>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
 
-    public WhereNotContains<U>(): EntityQuery<T1>
-        where U: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.Filter<U>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
+    public WhereNotContains<T>(): EntityQuery<T1>
+        where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.Filter<T>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
 
 #[open]
 extension EntityDatabaseQuery1Extension =
@@ -83,8 +91,8 @@ extension EntityDatabaseQuery1Extension =
         EntityQuery(
             this,
             Unsafe.AsImmutable(archetypeGroup), 
-            Unsafe.AsImmutable(entIdGroup), 
-            Unsafe.AsImmutable(bufferGroup1)
+            Unsafe.AsImmutable(bufferGroup1),
+            Unsafe.AsImmutable(entIdGroup)
         )
 
     #[inline]

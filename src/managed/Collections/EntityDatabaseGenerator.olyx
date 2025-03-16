@@ -1,0 +1,9 @@
+#target "dotnet: net8"
+
+open System
+open System.IO
+
+main(): () =
+    let text = File.ReadAllText("Collections/EntityQuery1.oly")
+    print("hello")
+    ()
