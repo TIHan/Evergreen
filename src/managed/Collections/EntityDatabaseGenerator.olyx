@@ -19,15 +19,15 @@ extension SyntaxTreeExtensions =
         class DescendantFilter =
             inherits FSharpFunc<OlySyntaxNode, bool>
 
-            //field f: OlySyntaxNode -> bool
+            field f: OlySyntaxNode -> bool
 
-            // new(f: OlySyntaxNode -> bool) =
-            //     base() with { f = f }
+            new(f: OlySyntaxNode -> bool) =
+                base() with { f = f }
     
-            overrides Invoke(node: OlySyntaxNode): bool = true
-               // this.f(node)
+            overrides Invoke(node: OlySyntaxNode): bool =
+                this.f(node)
 
-        OlySyntaxTreeExtensions.`OlySyntaxNode.GetDescendants`(this.GetRoot(default), FSharpOption<_>.Some(DescendantFilter(): FSharpFunc<OlySyntaxNode, bool>))
+        OlySyntaxTreeExtensions.`OlySyntaxNode.GetDescendants`(this.GetRoot(default), FSharpOption<_>.Some(DescendantFilter(filter): FSharpFunc<OlySyntaxNode, bool>))
 
 #[open]
 extension EnumerableExtensions<T> =
