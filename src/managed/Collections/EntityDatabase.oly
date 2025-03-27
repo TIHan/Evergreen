@@ -12,14 +12,6 @@ open System.Runtime.InteropServices
 
 open Evergreen.Utilities
 
-class EntityQuery<T0, T1> where T0: blittable, struct, ValueType
-                          where T1: blittable, struct, ValueType =
-    
-    internal ArchetypeGroup: List<Archetype>       get = List()
-    internal EntIdGroup    : List<EntityIdStore>   get = List()
-    internal BufferGroup0  : List<ComponentBuffer> get = List()
-    internal BufferGroup1  : List<ComponentBuffer> get = List()
-
 internal class EntityQuery<T0, T1, T2> where T0: blittable, struct, ValueType
                               where T1: blittable, struct, ValueType
                               where T2: blittable, struct, ValueType =
@@ -635,28 +627,6 @@ class EntityDatabase =
 
         Unsafe.AsImmutable(indices.ToArray())
 
-    CreateQuery<T0, T1>(): EntityQuery<T0, T1> 
-            where T0: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            =
-        let query = EntityQuery<T0, T1>()
-
-        let indices = this.GetArchetypedIndices(GetArchetypeId<T0, T1>())
-
-        let mutable i = 0
-        while (i < indices.Length)
-            let index = indices[i]
-            let archetype = this.GetArchetype(index)
-            
-            query.ArchetypeGroup.Add(archetype)
-            query.EntIdGroup.Add(archetype.EntityIds)
-            query.BufferGroup0.Add(archetype.GetComponentBuffer(archetype.BufferLookup[T0.GetId()]))
-            query.BufferGroup1.Add(archetype.GetComponentBuffer(archetype.BufferLookup[T1.GetId()]))
-
-            i <- i + 1
-
-        query
-
     private CreateQuery<T0, T1, T2>(): EntityQuery<T0, T1, T2> where T0: blittable, struct, ValueType, { new() }, trait IComponent  
                                                                where T1: blittable, struct, ValueType, { new() }, trait IComponent 
                                                                where T2: blittable, struct, ValueType, { new() }, trait IComponent  =
@@ -822,8 +792,8 @@ class EntityDatabase =
         let query = this.CreateQuery<T0, T1>()
         let archetypeGroup = query.ArchetypeGroup
         let entIdGroup     = query.EntIdGroup
-        let bufferGroup0   = query.BufferGroup0
-        let bufferGroup1   = query.BufferGroup1
+        let bufferGroup0   = query.BufferGroup1
+        let bufferGroup1   = query.BufferGroup2
 
         let mutable i = 0
         while (i < indices.Length)

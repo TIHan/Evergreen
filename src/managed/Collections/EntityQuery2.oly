@@ -4,38 +4,38 @@ open System
 open System.Collections.Generic
 open Evergreen.Utilities
 
-class EntityQuery<T1> 
+class EntityQuery<T1, T2> 
         where T1: blittable, struct, ValueType 
-        /*def(n):where T{n}: blittable, struct, ValueType*/
+        where T2: blittable, struct, ValueType
         =
 
     internal Database      : EntityDatabase    get
     internal ArchetypeGroup: Archetype[]       get
     internal EntIdGroup    : EntityIdStore[]   get
     internal BufferGroup1  : ComponentBuffer[] get
-    /*def(n):internal BufferGroup{n}  : ComponentBuffer[] get*/
+    internal BufferGroup2  : ComponentBuffer[] get
 
     internal new(
         database: EntityDatabase, 
         archetypeGroup: Archetype[],
         bufferGroup1: ComponentBuffer[],
-        /*def(n):bufferGroup{n}: ComponentBuffer[],*/ 
+        bufferGroup2: ComponentBuffer[], 
         entIdGroup: EntityIdStore[]
     ) =
         {
             Database = database
             ArchetypeGroup = archetypeGroup
             BufferGroup1 = bufferGroup1
-            /*def(n):BufferGroup{n} = bufferGroup{n}*/
+            BufferGroup2 = bufferGroup2
             EntIdGroup = entIdGroup
         }
 
-    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1>
+    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1, T2>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
         let archetypeGroup = List()
         let entIdGroup = List()
         let bufferGroup1 = List()
-        /*def(n):let bufferGroup{n} = List()*/
+        let bufferGroup2 = List()
 
         let filterId = GetArchetypeId<T>()
 
@@ -46,39 +46,39 @@ class EntityQuery<T1>
                     archetypeGroup.Add(archetype)
                     entIdGroup.Add(this.EntIdGroup[i])
                     bufferGroup1.Add(this.BufferGroup1[i])
-                    /*def(n):bufferGroup{n}.Add(this.BufferGroup{n}[i])*/
+                    bufferGroup2.Add(this.BufferGroup2[i])
         )
 
         EntityQuery(
             this.Database,
             Unsafe.AsImmutable(archetypeGroup.ToArray()),
             Unsafe.AsImmutable(bufferGroup1.ToArray()),
-            /*def(n):Unsafe.AsImmutable(bufferGroup{n}.ToArray()),*/
+            Unsafe.AsImmutable(bufferGroup2.ToArray()),
             Unsafe.AsImmutable(entIdGroup.ToArray())
         )
 
-    public WhereContains<T>(): EntityQuery<T1>
+    public WhereContains<T>(): EntityQuery<T1, T2>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.Filter<T>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
 
-    public WhereNotContains<T>(): EntityQuery<T1>
+    public WhereNotContains<T>(): EntityQuery<T1, T2>
         where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.Filter<T>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
 
 #[open]
-extension EntityDatabaseQuery1Extension =
+extension EntityDatabaseQuery2Extension =
     inherits EntityDatabase
 
-    CreateQuery<T1>(): EntityQuery<T1> 
+    CreateQuery<T1, T2>(): EntityQuery<T1, T2> 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
-        let indices = this.GetArchetypedIndices(GetArchetypeId<T1>())
+        let indices = this.GetArchetypedIndices(GetArchetypeId<T1, T2>())
 
         let archetypeGroup = zeroArray<Archetype>(indices.Length)
         let entIdGroup = zeroArray<EntityIdStore>(indices.Length)
         let bufferGroup1 = zeroArray<ComponentBuffer>(indices.Length)
-        /*def(n):let bufferGroup{n} = zeroArray<ComponentBuffer>(indices.Length)*/
+        let bufferGroup2 = zeroArray<ComponentBuffer>(indices.Length)
 
         let mutable i = 0
         while (i < indices.Length)
@@ -88,7 +88,7 @@ extension EntityDatabaseQuery1Extension =
             archetypeGroup[i] <- archetype
             entIdGroup[i] <- archetype.EntityIds
             bufferGroup1[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T1.GetId()])
-            /*def(n):bufferGroup{n}[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T{n}.GetId()])*/
+            bufferGroup2[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T2.GetId()])
 
             i <- i + 1
 
@@ -96,28 +96,28 @@ extension EntityDatabaseQuery1Extension =
             this,
             Unsafe.AsImmutable(archetypeGroup), 
             Unsafe.AsImmutable(bufferGroup1),
-            /*def(n):Unsafe.AsImmutable(bufferGroup{n}),*/
+            Unsafe.AsImmutable(bufferGroup2),
             Unsafe.AsImmutable(entIdGroup)
         )
 
     #[inline]
-    ForEachSpan<T1>(query: EntityQuery<T1>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>) -> ()): () 
+    ForEachSpan<T1, T2>(query: EntityQuery<T1, T2>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>, Span<T2>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
         this.IncrementDepth()
 
         let archetypeGroup   = query.ArchetypeGroup
         let entIdGroup       = query.EntIdGroup
         let bufferGroup1     = query.BufferGroup1
-        /*def(n):let bufferGroup{n}     = query.BufferGroup{n}*/
+        let bufferGroup2     = query.BufferGroup2
 
         let mutable i = 0
         while (i < archetypeGroup.Length)
             let archetype = archetypeGroup[i]
             let entIds = entIdGroup[i]
             let buffer1 = bufferGroup1[i].Store
-            /*def(n):let buffer{n} = bufferGroup{n}[i].Store*/
+            let buffer2 = bufferGroup2[i].Store
             let count = archetype.Count
 
             let sliceCount = if (count == 0) 0 else (count / ComponentBuffer.MaxNumberOfEntitiesPerSlice) + 1
@@ -131,13 +131,13 @@ extension EntityDatabaseQuery1Extension =
                     f(
                         entIds.GetReadOnlyChunkAs(j).Slice(0, length),
                         buffer1.GetChunkAs(j).Slice(0, length)
-                        /*def(n):buffer{n}.GetChunkAs(j).Slice(0, length)*/
+                        , buffer2.GetChunkAs(j).Slice(0, length)
                     )
                 else
                     f(
                         entIds.GetReadOnlyChunkAs(j),
                         buffer1.GetChunkAs(j)
-                        /*def(n):buffer{n}.GetChunkAs(j)*/
+                        , buffer2.GetChunkAs(j)
                     )
                 j <- j + 1
 
@@ -145,14 +145,14 @@ extension EntityDatabaseQuery1Extension =
         this.DecrementDepth()
 
     #[inline]
-    ForEach<T1>(query: EntityQuery<T1>, #[inline] f: scoped (EntityId, byref<T1>) -> ()): () 
+    ForEach<T1, T2>(query: EntityQuery<T1, T2>, #[inline] f: scoped (EntityId, byref<T1>, byref<T2>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
-        this.ForEachSpan<T1>(query,
+        this.ForEachSpan<T1, T2>(query,
             (mutable entIds, 
                 mutable buffer1
-                /*def(n):mutable buffer{n}*/
+                , mutable buffer2
                 ) ->
                 let count = entIds.Length
                 let mutable i = 0
@@ -160,7 +160,7 @@ extension EntityDatabaseQuery1Extension =
                     f(
                         entIds[i], 
                         &buffer1[i]
-                        /*def(n):&buffer{n}[i]*/
+                        , &buffer2[i]
                     )
                     i <- i + 1
         )

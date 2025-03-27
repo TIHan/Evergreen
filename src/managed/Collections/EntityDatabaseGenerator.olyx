@@ -12,7 +12,7 @@ open Oly.Compiler
 open Oly.Compiler.Syntax
 
 #[open]
-extension SyntaxTreeExtensions =
+extension _OlySyntaxTreeExtensions =
     inherits OlySyntaxTree
 
     GetDescendants(filter: OlySyntaxNode -> bool): ImmutableArray<OlySyntaxNode> =
@@ -41,6 +41,33 @@ main(): () =
     let syntaxTree = OlySyntaxTreeExtensions.`OlySyntaxTree.Parse.Static`(OlyPath.Create("EntityQuery1.oly"), text, null)
     if (syntaxTree.HasErrors)
         fail("syntax tree has errors")
-    let descendants = syntaxTree.GetDescendants((_) -> true).OfType<OlySyntaxName>()
-    print("hello")
-    ()
+    let text = (syntaxTree.GetSourceText(default): object).ToString()
+
+    let text = text.Replace("EntityQuery<T1>", "EntityQuery<T1, T2>")
+    let text = text.Replace("GetArchetypeId<T1>()", "GetArchetypeId<T1, T2>()")
+    let text = text.Replace("EntityDatabaseQuery1Extension", "EntityDatabaseQuery2Extension")
+    let text = text.Replace("CreateQuery<T1>()", "CreateQuery<T1, T2>()")
+    let text = text.Replace("(ReadOnlySpan<EntityId>, Span<T1>)", "(ReadOnlySpan<EntityId>, Span<T1>, Span<T2>)")
+    let text = text.Replace("ForEachSpan<T1>", "ForEachSpan<T1, T2>")
+    let text = text.Replace("ForEach<T1>", "ForEach<T1, T2>")
+    let text = text.Replace("(EntityId, byref<T1>)", "(EntityId, byref<T1>, byref<T2>)")
+
+    let text = text.Replace("/*def(n):where T{n}: blittable, struct, ValueType*/", "where T2: blittable, struct, ValueType")
+    let text = text.Replace("/*def(n):internal BufferGroup{n}  : ComponentBuffer[] get*/", "internal BufferGroup2  : ComponentBuffer[] get")
+    let text = text.Replace("/*def(n):bufferGroup{n}: ComponentBuffer[],*/", "bufferGroup2: ComponentBuffer[],")
+    let text = text.Replace("/*def(n):BufferGroup{n} = bufferGroup{n}*/", "BufferGroup2 = bufferGroup2")
+    let text = text.Replace("/*def(n):let bufferGroup{n} = List()*/", "let bufferGroup2 = List()")
+    let text = text.Replace("/*def(n):Unsafe.AsImmutable(bufferGroup{n}.ToArray()),*/", "Unsafe.AsImmutable(bufferGroup2.ToArray()),")
+    let text = text.Replace("/*def(n):bufferGroup{n}.Add(this.BufferGroup{n}[i])*/", "bufferGroup2.Add(this.BufferGroup2[i])")
+    let text = text.Replace("/*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/", "where T2: blittable, struct, ValueType, { new() }, trait IComponent")
+    let text = text.Replace("/*def(n):let bufferGroup{n} = zeroArray<ComponentBuffer>(indices.Length)*/", "let bufferGroup2 = zeroArray<ComponentBuffer>(indices.Length)")
+    let text = text.Replace("/*def(n):bufferGroup{n}[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T{n}.GetId()])*/", "bufferGroup2[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T2.GetId()])")
+    let text = text.Replace("/*def(n):Unsafe.AsImmutable(bufferGroup{n}),*/", "Unsafe.AsImmutable(bufferGroup2),")
+    let text = text.Replace("/*def(n):let bufferGroup{n}     = query.BufferGroup{n}*/", "let bufferGroup2     = query.BufferGroup2")
+    let text = text.Replace("/*def(n):let buffer{n} = bufferGroup{n}[i].Store*/", "let buffer2 = bufferGroup2[i].Store")
+    let text = text.Replace("/*def(n):buffer{n}.GetChunkAs(j).Slice(0, length)*/", ", buffer2.GetChunkAs(j).Slice(0, length)")
+    let text = text.Replace("/*def(n):buffer{n}.GetChunkAs(j)*/", ", buffer2.GetChunkAs(j)")
+    let text = text.Replace("/*def(n):mutable buffer{n}*/", ", mutable buffer2")
+    let text = text.Replace("/*def(n):&buffer{n}[i]*/", ", &buffer2[i]")
+
+    File.WriteAllText("Collections/EntityQuery2.oly", text)
