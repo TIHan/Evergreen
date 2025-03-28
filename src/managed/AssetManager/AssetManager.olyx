@@ -178,16 +178,18 @@ class AssetManager<T> where T: not struct =
             }
 
     field freeAsset: (string, T) -> ()
+    field mutable itemsNextIndex: int32
     field items: List<Item>
     field mappings: ConcurrentDictionary<string, Info>
     field watchers: List<FileSystemWatcher>
 
     new(freeAsset: (string, T) -> ()) =
-        let items = List()
-        items.Add(unchecked default) // Add a dummy for index 0 since it is not valid.
+        let items = List<Item>()
+        items.Add(unchecked default)
         {
             AsyncLock = Object()
             AsyncTasks = ConcurrentDictionary()
+            itemsNextIndex = 1 // We start at 1 because 0 is a dummy placeholder
             items = items
             freeAsset = freeAsset
             mappings = ConcurrentDictionary(StringComparer.OrdinalIgnoreCase)
@@ -260,9 +262,10 @@ class AssetManager<T> where T: not struct =
                     match (item.Observable)
                     | Some(observable) =>
                         if (observable.Value !== itemValue)
+                            let name = item.Name
                             let oldValue = observable.Value
                             observable.Value <- itemValue       
-                            AssetManager.Queue.Enqueue(() -> this.freeAsset(item.Name, oldValue))         
+                            AssetManager.Queue.Enqueue(() -> this.freeAsset(name, oldValue))         
                     | _ =>
                         fail("should not happen")
                 catch (ex: Exception) =>
@@ -270,14 +273,17 @@ class AssetManager<T> where T: not struct =
         else
             let aval = item.Compute(isAsync)
             let var = 
+                let index = item.Info.Index
                 aval.Evaluate(
                     SomeStruct(
                         () ->
+                            let item = this.items[index]
                             match (item.Observable)
                             | Some(observable) =>
+                                let name = item.Name
                                 item.Reload <- true
                                 item.Observable <- None
-                                AssetManager.Queue.Enqueue(() -> this.freeAsset(item.Name, observable.Value))
+                                AssetManager.Queue.Enqueue(() -> this.freeAsset(name, observable.Value))
                             | _ =>
                                 () 
                     )
@@ -292,12 +298,12 @@ class AssetManager<T> where T: not struct =
             throw IndexOutOfRangeException("index")
         let item = this.items[index]
         if (item.Observable.IsSome && !item.Reload)
-            item
+            this.items[index] // TODO-language-bug: just return 'item'
         else
             lock(item.LockObject,
                 () -> this.ComputeItem(item, isAsync)
             )
-            item
+            this.items[index] // TODO-language-bug: just return 'item'
 
     private GetComputedItem(assetId: Int32Id, isAsync: bool): T =
         let index = assetId.Value
@@ -380,7 +386,7 @@ class AssetManager<T> where T: not struct =
 
     GetAdaptive(assetId: Int32Id): AVal<T> =
         let index = assetId.Value
-        let mutable item = this.GetItemAndCompute(index, false)
+        let item = this.GetItemAndCompute(index, false)
         match (item.Adaptive)
         | Some(aval) =>
             aval
@@ -462,7 +468,8 @@ class AssetManager<T> where T: not struct =
 
         ForEach(filePaths,
             filePath ->
-                let index = this.items.Count
+                let index = this.itemsNextIndex
+                this.itemsNextIndex <- this.itemsNextIndex + 1
                 let item = Item.Create(directory, filePath, index, isAsync -> read(filePath, isAsync))
                 this.items.Add(item)
                 if (!this.mappings.TryAdd(item.Name, item.Info))
@@ -493,7 +500,9 @@ class AssetManager<T> where T: not struct =
         this.Register("", fileName, f)
 
     Register(groupName: string, fileName: string, f: bool -> AVal<T>): () =
-        let index = this.items.Count
+        let index = this.itemsNextIndex
+        this.itemsNextIndex <- this.itemsNextIndex + 1
+
         let info = Info(index, fileName)
         let name = createName(groupName, fileName)
         this.items.Add(Item(name, groupName, fileName, info, f))
