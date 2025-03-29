@@ -1,0 +1,293 @@
+namespace Evergreen.Collections
+
+open System
+open System.Collections.Generic
+open Evergreen.Utilities
+
+class EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8> 
+        where T1: blittable, struct, ValueType 
+        where T2: blittable, struct, ValueType
+        where T3: blittable, struct, ValueType
+        where T4: blittable, struct, ValueType
+        where T5: blittable, struct, ValueType
+        where T6: blittable, struct, ValueType
+        where T7: blittable, struct, ValueType
+        where T8: blittable, struct, ValueType
+        =
+
+    internal Database      : EntityDatabase    get
+    internal ArchetypeGroup: Archetype[]       get
+    internal EntIdGroup    : EntityIdStore[]   get
+    internal BufferGroup1  : ComponentBuffer[] get
+    internal BufferGroup2  : ComponentBuffer[] get
+    internal BufferGroup3  : ComponentBuffer[] get
+    internal BufferGroup4  : ComponentBuffer[] get
+    internal BufferGroup5  : ComponentBuffer[] get
+    internal BufferGroup6  : ComponentBuffer[] get
+    internal BufferGroup7  : ComponentBuffer[] get
+    internal BufferGroup8  : ComponentBuffer[] get
+
+    internal new(
+        database: EntityDatabase, 
+        archetypeGroup: Archetype[],
+        bufferGroup1: ComponentBuffer[],
+        bufferGroup2: ComponentBuffer[],
+        bufferGroup3: ComponentBuffer[],
+        bufferGroup4: ComponentBuffer[],
+        bufferGroup5: ComponentBuffer[],
+        bufferGroup6: ComponentBuffer[],
+        bufferGroup7: ComponentBuffer[],
+        bufferGroup8: ComponentBuffer[], 
+        entIdGroup: EntityIdStore[]
+    ) =
+        {
+            Database = database
+            ArchetypeGroup = archetypeGroup
+            BufferGroup1 = bufferGroup1
+            BufferGroup2 = bufferGroup2
+            BufferGroup3 = bufferGroup3
+            BufferGroup4 = bufferGroup4
+            BufferGroup5 = bufferGroup5
+            BufferGroup6 = bufferGroup6
+            BufferGroup7 = bufferGroup7
+            BufferGroup8 = bufferGroup8
+            EntIdGroup = entIdGroup
+        }
+
+    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8>
+            where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        let archetypeGroup = List()
+        let entIdGroup = List()
+        let bufferGroup1 = List()
+        let bufferGroup2 = List()
+        let bufferGroup3 = List()
+        let bufferGroup4 = List()
+        let bufferGroup5 = List()
+        let bufferGroup6 = List()
+        let bufferGroup7 = List()
+        let bufferGroup8 = List()
+
+        let filterId = GetArchetypeId<T>()
+
+        For(this.ArchetypeGroup.Length,
+            i ->
+                let archetype = this.ArchetypeGroup[i]
+                if (predicate(archetype.FullId, filterId))
+                    archetypeGroup.Add(archetype)
+                    entIdGroup.Add(this.EntIdGroup[i])
+                    bufferGroup1.Add(this.BufferGroup1[i])
+                    bufferGroup2.Add(this.BufferGroup2[i])
+                    bufferGroup3.Add(this.BufferGroup3[i])
+                    bufferGroup4.Add(this.BufferGroup4[i])
+                    bufferGroup5.Add(this.BufferGroup5[i])
+                    bufferGroup6.Add(this.BufferGroup6[i])
+                    bufferGroup7.Add(this.BufferGroup7[i])
+                    bufferGroup8.Add(this.BufferGroup8[i])
+        )
+
+        EntityQuery(
+            this.Database,
+            Unsafe.AsImmutable(archetypeGroup.ToArray()),
+            Unsafe.AsImmutable(bufferGroup1.ToArray()),
+            Unsafe.AsImmutable(bufferGroup2.ToArray()),
+            Unsafe.AsImmutable(bufferGroup3.ToArray()),
+            Unsafe.AsImmutable(bufferGroup4.ToArray()),
+            Unsafe.AsImmutable(bufferGroup5.ToArray()),
+            Unsafe.AsImmutable(bufferGroup6.ToArray()),
+            Unsafe.AsImmutable(bufferGroup7.ToArray()),
+            Unsafe.AsImmutable(bufferGroup8.ToArray()),
+            Unsafe.AsImmutable(entIdGroup.ToArray())
+        )
+
+    public WhereContains<T>(): EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8>
+            where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.Filter<T>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
+
+    public WhereNotContains<T>(): EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8>
+        where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.Filter<T>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
+
+#[open]
+extension EntityDatabaseQuery8Extensions =
+    inherits EntityDatabase
+
+    CreateQuery<T1, T2, T3, T4, T5, T6, T7, T8>(): EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8> 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            where T5: blittable, struct, ValueType, { new() }, trait IComponent
+            where T6: blittable, struct, ValueType, { new() }, trait IComponent
+            where T7: blittable, struct, ValueType, { new() }, trait IComponent
+            where T8: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        let indices = this.GetArchetypedIndices(GetArchetypeId<T1, T2, T3, T4, T5, T6, T7, T8>())
+
+        let archetypeGroup = zeroArray<Archetype>(indices.Length)
+        let entIdGroup = zeroArray<EntityIdStore>(indices.Length)
+        let bufferGroup1 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup2 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup3 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup4 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup5 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup6 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup7 = zeroArray<ComponentBuffer>(indices.Length)
+        let bufferGroup8 = zeroArray<ComponentBuffer>(indices.Length)
+
+        let mutable i = 0
+        while (i < indices.Length)
+            let index = indices[i]
+            let archetype = this.GetArchetype(index)
+            
+            archetypeGroup[i] <- archetype
+            entIdGroup[i] <- archetype.EntityIds
+            bufferGroup1[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T1.GetId()])
+            bufferGroup2[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T2.GetId()])
+            bufferGroup3[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T3.GetId()])
+            bufferGroup4[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T4.GetId()])
+            bufferGroup5[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T5.GetId()])
+            bufferGroup6[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T6.GetId()])
+            bufferGroup7[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T7.GetId()])
+            bufferGroup8[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T8.GetId()])
+
+            i <- i + 1
+
+        EntityQuery(
+            this,
+            Unsafe.AsImmutable(archetypeGroup), 
+            Unsafe.AsImmutable(bufferGroup1),
+            Unsafe.AsImmutable(bufferGroup2),
+            Unsafe.AsImmutable(bufferGroup3),
+            Unsafe.AsImmutable(bufferGroup4),
+            Unsafe.AsImmutable(bufferGroup5),
+            Unsafe.AsImmutable(bufferGroup6),
+            Unsafe.AsImmutable(bufferGroup7),
+            Unsafe.AsImmutable(bufferGroup8),
+            Unsafe.AsImmutable(entIdGroup)
+        )
+
+    #[inline]
+    ForEachSpan<T1, T2, T3, T4, T5, T6, T7, T8>(query: EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>, Span<T2>, Span<T3>, Span<T4>, Span<T5>, Span<T6>, Span<T7>, Span<T8>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            where T5: blittable, struct, ValueType, { new() }, trait IComponent
+            where T6: blittable, struct, ValueType, { new() }, trait IComponent
+            where T7: blittable, struct, ValueType, { new() }, trait IComponent
+            where T8: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        this.IncrementDepth()
+
+        let archetypeGroup   = query.ArchetypeGroup
+        let entIdGroup       = query.EntIdGroup
+        let bufferGroup1     = query.BufferGroup1
+        let bufferGroup2     = query.BufferGroup2
+        let bufferGroup3     = query.BufferGroup3
+        let bufferGroup4     = query.BufferGroup4
+        let bufferGroup5     = query.BufferGroup5
+        let bufferGroup6     = query.BufferGroup6
+        let bufferGroup7     = query.BufferGroup7
+        let bufferGroup8     = query.BufferGroup8
+
+        let mutable i = 0
+        while (i < archetypeGroup.Length)
+            let archetype = archetypeGroup[i]
+            let entIds = entIdGroup[i]
+            let buffer1 = bufferGroup1[i].Store
+            let buffer2 = bufferGroup2[i].Store
+            let buffer3 = bufferGroup3[i].Store
+            let buffer4 = bufferGroup4[i].Store
+            let buffer5 = bufferGroup5[i].Store
+            let buffer6 = bufferGroup6[i].Store
+            let buffer7 = bufferGroup7[i].Store
+            let buffer8 = bufferGroup8[i].Store
+            let count = archetype.Count
+
+            let sliceCount = if (count == 0) 0 else (count / ComponentBuffer.MaxNumberOfEntitiesPerSlice) + 1
+            let sliceNumber = ComponentBuffer.MaxNumberOfEntitiesPerSlice
+
+            let mutable j = 0
+            while (j < sliceCount)
+                if (j == sliceCount - 1)
+                    let start = j * sliceNumber
+                    let length = count - start
+                    f(
+                        entIds.GetReadOnlyChunkAs(j).Slice(0, length),
+                        buffer1.GetChunkAs(j).Slice(0, length),
+                        buffer2.GetChunkAs(j).Slice(0, length),
+                        buffer3.GetChunkAs(j).Slice(0, length),
+                        buffer4.GetChunkAs(j).Slice(0, length),
+                        buffer5.GetChunkAs(j).Slice(0, length),
+                        buffer6.GetChunkAs(j).Slice(0, length),
+                        buffer7.GetChunkAs(j).Slice(0, length),
+                        buffer8.GetChunkAs(j).Slice(0, length)
+                    )
+                else
+                    f(
+                        entIds.GetReadOnlyChunkAs(j),
+                        buffer1.GetChunkAs(j),
+                        buffer2.GetChunkAs(j),
+                        buffer3.GetChunkAs(j),
+                        buffer4.GetChunkAs(j),
+                        buffer5.GetChunkAs(j),
+                        buffer6.GetChunkAs(j),
+                        buffer7.GetChunkAs(j),
+                        buffer8.GetChunkAs(j)
+                    )
+                j <- j + 1
+
+            i <- i + 1
+        this.DecrementDepth()
+
+    #[inline]
+    ForEach<T1, T2, T3, T4, T5, T6, T7, T8>(query: EntityQuery<T1, T2, T3, T4, T5, T6, T7, T8>, #[inline] f: scoped (EntityId, byref<T1>, byref<T2>, byref<T3>, byref<T4>, byref<T5>, byref<T6>, byref<T7>, byref<T8>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            where T5: blittable, struct, ValueType, { new() }, trait IComponent
+            where T6: blittable, struct, ValueType, { new() }, trait IComponent
+            where T7: blittable, struct, ValueType, { new() }, trait IComponent
+            where T8: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        this.ForEachSpan<T1, T2, T3, T4, T5, T6, T7, T8>(query,
+            (mutable entIds, 
+                mutable buffer1,
+                mutable buffer2,
+                mutable buffer3,
+                mutable buffer4,
+                mutable buffer5,
+                mutable buffer6,
+                mutable buffer7,
+                mutable buffer8
+                ) ->
+                let count = entIds.Length
+                let mutable i = 0
+                while (i < count)
+                    f(
+                        entIds[i], 
+                        &buffer1[i],
+                        &buffer2[i],
+                        &buffer3[i],
+                        &buffer4[i],
+                        &buffer5[i],
+                        &buffer6[i],
+                        &buffer7[i],
+                        &buffer8[i]
+                    )
+                    i <- i + 1
+        )
+
+    #[inline]
+    ForEach<T1, T2, T3, T4, T5, T6, T7, T8>(#[inline] f: scoped (EntityId, byref<T1>, byref<T2>, byref<T3>, byref<T4>, byref<T5>, byref<T6>, byref<T7>, byref<T8>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            where T5: blittable, struct, ValueType, { new() }, trait IComponent
+            where T6: blittable, struct, ValueType, { new() }, trait IComponent
+            where T7: blittable, struct, ValueType, { new() }, trait IComponent
+            where T8: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        this.ForEach<T1, T2, T3, T4, T5, T6, T7, T8>(this.CreateQuery<T1, T2, T3, T4, T5, T6, T7, T8>(), f)

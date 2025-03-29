@@ -130,14 +130,14 @@ extension EntityDatabaseQuery1Extension =
                     let length = count - start
                     f(
                         entIds.GetReadOnlyChunkAs(j).Slice(0, length),
-                        buffer1.GetChunkAs(j).Slice(0, length)
-                        /*def(n):buffer{n}.GetChunkAs(j).Slice(0, length)*/
+                        buffer1.GetChunkAs(j).Slice(0, length)/*{{,}}*/
+                        /*def(n):buffer{n}.GetChunkAs(j).Slice(0, length){,}*/
                     )
                 else
                     f(
                         entIds.GetReadOnlyChunkAs(j),
-                        buffer1.GetChunkAs(j)
-                        /*def(n):buffer{n}.GetChunkAs(j)*/
+                        buffer1.GetChunkAs(j)/*{{,}}*/
+                        /*def(n):buffer{n}.GetChunkAs(j){,}*/
                     )
                 j <- j + 1
 
@@ -151,16 +151,23 @@ extension EntityDatabaseQuery1Extension =
             =
         this.ForEachSpan<T1>(query,
             (mutable entIds, 
-                mutable buffer1
-                /*def(n):mutable buffer{n}*/
+                mutable buffer1/*{{,}}*/
+                /*def(n):mutable buffer{n}{,}*/
                 ) ->
                 let count = entIds.Length
                 let mutable i = 0
                 while (i < count)
                     f(
                         entIds[i], 
-                        &buffer1[i]
-                        /*def(n):&buffer{n}[i]*/
+                        &buffer1[i]/*{{,}}*/
+                        /*def(n):&buffer{n}[i]{,}*/
                     )
                     i <- i + 1
         )
+
+    #[inline]
+    ForEach<T1>(#[inline] f: scoped (EntityId, byref<T1>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        this.ForEach<T1>(this.CreateQuery<T1>(), f)

@@ -139,7 +139,7 @@ class MeshRendererBehavior =
 
         let transparencyQueue = PriorityQueue<EntityId, float32>()
 
-        db.ForEach<TransformLerp, Transform, MeshReference, Material>(EntityFilter.Not<Outline>(),
+        db.ForEach<TransformLerp, Transform, MeshReference, Material>(db.CreateQuery<TransformLerp, Transform, MeshReference, Material>().WhereNotContains<Outline>(),
             (entId, transformLerp, transform, meshRef, material) ->
                 if (entId != cameraEntId)
                     if (material.IsTransparent)
@@ -201,7 +201,7 @@ class SpriteRendererBehavior =
         let meshRef = renv.GetPlaneRenderMeshReference()
 
         let mutable transparencyOrder = 0: byte
-        db.ForEach<TransformLerp, Transform, Sprite, Material>(EntityFilter.Not<Outline>(),
+        db.ForEach<TransformLerp, Transform, Sprite, Material>(db.CreateQuery<TransformLerp, Transform, Sprite, Material>().WhereNotContains<Outline>(),
             (entId, transformLerp, transform, _, material) ->
                 if (entId != cameraEntId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
