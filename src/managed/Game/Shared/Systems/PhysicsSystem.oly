@@ -366,7 +366,7 @@ abstract class PhysicsSystem =
                             let count = Math.Clamp(int32(entList.Count), 0, 8)
                             For(count,
                                 i -> 
-                                    db.If<Transform, RigidBody, DynamicObjectId>(entList[i],
+                                    db.IfHas<Transform, RigidBody, DynamicObjectId>(entList[i],
                                         (transform, body, objId) ->
                                             let dir = Vector3.Transform(-Vector3.UnitY, Quaternion.CreateFromAxisAngle(Vector3.UnitZ, orbit.Time * MathF.PI * 0.5 + (float32(i) * radians(360 / float32(count)))))
                                             let targetPosition = (origin - ((Vector3(dir.X, dir.Y, 0)) * 5))

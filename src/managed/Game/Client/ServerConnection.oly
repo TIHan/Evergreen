@@ -208,7 +208,7 @@ internal class ServerConnection =
         next.CopyTo(curr)
         curr.Database.ForEach<Transform, RigidBody>(
             (entId, transform, body) ->
-                prev.Database.If<Transform, RigidBody>(entId,
+                prev.Database.IfHas<Transform, RigidBody>(entId,
                     (prevTransform, prevBody) ->
                         transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
                         transform.Rotation <- Quaternion.Lerp(prevTransform.Rotation, transform.Rotation, alpha)
@@ -218,24 +218,22 @@ internal class ServerConnection =
         )
         curr.Database.ForEach<Transform, Character>(
             (entId, transform, body) ->
-                let _ =
-                    prev.Database.TryGet<Transform, Character>(entId,
+                prev.Database.IfHas<Transform, Character>(entId,
+                    (prevTransform, prevBody) ->
+                        transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
+                        transform.Scale <- Vector3.Lerp(prevTransform.Scale, transform.Scale, alpha)
+                        body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
+                )
+        )
+        curr.Database.ForEach<Transform, VirtualCharacter>(
+            (entId, transform, body) ->
+                if (!curr.Database.Exists<Player>(entId, player -> player.ClientIndex == this.ClientIndex))
+                    prev.Database.IfHas<Transform, VirtualCharacter>(entId,
                         (prevTransform, prevBody) ->
                             transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
                             transform.Scale <- Vector3.Lerp(prevTransform.Scale, transform.Scale, alpha)
                             body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
                     )
-        )
-        curr.Database.ForEach<Transform, VirtualCharacter>(
-            (entId, transform, body) ->
-                if (!curr.Database.Exists<Player>(entId, player -> player.ClientIndex == this.ClientIndex))
-                    let _ =
-                        prev.Database.TryGet<Transform, VirtualCharacter>(entId,
-                            (prevTransform, prevBody) ->
-                                transform.Position <- Vector3.Lerp(prevTransform.Position, transform.Position, alpha)
-                                transform.Scale <- Vector3.Lerp(prevTransform.Scale, transform.Scale, alpha)
-                                body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
-                        )
         )
         curr
 

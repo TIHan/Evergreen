@@ -1,8 +1,26 @@
+// Generated. Do not modify.
 namespace Evergreen.Collections
 
 open System
 open System.Collections.Generic
 open Evergreen.Utilities
+
+#[open]
+internal module Helpers4 =
+
+    GetArchetypeId<T1
+                  , T2
+                  , T3
+                  , T4>(): ArchetypeId 
+            where T1: trait IComponent 
+            where T2: trait IComponent
+            where T3: trait IComponent
+            where T4: trait IComponent
+            = 
+        T1.GetId()
+                | T2.GetId()
+                | T3.GetId()
+                | T4.GetId()
 
 class EntityQuery<T1
                  , T2
@@ -325,3 +343,106 @@ extension EntityDatabaseQuery1Extension4 =
         this.DecrementDepth()
 
         entId
+
+    #[inline]
+    TryGet<T1
+          , T2
+          , T3
+          , T4>(entId: EntityId, #[inline] callback: scoped (byref<T1>
+                                                                                  , byref<T2>
+                                                                                  , byref<T3>
+                                                                                  , byref<T4>) -> ()): bool 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        let index = this.entityArchetypeIndices[entId.Index]
+        if (index == -1)
+            false
+        else
+            let archetype = this.GetArchetype(index)
+            let tyIndex1 = T1.GetIndex()
+            let tyIndex2 = T2.GetIndex()
+            let tyIndex3 = T3.GetIndex()
+            let tyIndex4 = T4.GetIndex()
+            let fullId = archetype.FullId
+            if (fullId.IsSet(tyIndex1) 
+                                       && fullId.IsSet(tyIndex2)
+                                       && fullId.IsSet(tyIndex3)
+                                       && fullId.IsSet(tyIndex4))
+                let lookup = this.entityIndexLookup
+                this.IncrementDepth()
+                callback(
+                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index])
+                    , &archetype.Get(archetype.BufferLookupByIndex[tyIndex2], lookup[entId.Index])
+                    , &archetype.Get(archetype.BufferLookupByIndex[tyIndex3], lookup[entId.Index])
+                    , &archetype.Get(archetype.BufferLookupByIndex[tyIndex4], lookup[entId.Index])
+                )
+                this.DecrementDepth()
+                true
+            else
+                false
+
+    #[inline]
+    IfHas<T1
+         , T2
+         , T3
+         , T4>(entId: EntityId, #[inline] callback: scoped (byref<T1>
+                                                                                 , byref<T2>
+                                                                                 , byref<T3>
+                                                                                 , byref<T4>) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        let _ = this.TryGet(entId, callback)
+
+    Has<T1
+       , T2
+       , T3
+       , T4>(entId: EntityId): bool 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        let index = this.entityArchetypeIndices[entId.Index]
+        if (index == -1)
+            false
+        else
+            let archetype = this.GetArchetype(index)
+            let fullId = archetype.FullId
+            fullId.IsSet(T1.GetIndex())
+                && fullId.IsSet(T2.GetIndex())
+                && fullId.IsSet(T3.GetIndex())
+                && fullId.IsSet(T4.GetIndex())
+
+    Exists<T1
+          , T2
+          , T3
+          , T4>(entId: EntityId, condition: scoped (inref<T1>
+                                                                         , inref<T2>
+                                                                         , inref<T3>
+                                                                         , inref<T4>) -> bool): bool 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            where T3: blittable, struct, ValueType, { new() }, trait IComponent
+            where T4: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        let mutable result = false
+        // TODO-language-bug: 'condition(x)' should give a proper range for error message.
+        let _ = this.TryGet<T1
+                           , T2
+                           , T3
+                           , T4>(entId, (component1
+                                                               , component2
+                                                               , component3
+                                                               , component4) -> 
+                                                        result <- condition(&component1
+                                                                           , &component2
+                                                                           , &component3
+                                                                           , &component4)
+                                             )
+        result

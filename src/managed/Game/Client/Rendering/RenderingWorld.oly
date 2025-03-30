@@ -132,7 +132,7 @@ class MeshRendererBehavior =
 
     Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
         let mutable cameraPosition = vec3.Zero
-        db.If<Camera, Transform>(cameraEntId,
+        db.IfHas<Camera, Transform>(cameraEntId,
             (camera, transform) ->
                 cameraPosition <- camera.GetPosition(transform.Position)
         )

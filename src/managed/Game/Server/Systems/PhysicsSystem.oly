@@ -29,32 +29,30 @@ class ServerPhysicsSystem =
 
         physicsSystem.ContactAdded.Add(
             args ->
-                let _ =
-                    db.If<StaticRigidBody, LogicOutput>(args.Entity1,
-                        (body, output) ->
-                            if (body.IsSensor)
-                                match (output.Target)
-                                | Target.Activator =>
-                                    let mutable input = LogicInput()
-                                    input.This <- args.Entity2
-                                    input.Function <- output.TargetFunction
-                                    physicsSystem.inputQueue.Enqueue(input)
-                                | _ =>
-                                    LogServerWarning(args.Entity1.ToString() + "'s output does not have a target.")
-                    )
-                let _ =
-                    db.If<StaticRigidBody, LogicOutput>(args.Entity2,
-                        (body, output) ->
-                            if (body.IsSensor)
-                                match (output.Target)
-                                | Target.Activator =>
-                                    let mutable input = LogicInput()
-                                    input.This <- args.Entity1
-                                    input.Function <- output.TargetFunction
-                                    physicsSystem.inputQueue.Enqueue(input)
-                                | _ =>
-                                    LogServerWarning(args.Entity2.ToString() + "'s output does not have a target.")
-                    )
+                db.IfHas<StaticRigidBody, LogicOutput>(args.Entity1,
+                    (body, output) ->
+                        if (body.IsSensor)
+                            match (output.Target)
+                            | Target.Activator =>
+                                let mutable input = LogicInput()
+                                input.This <- args.Entity2
+                                input.Function <- output.TargetFunction
+                                physicsSystem.inputQueue.Enqueue(input)
+                            | _ =>
+                                LogServerWarning(args.Entity1.ToString() + "'s output does not have a target.")
+                )
+                db.IfHas<StaticRigidBody, LogicOutput>(args.Entity2,
+                    (body, output) ->
+                        if (body.IsSensor)
+                            match (output.Target)
+                            | Target.Activator =>
+                                let mutable input = LogicInput()
+                                input.This <- args.Entity1
+                                input.Function <- output.TargetFunction
+                                physicsSystem.inputQueue.Enqueue(input)
+                            | _ =>
+                                LogServerWarning(args.Entity2.ToString() + "'s output does not have a target.")
+                )
         )
         physicsSystem
 

@@ -114,7 +114,7 @@ class ServerWorld =
 
         db.ForEach<Orbit, EntityList8, Ownership>(
             (entId, orbit, entList, ownership) ->
-                db.If<Transform, VirtualCharacter, CharacterInput>(ownership.Owner,
+                db.IfHas<Transform, VirtualCharacter, CharacterInput>(ownership.Owner,
                     (transform, virtc, input) ->
                         if (input.Actions.HasFlag(CharacterActions.Special))
                             if (virtc.SpecialCount == 0)

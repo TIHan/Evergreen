@@ -40,6 +40,7 @@ generateQuery(text: string, mutable n: int32): string =
     if (n <= 1)
         fail("invalid generation")
 
+    let text = text.Replace("Helpers1", "Helpers" + n.ToString())
     let text = text.Replace("EntityDatabaseQueryExtension1", "EntityDatabaseQuery1Extension" + n.ToString())
 
     let executeDef(text: string, defIndex: int32, defLength: int32) =
@@ -69,7 +70,7 @@ generateQuery(text: string, mutable n: int32): string =
     while (m.Success)
         text <- executeDef(text, m.Index, m.Length)
         m <- regex.Match(text)
-    text
+    "// Generated. Do not modify.\n" + text
 
 main(): () =
     let text = File.ReadAllText("Collections/EntityQuery1.oly")

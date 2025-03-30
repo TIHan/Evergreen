@@ -4,6 +4,17 @@ open System
 open System.Collections.Generic
 open Evergreen.Utilities
 
+#[open]
+internal module Helpers1 =
+
+    GetArchetypeId<T1
+                  /*def(n):, T{n}*/>(): ArchetypeId 
+            where T1: trait IComponent 
+            /*def(n):where T{n}: trait IComponent*/
+            = 
+        T1.GetId()
+                /*def(n):| T{n}.GetId()*/
+
 class EntityQuery<T1
                  /*def(n):, T{n}*/> 
         where T1: blittable, struct, ValueType 
@@ -231,3 +242,70 @@ extension EntityDatabaseQueryExtension1 =
         this.DecrementDepth()
 
         entId
+
+    #[inline]
+    TryGet<T1
+          /*def(n):, T{n}*/>(entId: EntityId, #[inline] callback: scoped (byref<T1>
+                                                                                  /*def(n):, byref<T{n}>*/) -> ()): bool 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        let index = this.entityArchetypeIndices[entId.Index]
+        if (index == -1)
+            false
+        else
+            let archetype = this.GetArchetype(index)
+            let tyIndex1 = T1.GetIndex()
+            /*def(n):let tyIndex{n} = T{n}.GetIndex()*/
+            let fullId = archetype.FullId
+            if (fullId.IsSet(tyIndex1) 
+                                       /*def(n):&& fullId.IsSet(tyIndex{n})*/)
+                let lookup = this.entityIndexLookup
+                this.IncrementDepth()
+                callback(
+                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index])
+                    /*def(n):, &archetype.Get(archetype.BufferLookupByIndex[tyIndex{n}], lookup[entId.Index])*/
+                )
+                this.DecrementDepth()
+                true
+            else
+                false
+
+    #[inline]
+    IfHas<T1
+         /*def(n):, T{n}*/>(entId: EntityId, #[inline] callback: scoped (byref<T1>
+                                                                                 /*def(n):, byref<T{n}>*/) -> ()): () 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        let _ = this.TryGet(entId, callback)
+
+    Has<T1
+       /*def(n):, T{n}*/>(entId: EntityId): bool 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        let index = this.entityArchetypeIndices[entId.Index]
+        if (index == -1)
+            false
+        else
+            let archetype = this.GetArchetype(index)
+            let fullId = archetype.FullId
+            fullId.IsSet(T1.GetIndex())
+                /*def(n):&& fullId.IsSet(T{n}.GetIndex())*/
+
+    Exists<T1
+          /*def(n):, T{n}*/>(entId: EntityId, condition: scoped (inref<T1>
+                                                                         /*def(n):, inref<T{n}>*/) -> bool): bool 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        let mutable result = false
+        // TODO-language-bug: 'condition(x)' should give a proper range for error message.
+        let _ = this.TryGet<T1
+                           /*def(n):, T{n}*/>(entId, (component1
+                                                               /*def(n):, component{n}*/) -> 
+                                                        result <- condition(&component1
+                                                                           /*def(n):, &component{n}*/)
+                                             )
+        result

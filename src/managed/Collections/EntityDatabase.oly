@@ -554,35 +554,32 @@ class EntityDatabase =
             let lookup = this.entityIndexLookup
 
             let dstArchetypeId = srcArchetypeId | typeId
-            let dstArchetypedIndex = this.GetArchetypedIndex(dstArchetypeId)//this.TryGetArchetypedIndex(dstArchetypeId)
-            if (dstArchetypedIndex == -1)
-                unchecked default
-            else
-                let dstArchetype = this.GetArchetype(dstArchetypedIndex)
+            let dstArchetypedIndex = this.GetArchetypedIndex(dstArchetypeId)
+            let dstArchetype = this.GetArchetype(dstArchetypedIndex)
 
-                let srcIndex = lookup[entId.Index]
-                let dstIndex = dstArchetype.Count
+            let srcIndex = lookup[entId.Index]
+            let dstIndex = dstArchetype.Count
 
-                // Copy components
-                dstArchetype.Count <- dstIndex + 1
-                srcArchetype.CopyOneTo(srcIndex, dstArchetype, dstIndex)
-                dstArchetype.EntityIds.SetAs(dstIndex, entId)
+            // Copy components
+            dstArchetype.Count <- dstIndex + 1
+            srcArchetype.CopyOneTo(srcIndex, dstArchetype, dstIndex)
+            dstArchetype.EntityIds.SetAs(dstIndex, entId)
 
-                // Remove leftovers by swapping
-                let lastSrcIndex = srcArchetype.Count - 1
-                let lastEntId = srcArchetype.EntityIds.GetAs<EntityId>(lastSrcIndex)
-                srcArchetype.CopyOneTo(lastSrcIndex, srcArchetype, srcIndex)
-                lookup[lastEntId.Index] <- srcIndex
-                lookup[entId.Index] <- dstIndex
-                
-                srcArchetype.EntityIds.SetAs(srcIndex, lastEntId)
-                srcArchetype.Count <- lastSrcIndex    
+            // Remove leftovers by swapping
+            let lastSrcIndex = srcArchetype.Count - 1
+            let lastEntId = srcArchetype.EntityIds.GetAs<EntityId>(lastSrcIndex)
+            srcArchetype.CopyOneTo(lastSrcIndex, srcArchetype, srcIndex)
+            lookup[lastEntId.Index] <- srcIndex
+            lookup[entId.Index] <- dstIndex
+            
+            srcArchetype.EntityIds.SetAs(srcIndex, lastEntId)
+            srcArchetype.Count <- lastSrcIndex    
 
-                this.entityArchetypeIndices[entId.Index] <- dstArchetypedIndex
+            this.entityArchetypeIndices[entId.Index] <- dstArchetypedIndex
 
-                diff <- dstArchetype.FullId & srcArchetype.FullId.BitwiseNot()
+            diff <- dstArchetype.FullId & srcArchetype.FullId.BitwiseNot()
 
-                dstArchetype
+            dstArchetype
 
     TryAddOrUpdate<T>(entId: EntityId, value: T): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.TryAddOrUpdate(entId, &value)
@@ -634,226 +631,6 @@ class EntityDatabase =
                     this.SwapRemoveEntityByLookupIndex(archetype, lookupIndex)
                     
                     this.DebugCheckIntegrity()
-
-    Has<T>(entId: EntityId): bool where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            archetype.FullId.IsSet(T.GetIndex())
-
-    Exists<T>(entId: EntityId, condition: scoped inref<T> -> bool): bool where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        let mutable result = false
-        // TODO-language-bug: 'condition(x)' should give a proper range for error message.
-        let _ = this.TryGet<T>(entId, x -> result <- condition(&x))
-        result
-
-    #[inline]
-    TryGet<T>(entId: EntityId, #[inline] callback: scoped byref<T> -> ()): bool where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex = T.GetIndex()
-            if (archetype.FullId.IsSet(tyIndex))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(&archetype.Get(archetype.BufferLookupByIndex[tyIndex], lookup[entId.Index]))
-                this.DecrementDepth()
-
-                true
-            else
-                false
-
-    #[inline]
-    TryGet<T0, T1>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>) -> ()): bool where T0: blittable, struct, ValueType, { new() }, trait IComponent where T1: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex0 = T0.GetIndex()
-            let tyIndex1 = T1.GetIndex()
-            let fullId = archetype.FullId
-            if (fullId.IsSet(tyIndex0) && fullId.IsSet(tyIndex1))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex0], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index])
-                )
-                this.DecrementDepth()
-                true
-            else
-                false
-
-    #[inline]
-    If<T0, T1>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>) -> ()): () where T0: blittable, struct, ValueType, { new() }, trait IComponent where T1: blittable, struct, ValueType, { new() }, trait IComponent =
-        let _ = this.TryGet<T0, T1>(entId, callback)
-
-    #[inline]
-    TryGet<T0, T1, T2>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>, byref<T2>) -> ()): bool where T0: blittable, struct, ValueType, { new() }, trait IComponent where T1: blittable, struct, ValueType, { new() }, trait IComponent where T2: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex0 = T0.GetIndex()
-            let tyIndex1 = T1.GetIndex()
-            let tyIndex2 = T2.GetIndex()
-            let fullId = archetype.FullId
-            if (fullId.IsSet(tyIndex0) && fullId.IsSet(tyIndex1) && fullId.IsSet(tyIndex2))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex0], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex2], lookup[entId.Index])
-                )
-                this.DecrementDepth()
-
-                true
-            else
-                false
-
-    #[inline]
-    If<T0, T1, T2>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>, byref<T2>) -> ()): () where T0: blittable, struct, ValueType, { new() }, trait IComponent where T1: blittable, struct, ValueType, { new() }, trait IComponent where T2: blittable, struct, ValueType, { new() }, trait IComponent =
-        let _ = this.TryGet<T0, T1, T2>(entId, callback)
-
-    #[inline]
-    TryGet<T0, T1, T2, T3>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>, byref<T2>, byref<T3>) -> ()): bool where T0: blittable, struct, ValueType, { new() }, trait IComponent where T1: blittable, struct, ValueType, { new() }, trait IComponent where T2: blittable, struct, ValueType, { new() }, trait IComponent where T3: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex0 = T0.GetIndex()
-            let tyIndex1 = T1.GetIndex()
-            let tyIndex2 = T2.GetIndex()
-            let tyIndex3 = T3.GetIndex()
-            let fullId = archetype.FullId
-            if (fullId.IsSet(tyIndex0) && fullId.IsSet(tyIndex1) && fullId.IsSet(tyIndex2) && fullId.IsSet(tyIndex3))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex0], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex2], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex3], lookup[entId.Index])
-                )
-                this.DecrementDepth()
-
-                true
-            else
-                false
-
-    #[inline]
-    TryGet<T0, T1, T2, T3, T4>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>, byref<T2>, byref<T3>, byref<T4>) -> ()): bool where T0: blittable, struct, ValueType, { new() }, trait IComponent where T1: blittable, struct, ValueType, { new() }, trait IComponent where T2: blittable, struct, ValueType, { new() }, trait IComponent where T3: blittable, struct, ValueType, { new() }, trait IComponent where T4: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex0 = T0.GetIndex()
-            let tyIndex1 = T1.GetIndex()
-            let tyIndex2 = T2.GetIndex()
-            let tyIndex3 = T3.GetIndex()
-            let tyIndex4 = T4.GetIndex()
-            let fullId = archetype.FullId
-            if (fullId.IsSet(tyIndex0) && fullId.IsSet(tyIndex1) && fullId.IsSet(tyIndex2) && fullId.IsSet(tyIndex3) && fullId.IsSet(tyIndex4))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex0], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex2], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex3], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex4], lookup[entId.Index])
-                )
-                this.DecrementDepth()
-
-                true
-            else
-                false
-
-    #[inline]
-    TryGet<T0, T1, T2, T3, T4, T5>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>, byref<T2>, byref<T3>, byref<T4>, byref<T5>) -> ()): bool 
-            where T0: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T3: blittable, struct, ValueType, { new() }, trait IComponent
-            where T4: blittable, struct, ValueType, { new() }, trait IComponent
-            where T5: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex0 = T0.GetIndex()
-            let tyIndex1 = T1.GetIndex()
-            let tyIndex2 = T2.GetIndex()
-            let tyIndex3 = T3.GetIndex()
-            let tyIndex4 = T4.GetIndex()
-            let tyIndex5 = T5.GetIndex()
-            let fullId = archetype.FullId
-            if (fullId.IsSet(tyIndex0) && fullId.IsSet(tyIndex1) && fullId.IsSet(tyIndex2) && fullId.IsSet(tyIndex3) && fullId.IsSet(tyIndex4) && fullId.IsSet(tyIndex5))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex0], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex2], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex3], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex4], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex5], lookup[entId.Index])
-                )
-                this.DecrementDepth()
-
-                true
-            else
-                false
-
-    #[inline]
-    TryGet<T0, T1, T2, T3, T4, T5, T6>(entId: EntityId, #[inline] callback: scoped (byref<T0>, byref<T1>, byref<T2>, byref<T3>, byref<T4>, byref<T5>, byref<T6>) -> ()): bool
-            where T0: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent 
-            where T3: blittable, struct, ValueType, { new() }, trait IComponent
-            where T4: blittable, struct, ValueType, { new() }, trait IComponent
-            where T5: blittable, struct, ValueType, { new() }, trait IComponent
-            where T6: blittable, struct, ValueType, { new() }, trait IComponent =
-        let index = this.entityArchetypeIndices[entId.Index]
-        if (index == -1)
-            false
-        else
-            let archetype = this.GetArchetype(index)
-            let tyIndex0 = T0.GetIndex()
-            let tyIndex1 = T1.GetIndex()
-            let tyIndex2 = T2.GetIndex()
-            let tyIndex3 = T3.GetIndex()
-            let tyIndex4 = T4.GetIndex()
-            let tyIndex5 = T5.GetIndex()
-            let tyIndex6 = T6.GetIndex()
-            let fullId = archetype.FullId
-            if (fullId.IsSet(tyIndex0) && fullId.IsSet(tyIndex1) && fullId.IsSet(tyIndex2) && fullId.IsSet(tyIndex3) && fullId.IsSet(tyIndex4) && fullId.IsSet(tyIndex5) && fullId.IsSet(tyIndex6))
-                let lookup = this.entityIndexLookup
-                this.IncrementDepth()
-                callback(
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex0], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex1], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex2], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex3], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex4], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex5], lookup[entId.Index]),
-                    &archetype.Get(archetype.BufferLookupByIndex[tyIndex6], lookup[entId.Index])
-                )
-                this.DecrementDepth()
-
-                true
-            else
-                false
 
     private DeleteCore(entId: EntityId): () =
         this.ThrowIfDepth()
