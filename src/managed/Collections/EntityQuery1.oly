@@ -4,7 +4,8 @@ open System
 open System.Collections.Generic
 open Evergreen.Utilities
 
-class EntityQuery<T1> 
+class EntityQuery<T1
+                 /*def(n):, T{n}*/> 
         where T1: blittable, struct, ValueType 
         /*def(n):where T{n}: blittable, struct, ValueType*/
         =
@@ -18,19 +19,20 @@ class EntityQuery<T1>
     internal new(
         database: EntityDatabase, 
         archetypeGroup: Archetype[],
-        bufferGroup1: ComponentBuffer[],
-        /*def(n):bufferGroup{n}: ComponentBuffer[],*/ 
-        entIdGroup: EntityIdStore[]
+        entIdGroup: EntityIdStore[],
+        bufferGroup1: ComponentBuffer[]
+        /*def(n):, bufferGroup{n}: ComponentBuffer[]*/ 
     ) =
         {
             Database = database
             ArchetypeGroup = archetypeGroup
+            EntIdGroup = entIdGroup
             BufferGroup1 = bufferGroup1
             /*def(n):BufferGroup{n} = bufferGroup{n}*/
-            EntIdGroup = entIdGroup
         }
 
-    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1>
+    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1
+                                                                                                          /*def(n):, T{n}*/>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
         let archetypeGroup = List()
         let entIdGroup = List()
@@ -52,28 +54,33 @@ class EntityQuery<T1>
         EntityQuery(
             this.Database,
             Unsafe.AsImmutable(archetypeGroup.ToArray()),
-            Unsafe.AsImmutable(bufferGroup1.ToArray()),
-            /*def(n):Unsafe.AsImmutable(bufferGroup{n}.ToArray()),*/
-            Unsafe.AsImmutable(entIdGroup.ToArray())
+            Unsafe.AsImmutable(entIdGroup.ToArray()),
+            Unsafe.AsImmutable(bufferGroup1.ToArray())
+            /*def(n):, Unsafe.AsImmutable(bufferGroup{n}.ToArray())*/
         )
 
-    public WhereContains<T>(): EntityQuery<T1>
+    public WhereContains<T>(): EntityQuery<T1
+                                          /*def(n):, T{n}*/>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.Filter<T>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
 
-    public WhereNotContains<T>(): EntityQuery<T1>
+    public WhereNotContains<T>(): EntityQuery<T1
+                                             /*def(n):, T{n}*/>
         where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.Filter<T>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
 
 #[open]
-extension EntityDatabaseQuery1Extension =
+extension EntityDatabaseQueryExtension1 =
     inherits EntityDatabase
 
-    CreateQuery<T1>(): EntityQuery<T1> 
+    CreateQuery<T1
+               /*def(n):, T{n}*/>(): EntityQuery<T1
+                                                /*def(n):, T{n}*/> 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
             =
-        let indices = this.GetArchetypedIndices(GetArchetypeId<T1>())
+        let indices = this.GetArchetypedIndices(GetArchetypeId<T1
+                                                              /*def(n):, T{n}*/>())
 
         let archetypeGroup = zeroArray<Archetype>(indices.Length)
         let entIdGroup = zeroArray<EntityIdStore>(indices.Length)
@@ -95,13 +102,16 @@ extension EntityDatabaseQuery1Extension =
         EntityQuery(
             this,
             Unsafe.AsImmutable(archetypeGroup), 
-            Unsafe.AsImmutable(bufferGroup1),
-            /*def(n):Unsafe.AsImmutable(bufferGroup{n}),*/
-            Unsafe.AsImmutable(entIdGroup)
+            Unsafe.AsImmutable(entIdGroup),
+            Unsafe.AsImmutable(bufferGroup1)
+            /*def(n):, Unsafe.AsImmutable(bufferGroup{n})*/
         )
 
     #[inline]
-    ForEachSpan<T1>(query: EntityQuery<T1>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>) -> ()): () 
+    ForEachSpan<T1
+               /*def(n):, T{n}*/>(query: EntityQuery<T1
+                                      /*def(n):, T{n}*/>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>
+                                                                                                              /*def(n):, Span<T{n}>*/) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
             =
@@ -145,11 +155,14 @@ extension EntityDatabaseQuery1Extension =
         this.DecrementDepth()
 
     #[inline]
-    ForEach<T1>(query: EntityQuery<T1>, #[inline] f: scoped (EntityId, byref<T1>) -> ()): () 
+    ForEach<T1
+           /*def(n):, T{n}*/>(query: EntityQuery<T1
+                                                /*def(n):, T{n}*/>, #[inline] f: scoped (EntityId, byref<T1>
+                                                                                                           /*def(n):,  byref<T{n}>*/) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
             =
-        this.ForEachSpan<T1>(query,
+        this.ForEachSpan(query,
             (mutable entIds, 
                 mutable buffer1
                 /*def(n):, mutable buffer{n}*/
@@ -166,20 +179,26 @@ extension EntityDatabaseQuery1Extension =
         )
 
     #[inline]
-    ForEach<T1>(#[inline] f: scoped (EntityId, byref<T1>) -> ()): () 
+    ForEach<T1
+           /*def(n):, T{n}*/>(#[inline] f: scoped (EntityId, byref<T1>
+                                                                     /*def(n):, byref<T{n}>*/) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
             =
-        this.ForEach<T1>(this.CreateQuery<T1>(), f)
+        this.ForEach<T1
+                    /*def(n):, T{n}*/>(this.CreateQuery<T1
+                                                       /*def(n):, T{n}*/>(), f)
 
-    Create<T1>(component1: T1
+    Create<T1
+          /*def(n):, T{n}*/>(component1: T1
             /*def(n):, component{n}: T{n}*/): EntityId 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
             =
         this.Create(&component1
                     /*def(n):, &component{n}*/)
-    Create<T1>(component1: inref<T1>
+    Create<T1
+          /*def(n):, T{n}*/>(component1: inref<T1>
             /*def(n):, component{n}: inref<T{n}>*/): EntityId 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
@@ -188,7 +207,8 @@ extension EntityDatabaseQuery1Extension =
 
         let lookup = this.entityIndexLookup
 
-        let archetypeId = GetArchetypeId<T1>()
+        let archetypeId = GetArchetypeId<T1
+                                        /*def(n):, T{n}*/>()
         let archetypedIndex = this.GetArchetypedIndex(archetypeId)
         let typedIndex1 = this.GetTypedIndex<T1>(archetypedIndex)
         /*def(n):let typedIndex{n} = this.GetTypedIndex<T{n}>(archetypedIndex)*/

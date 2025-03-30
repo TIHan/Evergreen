@@ -4,7 +4,13 @@ open System
 open System.Collections.Generic
 open Evergreen.Utilities
 
-class EntityQuery<T1, T2, T3, T4, T5, T6, T7> 
+class EntityQuery<T1
+                 , T2
+                 , T3
+                 , T4
+                 , T5
+                 , T6
+                 , T7> 
         where T1: blittable, struct, ValueType 
         where T2: blittable, struct, ValueType
         where T3: blittable, struct, ValueType
@@ -28,18 +34,19 @@ class EntityQuery<T1, T2, T3, T4, T5, T6, T7>
     internal new(
         database: EntityDatabase, 
         archetypeGroup: Archetype[],
-        bufferGroup1: ComponentBuffer[],
-        bufferGroup2: ComponentBuffer[],
-        bufferGroup3: ComponentBuffer[],
-        bufferGroup4: ComponentBuffer[],
-        bufferGroup5: ComponentBuffer[],
-        bufferGroup6: ComponentBuffer[],
-        bufferGroup7: ComponentBuffer[], 
-        entIdGroup: EntityIdStore[]
+        entIdGroup: EntityIdStore[],
+        bufferGroup1: ComponentBuffer[]
+        , bufferGroup2: ComponentBuffer[]
+        , bufferGroup3: ComponentBuffer[]
+        , bufferGroup4: ComponentBuffer[]
+        , bufferGroup5: ComponentBuffer[]
+        , bufferGroup6: ComponentBuffer[]
+        , bufferGroup7: ComponentBuffer[] 
     ) =
         {
             Database = database
             ArchetypeGroup = archetypeGroup
+            EntIdGroup = entIdGroup
             BufferGroup1 = bufferGroup1
             BufferGroup2 = bufferGroup2
             BufferGroup3 = bufferGroup3
@@ -47,10 +54,15 @@ class EntityQuery<T1, T2, T3, T4, T5, T6, T7>
             BufferGroup5 = bufferGroup5
             BufferGroup6 = bufferGroup6
             BufferGroup7 = bufferGroup7
-            EntIdGroup = entIdGroup
         }
 
-    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1, T2, T3, T4, T5, T6, T7>
+    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1
+                                                                                                          , T2
+                                                                                                          , T3
+                                                                                                          , T4
+                                                                                                          , T5
+                                                                                                          , T6
+                                                                                                          , T7>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
         let archetypeGroup = List()
         let entIdGroup = List()
@@ -82,29 +94,53 @@ class EntityQuery<T1, T2, T3, T4, T5, T6, T7>
         EntityQuery(
             this.Database,
             Unsafe.AsImmutable(archetypeGroup.ToArray()),
-            Unsafe.AsImmutable(bufferGroup1.ToArray()),
-            Unsafe.AsImmutable(bufferGroup2.ToArray()),
-            Unsafe.AsImmutable(bufferGroup3.ToArray()),
-            Unsafe.AsImmutable(bufferGroup4.ToArray()),
-            Unsafe.AsImmutable(bufferGroup5.ToArray()),
-            Unsafe.AsImmutable(bufferGroup6.ToArray()),
-            Unsafe.AsImmutable(bufferGroup7.ToArray()),
-            Unsafe.AsImmutable(entIdGroup.ToArray())
+            Unsafe.AsImmutable(entIdGroup.ToArray()),
+            Unsafe.AsImmutable(bufferGroup1.ToArray())
+            , Unsafe.AsImmutable(bufferGroup2.ToArray())
+            , Unsafe.AsImmutable(bufferGroup3.ToArray())
+            , Unsafe.AsImmutable(bufferGroup4.ToArray())
+            , Unsafe.AsImmutable(bufferGroup5.ToArray())
+            , Unsafe.AsImmutable(bufferGroup6.ToArray())
+            , Unsafe.AsImmutable(bufferGroup7.ToArray())
         )
 
-    public WhereContains<T>(): EntityQuery<T1, T2, T3, T4, T5, T6, T7>
+    public WhereContains<T>(): EntityQuery<T1
+                                          , T2
+                                          , T3
+                                          , T4
+                                          , T5
+                                          , T6
+                                          , T7>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.Filter<T>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
 
-    public WhereNotContains<T>(): EntityQuery<T1, T2, T3, T4, T5, T6, T7>
+    public WhereNotContains<T>(): EntityQuery<T1
+                                             , T2
+                                             , T3
+                                             , T4
+                                             , T5
+                                             , T6
+                                             , T7>
         where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.Filter<T>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
 
 #[open]
-extension EntityDatabaseQuery7Extensions =
+extension EntityDatabaseQuery1Extension7 =
     inherits EntityDatabase
 
-    CreateQuery<T1, T2, T3, T4, T5, T6, T7>(): EntityQuery<T1, T2, T3, T4, T5, T6, T7> 
+    CreateQuery<T1
+               , T2
+               , T3
+               , T4
+               , T5
+               , T6
+               , T7>(): EntityQuery<T1
+                                                , T2
+                                                , T3
+                                                , T4
+                                                , T5
+                                                , T6
+                                                , T7> 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             where T3: blittable, struct, ValueType, { new() }, trait IComponent
@@ -113,7 +149,13 @@ extension EntityDatabaseQuery7Extensions =
             where T6: blittable, struct, ValueType, { new() }, trait IComponent
             where T7: blittable, struct, ValueType, { new() }, trait IComponent
             =
-        let indices = this.GetArchetypedIndices(GetArchetypeId<T1, T2, T3, T4, T5, T6, T7>())
+        let indices = this.GetArchetypedIndices(GetArchetypeId<T1
+                                                              , T2
+                                                              , T3
+                                                              , T4
+                                                              , T5
+                                                              , T6
+                                                              , T7>())
 
         let archetypeGroup = zeroArray<Archetype>(indices.Length)
         let entIdGroup = zeroArray<EntityIdStore>(indices.Length)
@@ -145,18 +187,36 @@ extension EntityDatabaseQuery7Extensions =
         EntityQuery(
             this,
             Unsafe.AsImmutable(archetypeGroup), 
-            Unsafe.AsImmutable(bufferGroup1),
-            Unsafe.AsImmutable(bufferGroup2),
-            Unsafe.AsImmutable(bufferGroup3),
-            Unsafe.AsImmutable(bufferGroup4),
-            Unsafe.AsImmutable(bufferGroup5),
-            Unsafe.AsImmutable(bufferGroup6),
-            Unsafe.AsImmutable(bufferGroup7),
-            Unsafe.AsImmutable(entIdGroup)
+            Unsafe.AsImmutable(entIdGroup),
+            Unsafe.AsImmutable(bufferGroup1)
+            , Unsafe.AsImmutable(bufferGroup2)
+            , Unsafe.AsImmutable(bufferGroup3)
+            , Unsafe.AsImmutable(bufferGroup4)
+            , Unsafe.AsImmutable(bufferGroup5)
+            , Unsafe.AsImmutable(bufferGroup6)
+            , Unsafe.AsImmutable(bufferGroup7)
         )
 
     #[inline]
-    ForEachSpan<T1, T2, T3, T4, T5, T6, T7>(query: EntityQuery<T1, T2, T3, T4, T5, T6, T7>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>, Span<T2>, Span<T3>, Span<T4>, Span<T5>, Span<T6>, Span<T7>) -> ()): () 
+    ForEachSpan<T1
+               , T2
+               , T3
+               , T4
+               , T5
+               , T6
+               , T7>(query: EntityQuery<T1
+                                      , T2
+                                      , T3
+                                      , T4
+                                      , T5
+                                      , T6
+                                      , T7>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>
+                                                                                                              , Span<T2>
+                                                                                                              , Span<T3>
+                                                                                                              , Span<T4>
+                                                                                                              , Span<T5>
+                                                                                                              , Span<T6>
+                                                                                                              , Span<T7>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             where T3: blittable, struct, ValueType, { new() }, trait IComponent
@@ -225,7 +285,25 @@ extension EntityDatabaseQuery7Extensions =
         this.DecrementDepth()
 
     #[inline]
-    ForEach<T1, T2, T3, T4, T5, T6, T7>(query: EntityQuery<T1, T2, T3, T4, T5, T6, T7>, #[inline] f: scoped (EntityId, byref<T1>, byref<T2>, byref<T3>, byref<T4>, byref<T5>, byref<T6>, byref<T7>) -> ()): () 
+    ForEach<T1
+           , T2
+           , T3
+           , T4
+           , T5
+           , T6
+           , T7>(query: EntityQuery<T1
+                                                , T2
+                                                , T3
+                                                , T4
+                                                , T5
+                                                , T6
+                                                , T7>, #[inline] f: scoped (EntityId, byref<T1>
+                                                                                                           ,  byref<T2>
+                                                                                                           ,  byref<T3>
+                                                                                                           ,  byref<T4>
+                                                                                                           ,  byref<T5>
+                                                                                                           ,  byref<T6>
+                                                                                                           ,  byref<T7>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             where T3: blittable, struct, ValueType, { new() }, trait IComponent
@@ -234,7 +312,7 @@ extension EntityDatabaseQuery7Extensions =
             where T6: blittable, struct, ValueType, { new() }, trait IComponent
             where T7: blittable, struct, ValueType, { new() }, trait IComponent
             =
-        this.ForEachSpan<T1, T2, T3, T4, T5, T6, T7>(query,
+        this.ForEachSpan(query,
             (mutable entIds, 
                 mutable buffer1
                 , mutable buffer2
@@ -261,7 +339,19 @@ extension EntityDatabaseQuery7Extensions =
         )
 
     #[inline]
-    ForEach<T1, T2, T3, T4, T5, T6, T7>(#[inline] f: scoped (EntityId, byref<T1>, byref<T2>, byref<T3>, byref<T4>, byref<T5>, byref<T6>, byref<T7>) -> ()): () 
+    ForEach<T1
+           , T2
+           , T3
+           , T4
+           , T5
+           , T6
+           , T7>(#[inline] f: scoped (EntityId, byref<T1>
+                                                                     , byref<T2>
+                                                                     , byref<T3>
+                                                                     , byref<T4>
+                                                                     , byref<T5>
+                                                                     , byref<T6>
+                                                                     , byref<T7>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             where T3: blittable, struct, ValueType, { new() }, trait IComponent
@@ -270,9 +360,27 @@ extension EntityDatabaseQuery7Extensions =
             where T6: blittable, struct, ValueType, { new() }, trait IComponent
             where T7: blittable, struct, ValueType, { new() }, trait IComponent
             =
-        this.ForEach<T1, T2, T3, T4, T5, T6, T7>(this.CreateQuery<T1, T2, T3, T4, T5, T6, T7>(), f)
+        this.ForEach<T1
+                    , T2
+                    , T3
+                    , T4
+                    , T5
+                    , T6
+                    , T7>(this.CreateQuery<T1
+                                                       , T2
+                                                       , T3
+                                                       , T4
+                                                       , T5
+                                                       , T6
+                                                       , T7>(), f)
 
-    Create<T1, T2, T3, T4, T5, T6, T7>(component1: T1
+    Create<T1
+          , T2
+          , T3
+          , T4
+          , T5
+          , T6
+          , T7>(component1: T1
             , component2: T2
             , component3: T3
             , component4: T4
@@ -294,7 +402,13 @@ extension EntityDatabaseQuery7Extensions =
                     , &component5
                     , &component6
                     , &component7)
-    Create<T1, T2, T3, T4, T5, T6, T7>(component1: inref<T1>
+    Create<T1
+          , T2
+          , T3
+          , T4
+          , T5
+          , T6
+          , T7>(component1: inref<T1>
             , component2: inref<T2>
             , component3: inref<T3>
             , component4: inref<T4>
@@ -313,7 +427,13 @@ extension EntityDatabaseQuery7Extensions =
 
         let lookup = this.entityIndexLookup
 
-        let archetypeId = GetArchetypeId<T1, T2, T3, T4, T5, T6, T7>()
+        let archetypeId = GetArchetypeId<T1
+                                        , T2
+                                        , T3
+                                        , T4
+                                        , T5
+                                        , T6
+                                        , T7>()
         let archetypedIndex = this.GetArchetypedIndex(archetypeId)
         let typedIndex1 = this.GetTypedIndex<T1>(archetypedIndex)
         let typedIndex2 = this.GetTypedIndex<T2>(archetypedIndex)

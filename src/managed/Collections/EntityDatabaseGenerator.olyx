@@ -40,54 +40,35 @@ generateQuery(text: string, mutable n: int32): string =
     if (n <= 1)
         fail("invalid generation")
 
-    let typeArguments = "<" + string.Join(", ", initMutableArray(n, i -> "T" + (i + 1).ToString())) + ">"
-    let byrefArguments = string.Join(", ", initMutableArray(n, i -> "byref<T" + (i + 1).ToString() + ">"))
-    let spanArguments = string.Join(", ", initMutableArray(n, i -> "Span<T" + (i + 1).ToString() + ">"))
+    let text = text.Replace("EntityDatabaseQueryExtension1", "EntityDatabaseQuery1Extension" + n.ToString())
 
-    let text = text.Replace("EntityQuery<T1>", "EntityQuery" + typeArguments)
-    let text = text.Replace("GetArchetypeId<T1>()", "GetArchetypeId" + typeArguments + "()")
-    let text = text.Replace("EntityDatabaseQuery1Extension", "EntityDatabaseQuery" + (n + 0).ToString() + "Extensions")
-    let text = text.Replace("CreateQuery<T1>()", "CreateQuery" + typeArguments + "()")
-    let text = text.Replace("(ReadOnlySpan<EntityId>, Span<T1>)", "(ReadOnlySpan<EntityId>, " + spanArguments + ")")
-    let text = text.Replace("ForEachSpan<T1>", "ForEachSpan" + typeArguments)
-    let text = text.Replace("ForEach<T1>", "ForEach" + typeArguments)
-    let text = text.Replace("Create<T1>", "Create" + typeArguments)
-    let text = text.Replace("(EntityId, byref<T1>)", "(EntityId, " + byrefArguments + ")")
+    let executeDef(text: string, defIndex: int32, defLength: int32) =
+        let mutable spaceCount = 0
+        let mutable hasNewLine = false
+        let mutable i = 1
+        while (!hasNewLine)
+            let c = text.get_Chars(defIndex - i)
+            if (c == '\n' || c == '\r')
+                hasNewLine <- true
+            else
+                i <- i + 1
+                spaceCount <- spaceCount + 1
 
-    let executeDef(text: string, defStr: string) =
-        let index = text.IndexOf(defStr)
-        if (index == -1)
-            text
-        else
-            let mutable spaceCount = 0
-            let mutable hasNewLine = false
-            let mutable i = 1
-            while (!hasNewLine)
-                let c = text.get_Chars(index - i)
-                if (c == '\n' || c == '\r')
-                    hasNewLine <- true
-                else
-                    i <- i + 1
-                    spaceCount <- spaceCount + 1
+        let spaces = string.Concat(initMutableArray(spaceCount, (_) -> " "))
 
-            let spaces = string.Concat(initMutableArray(spaceCount, (_) -> " "))
+        let defStr = text.Substring(defIndex, defLength)
 
-            let gen(i: int32) =
-                (defStr.Replace("/*def(n):", "").Replace("*/", "").Replace("{n}", (i + 2).ToString()))
+        let gen(i: int32) =
+            (defStr.Replace("/*def(n):", "").Replace("*/", "").Replace("{n}", (i + 2).ToString()))
 
-            text.Replace(defStr, string.Join("\r\n" + spaces, initMutableArray(n - 1, i -> gen(i))))
-
-    let defs =
-        let regex = System.Text.RegularExpressions.Regex("[\\/][*]def\\(n\\):.+[*][\\/]")
-        let mutable enumerator = regex.EnumerateMatches(ReadOnlySpan(text.ToCharArray()))
-        let results = List<string>()
-        while (enumerator.MoveNext())
-            let mutable valueMatch = enumerator.Current
-            results.Add(text.Substring(valueMatch.Index, valueMatch.Length))
-        results
+        text.Remove(defIndex, defLength).Insert(defIndex, string.Join("\r\n" + spaces, initMutableArray(n - 1, i -> gen(i))))
 
     let mutable text = text
-    ForEach(defs, def -> text <- executeDef(text, def))
+    let regex = System.Text.RegularExpressions.Regex("[\\/][*]def\\(n\\):.+[*][\\/]")
+    let mutable m = regex.Match(text)
+    while (m.Success)
+        text <- executeDef(text, m.Index, m.Length)
+        m <- regex.Match(text)
     text
 
 main(): () =
