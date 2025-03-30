@@ -130,14 +130,14 @@ extension EntityDatabaseQuery1Extension =
                     let length = count - start
                     f(
                         entIds.GetReadOnlyChunkAs(j).Slice(0, length),
-                        buffer1.GetChunkAs(j).Slice(0, length)/*{{,}}*/
-                        /*def(n):buffer{n}.GetChunkAs(j).Slice(0, length){,}*/
+                        buffer1.GetChunkAs(j).Slice(0, length)
+                        /*def(n):, buffer{n}.GetChunkAs(j).Slice(0, length)*/
                     )
                 else
                     f(
                         entIds.GetReadOnlyChunkAs(j),
-                        buffer1.GetChunkAs(j)/*{{,}}*/
-                        /*def(n):buffer{n}.GetChunkAs(j){,}*/
+                        buffer1.GetChunkAs(j)
+                        /*def(n):, buffer{n}.GetChunkAs(j)*/
                     )
                 j <- j + 1
 
@@ -151,16 +151,16 @@ extension EntityDatabaseQuery1Extension =
             =
         this.ForEachSpan<T1>(query,
             (mutable entIds, 
-                mutable buffer1/*{{,}}*/
-                /*def(n):mutable buffer{n}{,}*/
+                mutable buffer1
+                /*def(n):, mutable buffer{n}*/
                 ) ->
                 let count = entIds.Length
                 let mutable i = 0
                 while (i < count)
                     f(
                         entIds[i], 
-                        &buffer1[i]/*{{,}}*/
-                        /*def(n):&buffer{n}[i]{,}*/
+                        &buffer1[i]
+                        /*def(n):, &buffer{n}[i]*/
                     )
                     i <- i + 1
         )
@@ -171,3 +171,43 @@ extension EntityDatabaseQuery1Extension =
             /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
             =
         this.ForEach<T1>(this.CreateQuery<T1>(), f)
+
+    Create<T1>(component1: T1
+            /*def(n):, component{n}: T{n}*/): EntityId 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        this.Create(&component1
+                    /*def(n):, &component{n}*/)
+    Create<T1>(component1: inref<T1>
+            /*def(n):, component{n}: inref<T{n}>*/): EntityId 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            /*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/
+            =
+        this.ThrowIfParallelDepth()
+
+        let lookup = this.entityIndexLookup
+
+        let archetypeId = GetArchetypeId<T1>()
+        let archetypedIndex = this.GetArchetypedIndex(archetypeId)
+        let typedIndex1 = this.GetTypedIndex<T1>(archetypedIndex)
+        /*def(n):let typedIndex{n} = this.GetTypedIndex<T{n}>(archetypedIndex)*/
+
+        let entId = this.NewEntityId(archetypedIndex)
+
+        let archetype = this.GetArchetype(archetypedIndex)
+        let index = archetype.Count
+        archetype.Count <- index + 1
+        lookup[entId.Index] <- index
+        archetype.EntityIds.SetAs(index, entId)
+
+        archetype.ClearComponentAttachmentsAt(index)
+
+        archetype.Set(typedIndex1, index, component1)
+        /*def(n):archetype.Set(typedIndex{n}, index, component{n})*/
+
+        this.IncrementDepth()
+        archetype.TriggerComponentAdded(archetype.FullId, index)
+        this.DecrementDepth()
+
+        entId

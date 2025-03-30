@@ -44,7 +44,6 @@ generateQuery(text: string, mutable n: int32): string =
     let byrefArguments = string.Join(", ", initMutableArray(n, i -> "byref<T" + (i + 1).ToString() + ">"))
     let spanArguments = string.Join(", ", initMutableArray(n, i -> "Span<T" + (i + 1).ToString() + ">"))
 
-    let text = text.Replace("/*{{,}}*/", ",")
     let text = text.Replace("EntityQuery<T1>", "EntityQuery" + typeArguments)
     let text = text.Replace("GetArchetypeId<T1>()", "GetArchetypeId" + typeArguments + "()")
     let text = text.Replace("EntityDatabaseQuery1Extension", "EntityDatabaseQuery" + (n + 0).ToString() + "Extensions")
@@ -52,55 +51,49 @@ generateQuery(text: string, mutable n: int32): string =
     let text = text.Replace("(ReadOnlySpan<EntityId>, Span<T1>)", "(ReadOnlySpan<EntityId>, " + spanArguments + ")")
     let text = text.Replace("ForEachSpan<T1>", "ForEachSpan" + typeArguments)
     let text = text.Replace("ForEach<T1>", "ForEach" + typeArguments)
+    let text = text.Replace("Create<T1>", "Create" + typeArguments)
     let text = text.Replace("(EntityId, byref<T1>)", "(EntityId, " + byrefArguments + ")")
 
     let executeDef(text: string, defStr: string) =
         let index = text.IndexOf(defStr)
-        let mutable spaceCount = 0
-        let mutable hasNewLine = false
-        let mutable i = 1
-        while (!hasNewLine)
-            let c = text.get_Chars(index - i)
-            if (c == '\n' || c == '\r')
-                hasNewLine <- true
-            else
-                i <- i + 1
-                spaceCount <- spaceCount + 1
+        if (index == -1)
+            text
+        else
+            let mutable spaceCount = 0
+            let mutable hasNewLine = false
+            let mutable i = 1
+            while (!hasNewLine)
+                let c = text.get_Chars(index - i)
+                if (c == '\n' || c == '\r')
+                    hasNewLine <- true
+                else
+                    i <- i + 1
+                    spaceCount <- spaceCount + 1
 
-        let spaces = string.Concat(initMutableArray(spaceCount, (_) -> " "))
+            let spaces = string.Concat(initMutableArray(spaceCount, (_) -> " "))
 
-        let gen(i: int32) =
-            let result =
+            let gen(i: int32) =
                 (defStr.Replace("/*def(n):", "").Replace("*/", "").Replace("{n}", (i + 2).ToString()))
-            if (i == (n - 2))
-                result.Replace("{,}", "")
-            else
-                result.Replace("{,}", ",")
 
-        text.Replace(defStr, string.Join("\r\n" + spaces, initMutableArray(n - 1, i -> gen(i))))
+            text.Replace(defStr, string.Join("\r\n" + spaces, initMutableArray(n - 1, i -> gen(i))))
 
-    let text = executeDef(text, "/*def(n):where T{n}: blittable, struct, ValueType*/")
-    let text = executeDef(text, "/*def(n):internal BufferGroup{n}  : ComponentBuffer[] get*/")
-    let text = executeDef(text, "/*def(n):bufferGroup{n}: ComponentBuffer[],*/")
-    let text = executeDef(text, "/*def(n):BufferGroup{n} = bufferGroup{n}*/")
-    let text = executeDef(text, "/*def(n):let bufferGroup{n} = List()*/")
-    let text = executeDef(text, "/*def(n):Unsafe.AsImmutable(bufferGroup{n}.ToArray()),*/")
-    let text = executeDef(text, "/*def(n):bufferGroup{n}.Add(this.BufferGroup{n}[i])*/")
-    let text = executeDef(text, "/*def(n):where T{n}: blittable, struct, ValueType, { new() }, trait IComponent*/")
-    let text = executeDef(text, "/*def(n):let bufferGroup{n} = zeroArray<ComponentBuffer>(indices.Length)*/")
-    let text = executeDef(text, "/*def(n):bufferGroup{n}[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T{n}.GetId()])*/")
-    let text = executeDef(text, "/*def(n):Unsafe.AsImmutable(bufferGroup{n}),*/")
-    let text = executeDef(text, "/*def(n):let bufferGroup{n}     = query.BufferGroup{n}*/")
-    let text = executeDef(text, "/*def(n):let buffer{n} = bufferGroup{n}[i].Store*/")
-    let text = executeDef(text, "/*def(n):buffer{n}.GetChunkAs(j).Slice(0, length){,}*/")
-    let text = executeDef(text, "/*def(n):buffer{n}.GetChunkAs(j){,}*/")
-    let text = executeDef(text, "/*def(n):mutable buffer{n}{,}*/")
-    let text = executeDef(text, "/*def(n):&buffer{n}[i]{,}*/")
+    let defs =
+        let regex = System.Text.RegularExpressions.Regex("[\\/][*]def\\(n\\):.+[*][\\/]")
+        let mutable enumerator = regex.EnumerateMatches(ReadOnlySpan(text.ToCharArray()))
+        let results = List<string>()
+        while (enumerator.MoveNext())
+            let mutable valueMatch = enumerator.Current
+            results.Add(text.Substring(valueMatch.Index, valueMatch.Length))
+        results
 
+    let mutable text = text
+    ForEach(defs, def -> text <- executeDef(text, def))
     text
 
 main(): () =
     let text = File.ReadAllText("Collections/EntityQuery1.oly")
+
+    // Do do not need to actually use Oly to parse, but do it anyway to test it.
     let syntaxTree = OlySyntaxTreeExtensions.`OlySyntaxTree.Parse.Static`(OlyPath.Create("EntityQuery1.oly"), text, null)
     if (syntaxTree.HasErrors)
         fail("syntax tree has errors")
