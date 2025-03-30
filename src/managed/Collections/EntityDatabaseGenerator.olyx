@@ -70,7 +70,7 @@ generateQuery(text: string, mutable n: int32): string =
     while (m.Success)
         text <- executeDef(text, m.Index, m.Length)
         m <- regex.Match(text)
-    "// Generated. Do not modify.\n" + text
+    "// Generated. Do not modify.\r\n" + text
 
 main(): () =
     let text = File.ReadAllText("Collections/EntityQuery1.oly")
