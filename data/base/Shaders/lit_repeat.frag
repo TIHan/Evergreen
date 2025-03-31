@@ -17,9 +17,39 @@ bool is_lit(vec3 light_space_ndc, vec3 tex_coord_with_index)
 }
 #include "abstract_shadow.glsl"
 
+// Hash function to generate pseudo-random numbers
+float rand(vec2 co) 
+{
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec4 stochasticTexture(sampler2D tex, vec2 uv, float noiseStrength) 
+{
+    vec2 tileUV = uv;
+    vec2 baseTile = floor(tileUV);
+    vec2 fractUV = fract(tileUV);
+    
+    // Generate random jitter to offset UVs and break tiling patterns
+    vec2 randomOffset = vec2(rand(baseTile), rand(baseTile + vec2(1.0, 1.0))) - 0.5;
+    randomOffset *= noiseStrength; // Scale randomness based on strength
+    
+    vec2 jitteredUV = (baseTile + fractUV + randomOffset);
+    
+    return texture(tex, jitteredUV);
+}
+
 vec4 get_tex_color_repeat()
 {
-    return texture(in_tex_sampler, in_tex_coord * textureSize(in_tex_sampler, 0));
+   vec2 uv = in_tex_coord * textureSize(in_tex_sampler, 0);
+   vec4 color = texture(in_tex_sampler, uv);
+
+   float lod = textureQueryLod(in_tex_sampler, uv).y;
+   float minValue = -1.0;
+   float maxValue = 0.5;
+   float alpha = smoothstep(minValue, maxValue, lod);
+
+   vec4 stochasticColor = stochasticTexture(in_tex_sampler, uv, 1);
+   return mix(color, stochasticColor, alpha);
 }
 
 void main() 
