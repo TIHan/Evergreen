@@ -204,7 +204,7 @@ class Resources =
                 options.SizeMode <- GpuFrameSizeMode.Custom
                 options.LayerCount <- 8
                 options.RenderPassFlags <- GpuRenderPassFlags.ClearDepthStencil
-                return GpuFrame(options, 1024, 1024)
+                return GpuFrame(options, 2048, 2048)
         )
 
         frameManager.Register("sprite_shadow_maps",
@@ -216,7 +216,7 @@ class Resources =
                 options.SizeMode <- GpuFrameSizeMode.Custom
                 options.LayerCount <- 8
                 options.RenderPassFlags <- GpuRenderPassFlags.ClearDepthStencil
-                return GpuFrame(options, 1024, 1024)
+                return GpuFrame(options, 2048, 2048)
         )
     
         frameManager.Register("mask", 

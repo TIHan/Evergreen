@@ -285,7 +285,7 @@ private module Rendering =
 
                 globalsBuffer.NeedsUpdate <- true
 
-                let positionLerp = Vector3.Lerp(prev.Position, curr.Position, alpha)
+                let positionLerp = Vector3.Lerp(prev.Position, curr.Position, alpha) + Vector3(0, 0, 2.5)
 
                 For(lights.Count,
                     i ->

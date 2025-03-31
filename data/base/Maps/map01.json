@@ -12,7 +12,7 @@
       }
     },
     {
-      "#": "Prefabs/SpotLight.json",
+      "#": "Prefabs/DirectionalLight.json",
       "Camera": {
         "Pitch": -45
       },

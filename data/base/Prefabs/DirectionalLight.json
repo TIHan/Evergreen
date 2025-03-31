@@ -28,10 +28,10 @@
     "Yaw": 0,
     "Pitch": 0,
     "FieldOfView": 0,
-    "Width": 20,
-    "Height": 20,
-    "NearPlaneDistance": 0.1,
-    "FarPlaneDistance": 20,
+    "Width": 50,
+    "Height": 50,
+    "NearPlaneDistance": 0.01,
+    "FarPlaneDistance": 100,
     "ProjectionKind": "Orthographic"
   },
   "Light": {

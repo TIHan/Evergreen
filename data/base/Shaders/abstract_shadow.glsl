@@ -76,7 +76,7 @@ float compute_shadow(vec3 normal, vec3 camera_position_world, vec3 position_worl
    float camera_dist = length(camera_position_world - position_world);
    float shadow_quality_falloff = 30;
    uint pcf_size = 3;//uint(mix(3, 5, clamp(1 - (camera_dist / shadow_quality_falloff), 0, 1)));
-   uint shadow_map_size_factor = 1;//uint(mix(2, 8, clamp(1 - (camera_dist / shadow_quality_falloff), 0, 1)));
+   uint shadow_map_size_factor = 4;//uint(mix(2, 8, clamp(1 - (camera_dist / shadow_quality_falloff), 0, 1)));
 
    float shadow = 0.0;
    for (int i = 0; i < shadowMapCount; i++)
@@ -90,7 +90,7 @@ float compute_shadow(vec3 normal, vec3 camera_position_world, vec3 position_worl
       if (dot(lightDir, normal) >= 0)
       {
          //shadowFactor = compute_raw_shadow_factor(in_Positions_light_space[i], i);
-         shadowFactor = compute_shadow_factor(in_Positions_light_space[i], i, 1024 * shadow_map_size_factor, pcf_size);
+         shadowFactor = compute_shadow_factor(in_Positions_light_space[i], i, 2048 * shadow_map_size_factor, pcf_size);
       }
 
       //shadow += smoothstep(shadowFactor * settings_ShadowAmount, 0, (lightDist / 40)); 
