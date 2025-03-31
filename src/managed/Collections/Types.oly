@@ -103,10 +103,10 @@ interface IComponent<N, T> where N: constant int32 where T: blittable, struct, V
     static overrides DeserializeDeltaForNetwork(bstream: ByteStream, dst: Span<byte>): () =
         bstream.Read(dst)
 
-newtype EntityDatabaseNetworkAdapterState =
+internal newtype DeserializeArchetypeIdAdapterState =
     internal field Value: Dictionary<int32, int32>
 
-    static Create(): EntityDatabaseNetworkAdapterState = EntityDatabaseNetworkAdapterState(Dictionary())
+    static Create(): DeserializeArchetypeIdAdapterState = DeserializeArchetypeIdAdapterState(Dictionary())
 
     Reset(): () =
         this.Value.Clear()

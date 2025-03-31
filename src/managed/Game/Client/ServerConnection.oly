@@ -27,14 +27,12 @@ internal class ServerConnection =
     field mutable clientIndex: byte
     field mutable latestSnapshotFrame: FrameNumber
     field mutable latestSnapshotTimeStamp: int64
-    field networkAdapterState: EntityDatabaseNetworkAdapterState
 
     private SendStream: ByteStream get
 
     ClientIndex: byte get() = this.clientIndex
 
     new(genv: GameEnv, publisher: ClientEventPublisher) =
-        let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
         let lerpBuffer = 
             InterpolationBuffer<Snapshot>(3, 1,
                 (prev, next, alpha, frame) ->
@@ -83,7 +81,7 @@ internal class ServerConnection =
                         let bstream =
                             let bytes = NetworkCompression.Decompress(bstream.Raw, 0, bstream.TotalCount)
                             ByteStream(bytes, bytes.Length)
-                        let snapshot = Snapshot.DeserializeForNetwork(bstream, this.ReceivedWorld, this.networkAdapterState)
+                        let snapshot = Snapshot.DeserializeForNetwork(bstream, this.ReceivedWorld)
     
                         let clientIndex = snapshot.ClientIndex
                         let serverFrame = snapshot.ServerFrame
@@ -128,7 +126,7 @@ internal class ServerConnection =
                                 prevSnapshot.CopyTo(clientSnapshots[serverLatestSnapshotFrameAck % clientSnapshots.Length])
         
                                 bstream.Position <- backTrackPosition
-                                let snapshot = Snapshot.DeserializeDeltaForNetwork(bstream, this.ReceivedWorld, this.networkAdapterState)
+                                let snapshot = Snapshot.DeserializeDeltaForNetwork(bstream, this.ReceivedWorld)
     
                                 this.RecordSnapshot(snapshot) 
                                 let sendingByteStream = ByteStream()
@@ -143,7 +141,7 @@ internal class ServerConnection =
                                     prevSnapshot.CopyTo(this.ReceivedWorld)
             
                                     bstream.Position <- backTrackPosition
-                                    let snapshot = Snapshot.DeserializeDeltaForNetwork(bstream, this.ReceivedWorld, this.networkAdapterState)
+                                    let snapshot = Snapshot.DeserializeDeltaForNetwork(bstream, this.ReceivedWorld)
         
                                     this.RecordSnapshot(snapshot) 
                                 else
@@ -152,7 +150,6 @@ internal class ServerConnection =
                     else if (channel == NetworkChannels.LoadSceneChannel)
                         let sceneName = bstream.ReadSmallString()
                         let snapshotSequence = ByteSequence(bstream.ReadByte())
-                        networkAdapterState.Reset()
                         publisher.LoadClientSceneRequested(sceneName, snapshotSequence)
 
                     else
@@ -176,7 +173,6 @@ internal class ServerConnection =
             clientIndex = 0
             latestSnapshotFrame = FrameNumber.Zero
             latestSnapshotTimeStamp = 0
-            networkAdapterState = networkAdapterState
 
             SendStream = ByteStream()
         }
@@ -198,7 +194,6 @@ internal class ServerConnection =
         this.latestSnapshotTimeStamp <- 0
         this.InputStream.Reset()
         this.SendStream.Reset()
-        this.networkAdapterState.Reset()
 
     private LerpWorld(prev: World, next: World, alpha: float32, frame: FrameNumber): World =
         let worldPool = this.SnapshotPool

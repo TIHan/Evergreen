@@ -80,14 +80,14 @@ abstract default class World =
     SerializeForNetwork(bstream: ByteStream): () =
         EntityDatabase.SerializeForNetwork(this.Database, bstream)
 
-    DeserializeForNetwork(bstream: ByteStream, adapterState: EntityDatabaseNetworkAdapterState): () =
-        EntityDatabase.DeserializeForNetwork(bstream, this.Database, adapterState)
+    DeserializeForNetwork(bstream: ByteStream): () =
+        EntityDatabase.DeserializeForNetwork(bstream, this.Database)
 
     SerializeDeltaForNetwork(prev: World, bstream: ByteStream): () =
         EntityDatabase.SerializeDeltaForNetwork(prev.Database, this.Database, bstream)
 
-    DeserializeDeltaForNetwork(bstream: ByteStream, adapterState: EntityDatabaseNetworkAdapterState): () =
-        EntityDatabase.DeserializeDeltaForNetwork(bstream, this.Database, adapterState)
+    DeserializeDeltaForNetwork(bstream: ByteStream): () =
+        EntityDatabase.DeserializeDeltaForNetwork(bstream, this.Database)
 
     GetReplicatingEvents(prevWorld: World, nonLocalOnly: bool): EntityDatabase.ReplicatingEvents =
         this.Database.GetReplicatingEvents(prevWorld.Database, nonLocalOnly)

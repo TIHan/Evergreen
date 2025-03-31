@@ -489,6 +489,8 @@ class EntityDatabase =
             localEntityCount = 0
             Resubs = List()
 
+            DeserializeArchetypeIdAdapterState = DeserializeArchetypeIdAdapterState.Create()
+
             lockObj = Object()
         }
 
@@ -875,7 +877,8 @@ class EntityDatabase =
 
             i <- i + 1
 
-    static DeserializeForNetwork(bstream: ByteStream, db: EntityDatabase, adapterState: EntityDatabaseNetworkAdapterState): () =
+    static DeserializeForNetwork(bstream: ByteStream, db: EntityDatabase): () =
+        let adapterState = db.DeserializeArchetypeIdAdapterState
         db.DebugCheckIntegrity()
         db.ClearEntities()
 
@@ -937,6 +940,7 @@ class EntityDatabase =
         db.ClearEntities()
         db.ClearLocalEntities()
         db.Archetypes.Clear()
+        db.DeserializeArchetypeIdAdapterState.Reset()
 
     static SerializeDeltaForNetwork(prevDb: EntityDatabase, db: EntityDatabase, bstream: ByteStream): () =
         let prevArchetypeCount = prevDb.GetArchetypeCount()
@@ -1081,7 +1085,9 @@ class EntityDatabase =
 
             i <- i + 1
 
-    static DeserializeDeltaForNetwork(bstream: ByteStream, db: EntityDatabase, adapterState: EntityDatabaseNetworkAdapterState): () =
+    private DeserializeArchetypeIdAdapterState: DeserializeArchetypeIdAdapterState get
+    static DeserializeDeltaForNetwork(bstream: ByteStream, db: EntityDatabase): () =
+        let adapterState = db.DeserializeArchetypeIdAdapterState
         db.DebugCheckIntegrity()
         db.ClearEntitiesExceptArchetypes()
 

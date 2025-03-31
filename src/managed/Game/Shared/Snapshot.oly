@@ -66,7 +66,7 @@ struct Snapshot =
 
         snapshot.World.SerializeForNetwork(stream)
 
-    static DeserializeForNetwork(stream: ByteStream, dstWorld: World, networkAdapterState: EntityDatabaseNetworkAdapterState): Snapshot =
+    static DeserializeForNetwork(stream: ByteStream, dstWorld: World): Snapshot =
         /* Begin Header */
         let serverFrame             = FrameNumber(stream.Read<int32>())
         let clientIndex             = stream.Read<byte>()
@@ -78,7 +78,7 @@ struct Snapshot =
         let sequence                = ByteSequence(stream.Read<byte>())
         /* End Header */
 
-        dstWorld.DeserializeForNetwork(stream, networkAdapterState)
+        dstWorld.DeserializeForNetwork(stream)
 
         Snapshot(
             serverFrame,
@@ -106,7 +106,7 @@ struct Snapshot =
 
         snapshot.World.SerializeDeltaForNetwork(prevWorld, stream)
 
-    static DeserializeDeltaForNetwork(stream: ByteStream, dstWorld: World, networkAdapterState: EntityDatabaseNetworkAdapterState): Snapshot =
+    static DeserializeDeltaForNetwork(stream: ByteStream, dstWorld: World): Snapshot =
         /* Begin Header */
         let serverFrame             = FrameNumber(stream.Read<int32>())
         let clientIndex             = stream.Read<byte>()
@@ -118,7 +118,7 @@ struct Snapshot =
         let sequence                = ByteSequence(stream.Read<byte>())
         /* End Header */
 
-        dstWorld.DeserializeDeltaForNetwork(stream, networkAdapterState)
+        dstWorld.DeserializeDeltaForNetwork(stream)
 
         Snapshot(
             serverFrame,

@@ -43,9 +43,8 @@ SerializeDeserializePlayer(genv: GameEnv): () =
     let bstream = ByteStream()
     serverSnapshotWorld.SerializeForNetwork(bstream)
 
-    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot()
     ASSERT(clientWorld.Database.IsValid(entId))
@@ -61,7 +60,7 @@ SerializeDeserializePlayer(genv: GameEnv): () =
     serverSnapshotWorld2.SerializeForNetwork(bstream)
 
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot()
     ASSERT(!clientWorld.Database.IsValid(entId))
@@ -95,9 +94,8 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
     serverStagingWorld.SerializeForNetwork(bstream)
     serverStagingWorld.CopyTo(serverSnapshotWorld)
 
-    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot(clientSnapshotWorld)
     ASSERT(clientWorld.Database.IsValid(entId))
@@ -118,7 +116,7 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
     serverStagingWorld2.CopyTo(serverSnapshotWorld)
 
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot(clientSnapshotWorld)
     ASSERT(clientWorld.Database.IsValid(entId2))
@@ -149,9 +147,8 @@ SerializeDeserializePlayer3(genv: GameEnv): () =
     serverStagingWorld.SerializeForNetwork(bstream)
     serverStagingWorld.CopyTo(serverSnapshotWorld)
 
-    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot(clientSnapshotWorld)
     ASSERT(clientWorld.Database.IsValid(entId))
@@ -174,7 +171,7 @@ SerializeDeserializePlayer3(genv: GameEnv): () =
     serverStagingWorld2.CopyTo(serverSnapshotWorld)
 
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot(clientSnapshotWorld)
     ASSERT(clientWorld.Database.IsValid(entId2))
@@ -207,9 +204,8 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     serverStagingWorld.SerializeForNetwork(bstream)
     serverStagingWorld.CopyTo(serverSnapshotWorld)
 
-    let networkAdapterState = EntityDatabaseNetworkAdapterState.Create()
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeForNetwork(bstream)
 
     clientWorldUpdateSnapshot(clientSnapshotWorld)
     ASSERT(clientWorld.Database.IsValid(entId))
@@ -235,7 +231,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     serverStagingWorld2.CopyTo(serverSnapshotWorld)
 
     bstream.ResetPosition()
-    clientSnapshotWorld.DeserializeDeltaForNetwork(bstream, networkAdapterState)
+    clientSnapshotWorld.DeserializeDeltaForNetwork(bstream)
 
     clientWorld.Database.ForEach<VirtualCharacter, VirtualCharacterId>(
         (entId, _, physId) ->
