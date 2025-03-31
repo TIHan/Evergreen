@@ -332,25 +332,13 @@ class EntityDatabase =
         else
             lock(this.lockObj,
                 () ->
-                    this.RegisterArchetype(archetypeId)
-                    //let archetype = this.Archetypes[this.RegisterArchetype(archetypeId)]
-                    //fail("Archetype not registered: " + archetype.ComponentListNoAttachmentsText)
+                    if (this.Archetypes.TryGetValue(archetypeId, &archetypedIndex))
+                        archetypedIndex
+                    else
+                        this.RegisterArchetype(archetypeId)
             )
 
-    internal TryGetArchetypedIndex(archetypeId: ArchetypeId): int32 =
-        // TODO: THIS HAS A VERY WEIRD BUG. USING THE COMMENTED CODE BELOW, RETURNING -1 SEEMS TO BE PROBLEMATIC AS IT RETURNS 'archetypedIndex' from 'RegisterArchetype`.
-        //       Could this be a JIT bug?
-        // try
-        //     this.GetArchetypedIndex(archetypeId)
-        // catch (ex: Exception) =>
-        //     -1
-        let mutable archetypedIndex = default
-        if (this.Archetypes.TryGetValue(archetypeId, &archetypedIndex))
-            archetypedIndex
-        else
-            -1
-
-    TryGetValidEntityIdByIndex(index: int32): EntityId =
+    private TryGetValidEntityIdByIndex(index: int32): EntityId =
         if (index < 0 || index >= EntityDatabase.MaxNumberOfEntities)
             EntityId.Nil
         else
@@ -1877,3 +1865,14 @@ class EntityDatabase =
         db.DebugCheckIntegrity()
 
         System.Buffers.ArrayPool<byte>.Shared.Return(buffer, true)
+
+    GetEntityAsJsonByIndex(index: int32): string =
+        let entId = this.TryGetValidEntityIdByIndex(index)
+        if (entId.IsNil)
+            string.Empty
+        else
+            let ms = System.IO.MemoryStream()
+            EntityDatabase.SerializeJsonForEntity(this, entId, ms)
+            let json = System.Text.Encoding.UTF8.GetString(ReadOnlySpan(ms.GetBuffer(), 0, int32(ms.Length)))
+            ms.Dispose()
+            json

@@ -62,15 +62,7 @@ internal class ClientScene =
     Ping: int64 get() = this.ping
 
     GetEntityAsJsonByIndex(index: int32): string =
-        let entId = this.World.Database.TryGetValidEntityIdByIndex(index)
-        if (entId.IsNil)
-            string.Empty
-        else
-            let ms = System.IO.MemoryStream()
-            EntityDatabase.SerializeJsonForEntity(this.World.Database, entId, ms)
-            let json = System.Text.Encoding.UTF8.GetString(ReadOnlySpan(ms.GetBuffer(), 0, int32(ms.Length)))
-            ms.Dispose()
-            json
+        this.World.Database.GetEntityAsJsonByIndex(index)
 
     UpdateInput(time: GameTime, input: CharacterInput): OptionStruct<ClientInput> =
         let db = this.World.Database

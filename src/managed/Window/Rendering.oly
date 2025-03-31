@@ -1855,7 +1855,7 @@ class Gpu =
             vkCmdBuffers = vkCmdBuffers
 
             swapChain = unchecked default
-            swapChainVsync = true // by default
+            swapChainVsync = false // by default
             swapChainRenderPass = VkRenderPass.NULL
             swapChainFramebuffers = unchecked default
             superSamplingAmount = 1
