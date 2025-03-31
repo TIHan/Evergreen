@@ -325,11 +325,13 @@ class Resources =
         shaderManager.AddChangedHandler("abstract_shadow.glsl",
             () ->
                 shaderManager.Invalidate("lit.frag")
+                shaderManager.Invalidate("lit_repeat.frag")
                 shaderManager.Invalidate("sprite_lit.frag")
         )
         shaderManager.AddChangedHandler("lit_core.glsl",
             () ->
                 shaderManager.Invalidate("lit.frag")
+                shaderManager.Invalidate("lit_repeat.frag")
                 shaderManager.Invalidate("sprite_lit.frag")
         )
     

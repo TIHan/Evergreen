@@ -466,11 +466,19 @@ module DrawHelpers =
         if (material.CanAcceptLight)
             ()
             if (isSprite)
+                if (material.IsTransparent)
+                    throw NotSupportedException("transparent sprite")
+                if (material.IsRepeatingTexture)
+                    throw NotSupportedException("sprite repeating texture")
                 renv.PipelineManager.FindId("SpriteLit.json")
             else
                 ()
                 if (material.IsTransparent)
+                    if (material.IsRepeatingTexture)
+                        throw NotSupportedException("transparent repeating texture")
                     renv.PipelineManager.FindId("LitTransparent.json")
+                else if (material.IsRepeatingTexture)
+                    renv.PipelineManager.FindId("LitRepeat.json")
                 else
                     renv.PipelineManager.FindId("Lit.json")
         else

@@ -21,7 +21,7 @@
     },
     "Material": {
       "Texture": "",
-      "Flags": "CastShadows, AcceptLight"
+      "Flags": "CastShadows, AcceptLight, RepeatingTexture"
     },
     "StaticRigidBody": {
       "Flags": "None"

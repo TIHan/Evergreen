@@ -167,8 +167,8 @@
         }
       },
       "Material": {
-        "Texture": "Flats/Freedoom/aqf063.png",
-        "Flags": "None"
+        "Texture": "Flats/Freedoom/aqf068.png",
+        "Flags": "CastShadows, AcceptLight"
       },
       "RigidBody": {
         "Mass": 10
@@ -203,7 +203,7 @@
         }
       },
       "Material": {
-        "Texture": "Flats/Freedoom/aqf063.png"
+        "Texture": "Flats/Freedoom/rrock04.png"
       }
     }
   ]

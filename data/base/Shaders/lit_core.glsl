@@ -18,7 +18,7 @@ float compute_diffuse(vec3 normal, vec3 position_world)
       float lightDist = length(light.view_inverse[3].xyz - position_world);
 
       // 1 means directional for now. We probably need separate shaders for directional and spot lights.
-      float distFactor = 1; //clamp(1 - (lightDist / 50), 0, 1);
+      float distFactor = 1;//clamp(1 - (lightDist / 50), 0, 1);
       float distDiffuse = smoothstep(0, 1, distFactor);
 
       float diff = max(dot(normal, lightDir), distFactor);
