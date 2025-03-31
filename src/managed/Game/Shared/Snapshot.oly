@@ -104,7 +104,7 @@ struct Snapshot =
         stream.Write<byte>(ByteSequence.GetByte(snapshot.Sequence))
         /* End Header */
 
-        snapshot.World.SerializeDeltaForNetwork(prevWorld, canDeltaArchetypeId, stream)
+        snapshot.World.SerializeDeltaForNetwork(prevWorld, stream)
 
     static DeserializeDeltaForNetwork(stream: ByteStream, dstWorld: World, networkAdapterState: EntityDatabaseNetworkAdapterState): Snapshot =
         /* Begin Header */

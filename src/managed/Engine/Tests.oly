@@ -231,7 +231,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     
     bstream.Reset()
     
-    serverStagingWorld2.SerializeDeltaForNetwork(serverSnapshotWorld, true, bstream)
+    serverStagingWorld2.SerializeDeltaForNetwork(serverSnapshotWorld, bstream)
     serverStagingWorld2.CopyTo(serverSnapshotWorld)
 
     bstream.ResetPosition()

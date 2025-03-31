@@ -938,7 +938,7 @@ class EntityDatabase =
         db.ClearLocalEntities()
         db.Archetypes.Clear()
 
-    static SerializeDeltaForNetwork(prevDb: EntityDatabase, db: EntityDatabase, canDeltaArchetypeId: bool, bstream: ByteStream): () =
+    static SerializeDeltaForNetwork(prevDb: EntityDatabase, db: EntityDatabase, bstream: ByteStream): () =
         let prevArchetypeCount = prevDb.GetArchetypeCount()
 
 #if DEBUG
@@ -988,7 +988,7 @@ class EntityDatabase =
                     let mutable hasArchetypeData = false
                     bstream.WritePackedUInt16(uint16(i))
 
-                    if (canDeltaArchetypeId && prevArchetypeOpt.IsSome)
+                    if (prevArchetypeOpt.IsSome)
                         bstream.WriteBit(false)
                     else
                         bstream.WriteBit(true)
