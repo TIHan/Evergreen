@@ -42,11 +42,10 @@ vec4 get_tex_color_repeat()
 {
    vec2 uv = in_tex_coord * textureSize(in_tex_sampler, 0);
    vec4 color = texture(in_tex_sampler, uv);
-
-   float lod = textureQueryLod(in_tex_sampler, uv).y;
-   float minValue = -1.0;
-   float maxValue = 0.5;
-   float alpha = smoothstep(minValue, maxValue, lod);
+   float dist = length(iViewInverse[3].xyz - in_position_world.xyz);
+   float minValue = 10.0;
+   float maxValue = 25.0;
+   float alpha = smoothstep(minValue, maxValue, dist);
 
    vec4 stochasticColor = stochasticTexture(in_tex_sampler, uv, 1);
    return mix(color, stochasticColor, alpha);
