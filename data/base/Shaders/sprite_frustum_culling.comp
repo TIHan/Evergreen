@@ -223,6 +223,7 @@ void main()
    { 
         DrawBatchInfo info = DrawBatchIndices[index];
         uint addIndex = atomicAdd(DrawCommands[info.index].instanceCount, 1);
+        DrawCommands[info.index].firstInstance = info.baseOffset;
         FinalInstances[info.baseOffset + addIndex] = instance;
    }
 }
