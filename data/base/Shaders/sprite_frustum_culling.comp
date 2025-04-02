@@ -30,17 +30,12 @@ layout(set = 1, binding = 0) readonly buffer _Instances
     Instance[] Instances;
 };
 
-layout(set = 1, binding = 1) buffer _FinalInstances
-{
-    Instance[] FinalInstances;
-};
-
-layout(set = 1, binding = 2) readonly buffer _DrawBatchIndices
+layout(set = 1, binding = 1) readonly buffer _DrawBatchIndices
 {
     DrawBatchInfo[] DrawBatchIndices;
 };
 
-layout(set = 1, binding = 3) buffer _DrawCommands
+layout(set = 1, binding = 2) buffer _DrawCommands
 {
     VkDrawIndexedIndirectCommand[] DrawCommands;
 };
@@ -48,6 +43,11 @@ layout(set = 1, binding = 3) buffer _DrawCommands
 layout(set = 2, binding = 0) readonly buffer _AABBs
 {
     AABB[] AABBs;
+};
+
+layout(set = 3, binding = 0) buffer _FinalInstances
+{
+    Instance[] FinalInstances;
 };
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;

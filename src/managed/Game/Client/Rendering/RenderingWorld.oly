@@ -47,13 +47,15 @@ class RenderingWorld =
         registry.Register<TransformLerp>()
         registry.RegisterAttachment<Transform, TransformLerp>()
 
+        let maxLightCount = ShaderLights.MaxCount
+
         base(EntityDatabaseKind.Client, registry) with {
             rfenv = RenderFrameEnv()
             lights = List()
             renderers =
                 let renderers = List()
-                renderers.Add(Renderer(MeshRendererBehavior(), renv.PipelineManager.FindId("Compute/FrustumCulling.json")))
-                renderers.Add(Renderer(SpriteRendererBehavior(), renv.PipelineManager.FindId("Compute/SpriteFrustumCulling.json")))
+                renderers.Add(Renderer(maxLightCount, MeshRendererBehavior(), renv.PipelineManager.FindId("Compute/FrustumCulling.json")))
+                renderers.Add(Renderer(maxLightCount, SpriteRendererBehavior(), renv.PipelineManager.FindId("Compute/SpriteFrustumCulling.json")))
                 renderers
         }
 
@@ -130,9 +132,9 @@ class MeshRendererBehavior =
 
     GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.ShadowMaps.Layers
 
-    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, instanceOutputs: InstanceOutputs, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
         let mutable cameraPosition = vec3.Zero
-        db.IfHas<Camera, Transform>(cameraEntId,
+        db.IfHas<Camera, Transform>(playerCameraId,
             (camera, transform) ->
                 cameraPosition <- camera.GetPosition(transform.Position)
         )
@@ -141,19 +143,19 @@ class MeshRendererBehavior =
 
         db.ForEach<TransformLerp, Transform, MeshReference, Material>(db.CreateQuery<TransformLerp, Transform, MeshReference, Material>().WhereNotContains<Outline>(),
             (entId, transformLerp, transform, meshRef, material) ->
-                if (entId != cameraEntId)
+                if (entId != playerCameraId)
                     if (material.IsTransparent)
                         transparencyQueue.Enqueue(entId, -(cameraPosition - transform.Position).Length())
                     else
                         let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
-                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
+                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
         )
 
         db.ForEach<TransformLerp, Transform, MeshReference, Material, Outline>(
             (entId, transformLerp, transform, meshRef, material, outline) ->
-                if (entId != cameraEntId)
+                if (entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
-                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
         let mutable transparencyOrder = 0: byte
@@ -164,7 +166,7 @@ class MeshRendererBehavior =
                 db.TryGet<TransformLerp, Transform, MeshReference, Material>(entId,
                     (transformLerp, transform, meshRef, material) ->
                         let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
-                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
+                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
                         if (transparencyOrder != 255)
                             transparencyOrder <- transparencyOrder + 1
                 )
@@ -197,22 +199,22 @@ class SpriteRendererBehavior =
 
     GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.SpriteShadowMaps.Layers
 
-    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, instanceOutputs: InstanceOutputs, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
         let meshRef = renv.GetPlaneRenderMeshReference()
 
         let mutable transparencyOrder = 0: byte
         db.ForEach<TransformLerp, Transform, Sprite, Material>(db.CreateQuery<TransformLerp, Transform, Sprite, Material>().WhereNotContains<Outline>(),
             (entId, transformLerp, transform, _, material) ->
-                if (entId != cameraEntId)
+                if (entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
-                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
+                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
         )
 
         db.ForEach<TransformLerp, Transform, Sprite, Material, Outline>(
             (entId, transformLerp, transform, _, material, outline) ->
-                if (entId != cameraEntId)
+                if (entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
-                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, finalInstances, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
@@ -285,7 +287,7 @@ private module Rendering =
 
                 globalsBuffer.NeedsUpdate <- true
 
-                let positionLerp = Vector3.Lerp(prev.Position, curr.Position, alpha) + Vector3(0, 0, 2.5)
+                let positionLerp = Vector3.Lerp(prev.Position, curr.Position, alpha) + Vector3(0, 0, 1)
 
                 For(lights.Count,
                     i ->
@@ -293,8 +295,8 @@ private module Rendering =
 
                         if (item.Light.Kind == LightKind.Directional)
                             // Move light's camera relative to the target camera.
-                            let prevPosition = positionLerp - item.PreviousCamera.Direction * MathF.Max(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
-                            let position = positionLerp - item.Camera.Direction * MathF.Max(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
+                            let prevPosition = positionLerp - item.PreviousCamera.Direction * MathF.Min(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
+                            let position = positionLerp - item.Camera.Direction * MathF.Min(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
 
                             // We round to stabilize the shadows when the target camera is moving.
                             let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))

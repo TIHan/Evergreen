@@ -497,7 +497,7 @@ module DrawHelpers =
             transform: inref<mat4>, 
             meshId: Int32Id, 
             material: Material, 
-            outputInstances: GpuBuffer<ShaderInstance>,
+            instanceOutputs: InstanceOutputs,
             drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>,
             nextDrawCmdIndex: byref<int32>,
             lookup: DrawLookup,
@@ -538,7 +538,7 @@ module DrawHelpers =
                                                 GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)
                                             ]
                                         ),
-                                        [outputInstances: IGpuInput]
+                                        [instanceOutputs.PlayerCamera: IGpuInput]
                                     )
 
                                 let aabb =
@@ -597,7 +597,7 @@ module DrawHelpers =
             transform: inref<Transform>, 
             meshRef: MeshReference, 
             material: Material,
-            outputInstances: GpuBuffer<ShaderInstance>,
+            instanceOutputs: InstanceOutputs,
             drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>,
             nextDrawCmdIndex: byref<int32>,
             lookup: DrawLookup,
@@ -606,7 +606,7 @@ module DrawHelpers =
         if (material.ImageId.IsValid && meshRef.MeshId.IsValid)
             let transformLerp = transformLerp.Value.Matrix
             let transform = transform.Matrix
-            PrepareDraw(textures, pipelineId, isSprite, meshes, images, &transformLerp, &transform, meshRef.MeshId, material, outputInstances, drawCmds, &nextDrawCmdIndex, lookup, order)
+            PrepareDraw(textures, pipelineId, isSprite, meshes, images, &transformLerp, &transform, meshRef.MeshId, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, lookup, order)
         else
             (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
 
@@ -672,6 +672,34 @@ module DrawHelpers =
 
             i <- i + 1
 
+class InstanceOutputs =
+
+    PlayerCamera: GpuBuffer<ShaderInstance> get
+    LightCameras: GpuBuffer<ShaderInstance>[] get
+    
+    new(maxLightCount: int32) =
+        {
+            PlayerCamera = GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+            LightCameras = 
+                initArray(maxLightCount, (_) -> GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities))
+        }
+
+    ClearUpdateRanges(): () =
+        this.PlayerCamera.UpdateRanges.Clear()
+        ForEach(this.LightCameras, x -> x.UpdateRanges.Clear())
+
+    AddUpdateRange(item: (start: int32, length: int32)): () =
+        this.PlayerCamera.UpdateRanges.Add(item)
+        ForEach(this.LightCameras, x -> x.UpdateRanges.Add(item))
+
+    SetNeedsUpdate(): () =
+        this.PlayerCamera.NeedsUpdate <- true
+        ForEach(this.LightCameras, x -> x.NeedsUpdate <- true)
+
+    Free(gpu: Gpu): () =
+        gpu.Free(this.PlayerCamera)
+        ForEach(this.LightCameras, x -> gpu.Free(x)) // TODO-language-bug: Cannot do 'ForEach(this.ShadowMapCameras, gpu.Free)' because of an overload bug on 'gpu.Free'
+
 interface IRendererBehavior =
 
     GetDepthPipeline(renv: RenderEnv): GpuPipeline
@@ -682,7 +710,7 @@ interface IRendererBehavior =
 
     GetShadowMaps(renv: RenderEnv): IGpuFrame[]
 
-    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, cameraEntId: EntityId, finalInstances: GpuBuffer<ShaderInstance>, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): ()
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, instanceOutputs: InstanceOutputs, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): ()
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): ()
 
@@ -702,7 +730,7 @@ class Renderer =
     internal field Instances: GpuBuffer<ShaderInstance>
     internal field PreviousInstances: GpuBuffer<ShaderInstance>
     internal field LerpedInstances: GpuBuffer<ShaderInstance>
-    internal field FinalInstances: GpuBuffer<ShaderInstance>
+    internal field InstanceOutputs: InstanceOutputs
 
     internal field AABBs: GpuBuffer<AABB>
     internal field AABBComputeDescriptorSet: GpuDescriptorSet
@@ -718,7 +746,7 @@ class Renderer =
 
     internal field FrustumCullingPipelineId: Int32Id
 
-    new(behavior: IRendererBehavior, frustumCullingPipelineId: Int32Id) =
+    new(maxLightCount: int32, behavior: IRendererBehavior, frustumCullingPipelineId: Int32Id) =
         let noOutlineLookup = ConcurrentDictionary(RenderKey.Comparer)
         let outlineLookup = ConcurrentDictionary(RenderKey.Comparer)
         let transparencyLookup = ConcurrentDictionary(RenderKey.Comparer)
@@ -730,9 +758,6 @@ class Renderer =
             GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
 
         let lerpedInstances =
-            GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
-
-        let finalInstances =
             GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
 
         let drawBatchIndices =
@@ -761,10 +786,9 @@ class Renderer =
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
-                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
                     ]
                 ),
-                [lerpedInstances: IGpuInput; finalInstances; drawBatchIndices; drawCmds]
+                [lerpedInstances: IGpuInput; drawBatchIndices; drawCmds]
             )
 
         let aabbs = GpuBuffer.ZeroCreate<AABB>(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
@@ -777,7 +801,7 @@ class Renderer =
                     ]
                 ),
                 [aabbs: IGpuInput]
-            )  
+            )
 
         {
             FrustumCullingPipelineId = frustumCullingPipelineId
@@ -788,7 +812,7 @@ class Renderer =
             Instances = instances
             PreviousInstances = prevInstances
             LerpedInstances = lerpedInstances
-            FinalInstances = finalInstances
+            InstanceOutputs = InstanceOutputs(maxLightCount)
             AABBs = aabbs
             AABBComputeDescriptorSet = aabbComputeDs
             LerpComputeDescriptorSet = lerpComputeDescriptorSet
@@ -825,20 +849,22 @@ class Renderer =
         let instances = this.Instances
         let prevInstances = this.PreviousInstances
         let lerpedInstances = this.LerpedInstances
-        let finalInstances = this.FinalInstances
         let aabbs = this.AABBs
         let drawCmds = this.DrawCommands
         let drawBatchIndices = this.DrawBatchIndices
 
+        let instanceOutputs = this.InstanceOutputs
+
         instances.UpdateRanges.Clear()
         prevInstances.UpdateRanges.Clear()
         lerpedInstances.UpdateRanges.Clear()
-        finalInstances.UpdateRanges.Clear()
         aabbs.UpdateRanges.Clear()
         drawCmds.UpdateRanges.Clear()
         drawBatchIndices.UpdateRanges.Clear()
 
-        this.Behavior.Update(renv, rfenv, db, cameraEntId, finalInstances, drawCmds, &this.NextDrawCommandIndex, outlineLookup, noOutlineLookup, transparencyLookup)
+        instanceOutputs.ClearUpdateRanges()
+
+        this.Behavior.Update(renv, rfenv, db, cameraEntId, instanceOutputs, drawCmds, &this.NextDrawCommandIndex, outlineLookup, noOutlineLookup, transparencyLookup)
 
         let transformsMemory = Memory(instances.Array)
         let previousTransformsMemory = Memory(prevInstances.Array)
@@ -852,19 +878,22 @@ class Renderer =
         instances.UpdateRanges.Add((0, count))
         prevInstances.UpdateRanges.Add((0, count))
         lerpedInstances.UpdateRanges.Add((0, count))
-        finalInstances.UpdateRanges.Add((0, count))
         aabbs.UpdateRanges.Add((0, count))
         drawBatchIndices.UpdateRanges.Add((0, count))
         drawCmds.UpdateRanges.Add((0, this.NextDrawCommandIndex))
+
+        instanceOutputs.AddUpdateRange((0, count))
+
         this.InstanceCount <- count
 
         instances.NeedsUpdate <- true
         prevInstances.NeedsUpdate <- true
         lerpedInstances.NeedsUpdate <- true
-        finalInstances.NeedsUpdate <- true
         aabbs.NeedsUpdate <- true
         drawBatchIndices.NeedsUpdate <- true
         drawCmds.NeedsUpdate <- true
+
+        instanceOutputs.SetNeedsUpdate()
 
         // TODO: Can't do this yet as concurrency issues with a queue
         //renv.Gpu.Update(rfenv.Textures.DescriptorSet)
@@ -978,13 +1007,14 @@ class Renderer =
         gpu.Free(this.Instances)
         gpu.Free(this.PreviousInstances)
         gpu.Free(this.LerpedInstances)
-        gpu.Free(this.FinalInstances)
         gpu.Free(this.AABBs)
         gpu.Free(this.AABBComputeDescriptorSet)
         gpu.Free(this.DrawBatchIndices)
         gpu.Free(this.DrawCommands)
         gpu.Free(this.LerpComputeDescriptorSet)
         gpu.Free(this.FrustumCullingComputeDescriptorSet)
+
+        this.InstanceOutputs.Free(gpu)
 
         ForEach(DrawHelpers.ImagesToDelete, 
             x -> renv.ImageManager.Free(x)
@@ -1051,6 +1081,7 @@ class Renderer =
                     gpuCommands.BindDescriptorSet(0, renv.GlobalsComputeDescriptorSet)
                     gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
                     gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
+                    gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.PlayerCamera.GetComputeDescriptorSet())
                     gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
             )
 

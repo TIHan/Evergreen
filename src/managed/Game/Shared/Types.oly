@@ -253,8 +253,8 @@ struct Camera =
         get() =
             match (this.ProjectionKind)
             | CameraProjectionKind.Orthographic =>
-                mat4.CreateOrthographic(float32(this.Width), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
-                //mat4.CreateOrthographicOffCenter(-100, 10, -100, 10, this.NearPlaneDistance, this.FarPlaneDistance)
+                //mat4.CreateOrthographic(float32(this.Width), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
+                mat4.CreateOrthographicOffCenter(-float32(this.Width), float32(this.Width), -float32(this.Height), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
             | _ =>
                 let fov = 
                     let fov = this.FieldOfView

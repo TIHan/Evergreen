@@ -25,7 +25,11 @@
                     "Kind": "Storage",
                     "Flags": "None",
                     "StageFlags": "Compute"
-                },
+                }
+            ]
+        },
+        {
+            "Bindings": [
                 {
                     "Kind": "Storage",
                     "Flags": "None",
