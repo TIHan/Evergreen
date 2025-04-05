@@ -31,9 +31,11 @@ SerializeDeserializePlayer(genv: GameEnv): () =
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot() =
-        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        let replicationStream = ByteStream()
+        let serverToClientEvents = clientSnapshotWorld.SerializeReplication(clientWorld, false, replicationStream)//GetReplicatingEvents(clientWorld, false)
+        replicationStream.ResetPosition()
         clientWorld.CopyTo(clientWorldCopy)
-        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+        clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)//Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
         clientWorld.CopyTo(clientSnapshotWorld)
 
     let entId = serverWorld.SpawnPlayer(1)
@@ -78,9 +80,11 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
-        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        let replicationStream = ByteStream()
+        let serverToClientEvents = clientSnapshotWorld.SerializeReplication(clientWorld, false, replicationStream)
+        replicationStream.ResetPosition()
         clientWorld.CopyTo(clientWorldCopy)
-        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+        clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)
 
     serverWorld.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
     serverWorld.SpawnStaticBox(Vector3.Zero, Quaternion.Identity, Vector3.One, Material())
@@ -134,9 +138,11 @@ SerializeDeserializePlayer3(genv: GameEnv): () =
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
-        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        let replicationStream = ByteStream()
+        let serverToClientEvents = clientSnapshotWorld.SerializeReplication(clientWorld, false, replicationStream)
+        replicationStream.ResetPosition()
         clientWorld.CopyTo(clientWorldCopy)
-        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+        clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)
 
     let entId = serverWorld.SpawnPlayer(1)
     serverWorld.Database.TryAddOrUpdate(entId, Health())
@@ -191,9 +197,11 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
-        let serverToClientEvents = clientSnapshotWorld.GetReplicatingEvents(clientWorld, false)
+        let replicationStream = ByteStream()
+        let serverToClientEvents = clientSnapshotWorld.SerializeReplication(clientWorld, false, replicationStream)
+        replicationStream.ResetPosition()
         clientWorld.CopyTo(clientWorldCopy)
-        clientSnapshotWorld.Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
+        clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)
 
     let entId = serverWorld.SpawnPlayer(1)
     serverWorld.Database.TryAddOrUpdate(entId, Health())

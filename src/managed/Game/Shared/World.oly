@@ -92,6 +92,12 @@ abstract default class World =
     GetReplicatingEvents(prevWorld: World, nonLocalOnly: bool): EntityDatabase.ReplicatingEvents =
         this.Database.GetReplicatingEvents(prevWorld.Database, nonLocalOnly)
 
+    SerializeReplication(prevWorld: World, nonLocalOnly: bool, dstStream: ByteStream): () =
+        this.Database.SerializeReplication(prevWorld.Database, nonLocalOnly, dstStream)
+
+    DeserializeReplication(srcStream: ByteStream, dstWorldCopy: World, dstWorld: World, nonLocalOnly: bool): () =
+        this.Database.DeserializeReplication(srcStream, dstWorldCopy.Database, dstWorld.Database, nonLocalOnly)
+
     static RegisterComponents(registry: ComponentRegistry): () =
         registry.Register<Camera>()
         registry.Register<Material>()
