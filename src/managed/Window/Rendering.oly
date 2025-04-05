@@ -3248,7 +3248,26 @@ class Rendering =
         | Some(displayMode) =>
             window.ChangeDisplayMode(displayMode)
         | _ =>
-            window.ChangeDisplayMode(window.DesktopDisplayMode)
+            let defaultDisplayMode = window.DesktopDisplayMode
+#if DEBUG
+            let displayModes = window.GetDisplayModes()
+            let defaultDisplayModeIndex =
+                tryFindIndex(window.GetDisplayModes(), 
+                    (_, x) -> 
+                        1280 == x.Width && 
+                            720 == x.Height && 
+                            defaultDisplayMode.RefreshRate == x.RefreshRate
+                )
+            let defaultDisplayMode =
+                if (defaultDisplayModeIndex == -1)
+                    defaultDisplayMode
+                else
+                    displayModes[defaultDisplayModeIndex]
+#end
+            window.ChangeDisplayMode(defaultDisplayMode)
+#if DEBUG
+            window.Position <- Vector2(0, 0)
+#end
 
         let vulkanAppOptions = VulkanApplicationOptions()
         if (options.IsValidationEnabled)
