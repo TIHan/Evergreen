@@ -69,13 +69,6 @@ extern "C" {
 		displayMode.height = sdlDisplayMode->h;
 		displayMode.refreshRate = sdlDisplayMode->refresh_rate;
 
-		if (!egWindowIsFullscreen(window))
-		{
-			auto size = egWindowGetSize(window);
-			displayMode.width = size.x;
-			displayMode.height = size.y;
-		}
-
 		return displayMode;
 	}
 
@@ -94,14 +87,12 @@ extern "C" {
 		sdlDisplayMode.refresh_rate = displayMode.refreshRate;
 
 		SDL_SetWindowFullscreenMode(sdlWindow, &sdlDisplayMode);
+		SDL_SyncWindow(sdlWindow);
 
-		if (!egWindowIsFullscreen(window))
-		{
-			EgWindowVector2 size;
-			size.x = displayMode.width;
-			size.y = displayMode.height;
-			egWindowSetSize(window, size);
-		}
+		EgWindowVector2 size;
+		size.x = displayMode.width;
+		size.y = displayMode.height;
+		egWindowSetSize(window, size);
 	}
 
 	EG_EXPORT void egWindowGetDisplayModes(EgWindow window, void(*callbackDisplayMode)(EgWindowDisplayMode))
@@ -171,24 +162,20 @@ extern "C" {
 
 		if (value)
 		{
-			if (!egWindowIsFullscreen(window))
-			{
-				SDL_SetWindowFullscreen(sdlWindow, SDL_TRUE);
-			}
+			SDL_SetWindowFullscreen(sdlWindow, SDL_TRUE);
+			SDL_SyncWindow(sdlWindow);
 		}
 		else
 		{
-			if (egWindowIsFullscreen(window))
-			{
-				auto displayMode = egWindowGetCurrentDisplayMode(window);
+			auto displayMode = egWindowGetCurrentDisplayMode(window);
 
-				SDL_SetWindowFullscreen(sdlWindow, SDL_FALSE);
+			SDL_SetWindowFullscreen(sdlWindow, SDL_FALSE);
+			SDL_SyncWindow(sdlWindow);
 
-				EgWindowVector2 size;
-				size.x = displayMode.width;
-				size.y = displayMode.height;
-				egWindowSetSize(window, size);
-			}
+			EgWindowVector2 size;
+			size.x = displayMode.width;
+			size.y = displayMode.height;
+			egWindowSetSize(window, size);
 		}
 	}
 
@@ -212,6 +199,27 @@ extern "C" {
 		{
 			SDL_HideCursor();
 			SDL_SetRelativeMouseMode(SDL_TRUE);
+		}
+	}
+
+	EG_EXPORT EgWindowBool egWindowIsBorderless(EgWindow window)
+	{
+		auto sdlWindow = GetSDLWindow(window);
+
+		return SDL_GetWindowFlags(sdlWindow) & SDL_WINDOW_BORDERLESS;
+	}
+
+	EG_EXPORT void egWindowSetBorderless(EgWindow window, EgWindowBool value)
+	{
+		auto sdlWindow = GetSDLWindow(window);
+
+		if (value)
+		{
+			SDL_SetWindowBordered(sdlWindow, false);
+		}
+		else
+		{
+			SDL_SetWindowBordered(sdlWindow, true);
 		}
 	}
 

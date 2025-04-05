@@ -34,7 +34,7 @@ def envSys(name):
 vulkan_sdk_path = envSys("VULKAN_SDK")
 vulkan_sdk_include_path = os.path.join(vulkan_sdk_path, "Include")
 
-run('dotnet tool install --global ClangSharpPInvokeGenerator --version 16.0.0')
+run('dotnet tool install --global ClangSharpPInvokeGenerator --version 18.1.0.3')
 
 run('msbuild src/native/libs/Evergreen.Physics/Evergreen.Physics.sln')
 run('msbuild /p:Configuration=Release src/native/libs/Evergreen.Physics/Evergreen.Physics.sln')
@@ -44,7 +44,7 @@ ClangSharpPInvokeGenerator
     -l Evergreen.Physics.Backend.Jolt.Native.dll 
     --file src/native/libs/Evergreen.Physics/egJolt.h 
     -o src/managed/Physics/Backend/Jolt/Interop/api 
-    -c multi-file generate-file-scoped-namespaces generate-helper-types 
+    -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators
     -e 
         EgJoltVector3 
         EgJoltVector4 
@@ -71,7 +71,7 @@ ClangSharpPInvokeGenerator
     -l Evergreen.Graphics.Native.dll 
     --file src/native/libs/Evergreen.Graphics/egWindow.h 
     -o src/managed/Graphics/Window/Backend/Interop
-    -c multi-file generate-file-scoped-namespaces generate-helper-types
+    -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators
     -e
         EgWindowVector2
         EgWindowBool
@@ -90,7 +90,7 @@ ClangSharpPInvokeGenerator
     -l Evergreen.Graphics.Native.dll 
     --file src/native/libs/Evergreen.Graphics/egImGui.h
     -o src/managed/Graphics/UI/Backend/ImGui/Interop 
-    -c multi-file generate-file-scoped-namespaces generate-helper-types
+    -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators
     -e
         EgImGuiVector2
         EgImGuiVector4
@@ -114,30 +114,16 @@ ClangSharpPInvokeGenerator
         EgImGuiVector4=System.Numerics.Vector4
         EgImGuiBool=System.Boolean
         EgWindow=Evergreen.Graphics.Window.Backend.Interop.EgWindow
-
-        EgImGuiWindowFlags_None=None
-        EgImGuiWindowFlags_NoTitleBar=NoTitleBar
-        EgImGuiWindowFlags_NoResize=NoResize
-        EgImGuiWindowFlags_NoMove=NoMove
-        EgImGuiWindowFlags_NoScrollbar=NoScrollbar
-        EgImGuiWindowFlags_NoScrollWithMouse=NoScrollWithMouse
-        EgImGuiWindowFlags_NoCollapse=NoCollapse
-        EgImGuiWindowFlags_AlwaysAutoResize=AlwaysAutoResize
-        EgImGuiWindowFlags_NoBackground=NoBackground
-        EgImGuiWindowFlags_NoMouseInputs=NoMouseInputs
-        EgImGuiWindowFlags_MenuBar=MenuBar
-        EgImGuiWindowFlags_HorizontalScrollbar=HorizontalScrollbar
-        EgImGuiWindowFlags_NoFocusOnAppearing=NoFocusOnAppearing
-        EgImGuiWindowFlags_NoBringToFrontOnFocus=NoBringToFrontOnFocus
-        EgImGuiWindowFlags_AlwaysVerticalScrollbar=AlwaysVerticalScrollbar
-        EgImGuiWindowFlags_AlwaysHorizontalScrollbar=AlwaysHorizontalScrollbar
-        EgImGuiWindowFlags_AlwaysUseWindowPadding=AlwaysUseWindowPadding
+        
         EgImGuiWindowFlags_NoNavInputs=NoNavInputs
         EgImGuiWindowFlags_NoNavFocus=NoNavFocus
-        EgImGuiWindowFlags_UnsavedDocument=UnsavedDocument
-        EgImGuiWindowFlags_NoNav=NoNav
-        EgImGuiWindowFlags_NoDecoration=NoDecoration
-        EgImGuiWindowFlags_NoInputs=NoInputs
+
+        EgImGuiWindowFlags_NoTitleBar=NoTitleBar
+        EgImGuiWindowFlags_NoResize=NoResize
+        EgImGuiWindowFlags_NoScrollbar=NoScrollbar
+        EgImGuiWindowFlags_NoCollapse=NoCollapse
+
+        EgImGuiWindowFlags_NoMouseInputs=NoMouseInputs
 """)
 run('dotnet build src/managed/Graphics/UI/Backend/ImGui/Interop/Evergreen.Graphics.UI.Backend.ImGui.Interop.csproj')
 run('dotnet build -c Release src/managed/Graphics/UI/Backend/ImGui/Interop/Evergreen.Graphics.UI.Backend.ImGui.Interop.csproj')
@@ -148,7 +134,7 @@ ClangSharpPInvokeGenerator
     -l Evergreen.Graphics.Native.dll 
     --file src/native/libs/Evergreen.Graphics/egAsset.h 
     -o src/managed/Graphics/Asset/Backend/Interop
-    -c multi-file generate-file-scoped-namespaces generate-helper-types
+    -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators
     -e
         EgAssetVector2
         EgAssetVector3
@@ -169,7 +155,7 @@ ClangSharpPInvokeGenerator
     -l Evergreen.Graphics.Native.dll 
     --file src/native/libs/Evergreen.Graphics/egShader.h 
     -o src/managed/Graphics/Shader/Backend/Interop
-    -c multi-file generate-file-scoped-namespaces generate-helper-types
+    -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators
     -e
         EgShaderBool
     -r 

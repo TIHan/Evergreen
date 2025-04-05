@@ -57,11 +57,11 @@ module RenderingHelpers =
         let isCompute = filePath.EndsWith(".comp", StringComparison.OrdinalIgnoreCase)
         let shaderKind =
             if (isVertex)
-                EgShaderKind.EgShaderKind_VERTEX
+                EgShaderKind.VERTEX
             else if (isFragment)
-                EgShaderKind.EgShaderKind_FRAGMENT
+                EgShaderKind.FRAGMENT
             else if (isCompute)
-                EgShaderKind.EgShaderKind_COMPUTE
+                EgShaderKind.COMPUTE
             else
                 fail("Invalid shader kind.")
 

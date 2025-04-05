@@ -775,6 +775,8 @@ extern "C" {
     EG_EXPORT void egWindowSetFullscreen(EgWindow window, EgWindowBool value);
     EG_EXPORT EgWindowBool egWindowIsCursorVisible(EgWindow window);
     EG_EXPORT void egWindowSetCursorVisible(EgWindow window, EgWindowBool value);
+    EG_EXPORT EgWindowBool egWindowIsBorderless(EgWindow window);
+    EG_EXPORT void egWindowSetBorderless(EgWindow window, EgWindowBool value);
     EG_EXPORT EgWindowBool egWindowIsHidden(EgWindow window);
     EG_EXPORT EgWindowBool egWindowIsMinimized(EgWindow window);
     EG_EXPORT EgWindowVector2 egWindowGetSize(EgWindow window);

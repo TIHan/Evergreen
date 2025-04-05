@@ -250,7 +250,7 @@ InputTextReadOnly(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, muta
     let labelPtr = &&label.GetPinnableReference()
     let bufferPtr = Unsafe.AsPointer(&&buffer.GetPinnableReference())
 
-    egImGuiInputText(context.Context, Unsafe.AsPointer(labelPtr), bufferPtr, nuint(buffer.Length), EgImGuiInputTextFlags.EgImGuiInputTextFlags_ReadOnly, Unsafe.Cast(&&InputTextCallbackNop))
+    egImGuiInputText(context.Context, Unsafe.AsPointer(labelPtr), bufferPtr, nuint(buffer.Length), EgImGuiInputTextFlags.ReadOnly, Unsafe.Cast(&&InputTextCallbackNop))
 
 InputInt(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, value: byref<int32>): bool =
     let labelPtr = &&label.GetPinnableReference()

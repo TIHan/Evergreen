@@ -237,7 +237,7 @@ class Physics =
         state.linearVelocity <- linearVelocity
         state.angularVelocity <- angularVelocity
         state.gravityFactor <- gravityFactor
-        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
 
         let bodyId = egJoltAddBodyDynamicBox(this.Instance, scale, 1, mass, userData, &&deterministicId, &&state)
         if (this.Bodies.TryAdd(bodyId, ()))
@@ -258,7 +258,7 @@ class Physics =
         state.rotation <- rotation
         state.linearVelocity <- linearVelocity
         state.angularVelocity <- angularVelocity
-        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
 
         let bodyId = egJoltAddBodyDynamicSphere(this.Instance, radius, 1, mass, userData, &&deterministicId, &&state)
         if (this.Bodies.TryAdd(bodyId, ()))
@@ -283,10 +283,10 @@ class Physics =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
-        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
 
         if (isSensor)
-            state.flags <- state.flags | EgJolt_BodyFlags.EgJolt_BodyFlags_IsSensor
+            state.flags <- state.flags | EgJolt_BodyFlags.IsSensor
 
         let bodyId = egJoltAddBodyStaticBox(this.Instance, scale, userData, &&deterministicId, &&state)
         if (this.Bodies.TryAdd(bodyId, ()))
@@ -300,7 +300,7 @@ class Physics =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
-        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
 
         let verticesRef = &vertices.GetPinnableReference()
         let indicesRef = &indices.GetPinnableReference()
@@ -316,7 +316,7 @@ class Physics =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
-        state.flags <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
 
         let pinnedHandles = List()
 
@@ -416,7 +416,7 @@ class Physics =
         rotation        <- state.rotation
         linearVelocity  <- state.linearVelocity
         angularVelocity <- state.angularVelocity
-        isActive        <- state.flags.HasFlag(EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive)  
+        isActive        <- state.flags.HasFlag(EgJolt_BodyFlags.IsActive)  
 
     SetState(objId          : DynamicObjectId,
              position       : Vector3,
@@ -429,7 +429,7 @@ class Physics =
         state.rotation        <- rotation
         state.linearVelocity  <- linearVelocity
         state.angularVelocity <- angularVelocity
-        state.flags           <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags           <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
         egJolt_Body_SetState(this.Instance, objId.Value, &&state)
 
     GetState(objId          : StaticObjectId,
@@ -440,7 +440,7 @@ class Physics =
         egJolt_Body_GetState(this.Instance, objId.Value, &&state)
         position <- state.position
         rotation <- state.rotation
-        isActive <- state.flags.HasFlag(EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive) 
+        isActive <- state.flags.HasFlag(EgJolt_BodyFlags.IsActive) 
 
     SetState(objId          : StaticObjectId,
              position       : Vector3,
@@ -449,7 +449,7 @@ class Physics =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
-        state.flags    <- if (isActive) EgJolt_BodyFlags.EgJolt_BodyFlags_IsActive else EgJolt_BodyFlags.EgJolt_BodyFlags_None
+        state.flags    <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
         egJolt_Body_SetState(this.Instance, objId.Value, &&state)
 
     GetCenterOfMassPosition(dynamicId: DynamicObjectId): Vector3 =

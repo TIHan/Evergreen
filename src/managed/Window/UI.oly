@@ -400,7 +400,7 @@ class TextInputView =
         let callback =
             ImGuiInputTextCallback(
                 x ->
-                    if (x.EventFlag == ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackHistory)
+                    if (x.EventFlag == ImGuiInputTextFlags.CallbackHistory)
                         let isUp = x.EventKey == 515
 
                         let pos =
@@ -420,7 +420,7 @@ class TextInputView =
                             x.CursorPos <- bytes.Length
 
                         0
-                    else if (x.EventFlag == ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackCompletion)
+                    else if (x.EventFlag == ImGuiInputTextFlags.CallbackCompletion)
                         let size = Math.Min(x.BufTextLen, this.Buffer.Length)
                         let mutable span = Span<byte>(Unsafe.Cast(x.Buf), size)
                         let mutable spanBuffer = Span(this.Buffer, 0, size)
@@ -1246,16 +1246,16 @@ module UI =
             let size = ImGui.GetWindowSize(context.ImGuiContext)
             ImGui.PushItemWidth(context.ImGuiContext, size.X - 16 * ImGui.GetScaleFactor(context.ImGuiContext))
 
-        let flags = ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackCharFilter
+        let flags = ImGuiInputTextFlags.CallbackCharFilter
         let flags =
             if (view.IsHistoryEnabled)
-                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackHistory
+                flags | ImGuiInputTextFlags.CallbackHistory
             else
                 flags
 
         let flags =
             if (view.IsCompletionEnabled)
-                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_CallbackCompletion
+                flags | ImGuiInputTextFlags.CallbackCompletion
             else
                 flags
 
@@ -1263,17 +1263,17 @@ module UI =
             if (view.IsEnabled)
                 flags
             else
-                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_ReadOnly
+                flags | ImGuiInputTextFlags.ReadOnly
 
         let flags =
             if (view.IsPassword)
-                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_Password
+                flags | ImGuiInputTextFlags.Password
             else
                 flags
 
         let flags =
             if (view.WillUpdateOnReturn)
-                flags | ImGuiInputTextFlags.EgImGuiInputTextFlags_EnterReturnsTrue
+                flags | ImGuiInputTextFlags.EnterReturnsTrue
             else
                 flags
 
@@ -1479,7 +1479,7 @@ module UI =
             view.OnValueChanged(prevValue, value)
 
     private MakeScrollbar(context: UIContext, view: ScrollbarView): () =
-        let childFlags = ImGuiChildFlags.EgImGuiChildFlags_None
+        let childFlags = ImGuiChildFlags.None
         if (ImGui.BeginChild(context.ImGuiContext, uint32(view.Id), view.Size, childFlags))
             UpdateHoveredWindow(context, view)
 

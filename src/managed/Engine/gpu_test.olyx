@@ -104,10 +104,10 @@ void main()
         let shader: GpuShader = 
             match (shaderKind)
             | "vertex" =>
-                let fragmentByteCode = RenderingHelpers.CompileShader(EgShaderKind.EgShaderKind_FRAGMENT, defaultFragmentCode)
+                let fragmentByteCode = RenderingHelpers.CompileShader(EgShaderKind.FRAGMENT, defaultFragmentCode)
                 GpuShader.VertexFragment(GpuShaderCode(Unsafe.AsImmutable(spvBytes)), GpuShaderCode(fragmentByteCode))
             | "fragment" =>
-                let vertexByteCode = RenderingHelpers.CompileShader(EgShaderKind.EgShaderKind_VERTEX, defaultVertexCode)
+                let vertexByteCode = RenderingHelpers.CompileShader(EgShaderKind.VERTEX, defaultVertexCode)
                 GpuShader.VertexFragment(GpuShaderCode(vertexByteCode), GpuShaderCode(Unsafe.AsImmutable(spvBytes)))
             | _ =>
                 GpuShader.Compute(GpuShaderCode(Unsafe.AsImmutable(spvBytes)))

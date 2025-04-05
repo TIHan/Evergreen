@@ -4,11 +4,6 @@ namespace Evergreen.Physics.Backend.Jolt.Interop;
 
 public static unsafe partial class Methods
 {
-    public static EgJolt_BodyFlags Or(EgJolt_BodyFlags a, EgJolt_BodyFlags b)
-    {
-        return (EgJolt_BodyFlags)(unchecked((byte)(a) | (byte)(b)));
-    }
-
     [DllImport("Evergreen.Physics.Backend.Jolt.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern void egJoltSharedInit();
 

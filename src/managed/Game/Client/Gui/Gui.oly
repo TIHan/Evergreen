@@ -262,28 +262,29 @@ module Gui =
 
         let projection = camera.Projection
 
-        // Debug Info
-        let windowSize = guiEnv.CurrentScreenSize
-        let prev = Transform(prevPosition, prevRotation, vec3.One)
-        let curr = Transform(currPosition, currRotation, vec3.One)
-        let view = Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
-        let viewProj = view * projection
-        uiOverlayPool.Reset()
-        db.ForEach<RigidBody, Transform, TransformLerp>(
-            (entId, physInfo, transform, transformLerp) ->
-                let mutable result = unchecked default
-                let pos = WorldToClip(viewProj, Vector3.Lerp(transformLerp.Value.Position, transform.Position, alpha))
-                if (pos.X < 1 && pos.X > -1 && pos.Y < 1 && pos.Y > -1 && pos.Z < 1 && pos.Z > -1)
-                    if (uiOverlayPool.TryNext(&result))
-                        let (vm, v) = result
-                        vm.Position.Value <- ClipToScreen(windowSize, pos)
-                        vm.Id.Value <- entId
-                        vm.InfoPosition.Value <- transform.Position
-                        vm.InfoRotation.Value <- transform.Rotation
-                        vm.InfoLinearVelocity.Value <- physInfo.LinearVelocity
-                        vm.InfoAngularVelocity.Value <- physInfo.AngularVelocity
-                        windowViews.Add(v)
-        )
+        if (Gui.CanShowPhysicsDebugInfo(guiEnv))
+            // Debug Info
+            let windowSize = guiEnv.CurrentScreenSize
+            let prev = Transform(prevPosition, prevRotation, vec3.One)
+            let curr = Transform(currPosition, currRotation, vec3.One)
+            let view = Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
+            let viewProj = view * projection
+            uiOverlayPool.Reset()
+            db.ForEach<RigidBody, Transform, TransformLerp>(
+                (entId, physInfo, transform, transformLerp) ->
+                    let mutable result = unchecked default
+                    let pos = WorldToClip(viewProj, Vector3.Lerp(transformLerp.Value.Position, transform.Position, alpha))
+                    if (pos.X < 1 && pos.X > -1 && pos.Y < 1 && pos.Y > -1 && pos.Z < 1 && pos.Z > -1)
+                        if (uiOverlayPool.TryNext(&result))
+                            let (vm, v) = result
+                            vm.Position.Value <- ClipToScreen(windowSize, pos)
+                            vm.Id.Value <- entId
+                            vm.InfoPosition.Value <- transform.Position
+                            vm.InfoRotation.Value <- transform.Rotation
+                            vm.InfoLinearVelocity.Value <- physInfo.LinearVelocity
+                            vm.InfoAngularVelocity.Value <- physInfo.AngularVelocity
+                            windowViews.Add(v)
+            )
 
     RenderUpdate(guiEnv: GuiEnv, consoleBackgroundFrame: IGpuFrame, time: GameTime, consoleLog: System.Text.StringBuilder, uiWindows: List<WindowView>): () =
         let currMenuState = guiEnv.CurrentMenuState
@@ -384,6 +385,18 @@ module Gui =
 
     SetIsFullscreen(guiEnv: GuiEnv, value: bool): () =
         guiEnv.SettingsMenuModel.IsFullscreen.Value <- value
+
+    IsBorderless(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.IsBorderless.Value
+
+    SetIsBorderless(guiEnv: GuiEnv, value: bool): () =
+        guiEnv.SettingsMenuModel.IsBorderless.Value <- value
+
+    CanShowPhysicsDebugInfo(guiEnv: GuiEnv): bool =
+        guiEnv.SettingsMenuModel.ShowPhysicsDebugInfo.Value
+
+    SetCanShowPhysicsDebugInfo(guiEnv: GuiEnv, value: bool): () =
+        guiEnv.SettingsMenuModel.ShowPhysicsDebugInfo.Value <- value
 
     CanShowDiagnostics(guiEnv: GuiEnv): bool =
         guiEnv.SettingsMenuModel.ShowDiagnostics.Value

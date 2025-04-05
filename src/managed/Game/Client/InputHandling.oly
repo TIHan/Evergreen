@@ -19,37 +19,37 @@ UpdateCharacterInput(deltaTime: float32, inputSnapshot: InputSnapshot, input: by
     while (i < keyEvents.Length)
         let keyEvent = keyEvents[i]
         match (keyEvent.key)
-        | Key.EgWindowKey_w =>
+        | Key.w =>
             input.SetForward(keyEvent.IsDown)
             if (keyEvent.IsDown || keyEvent.IsPressed)
                 input.ForwardMovementFactor <- 1
             else
                 input.ForwardMovementFactor <- 0
 
-        | Key.EgWindowKey_s =>
+        | Key.s =>
             input.SetBackward(keyEvent.IsDown)
             if (keyEvent.IsDown || keyEvent.IsPressed)
                 input.BackwardMovementFactor <- 1
             else
                 input.BackwardMovementFactor <- 0
 
-        | Key.EgWindowKey_a =>
+        | Key.a =>
             input.SetLeft(keyEvent.IsDown)
             if (keyEvent.IsDown || keyEvent.IsPressed)
                 input.LeftMovementFactor <- 1
             else
                 input.LeftMovementFactor <- 0
 
-        | Key.EgWindowKey_d =>
+        | Key.d =>
             input.SetRight(keyEvent.IsDown)
             if (keyEvent.IsDown || keyEvent.IsPressed)
                 input.RightMovementFactor <- 1
             else
                 input.RightMovementFactor <- 0
 
-        | Key.EgWindowKey_SPACE =>
+        | Key.SPACE =>
             input.SetJump(keyEvent.IsDown)
-        | Key.EgWindowKey_q =>
+        | Key.q =>
             input.SetSpecial(keyEvent.IsDown)
         | _ =>
             ()

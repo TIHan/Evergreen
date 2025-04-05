@@ -50,6 +50,13 @@ public static unsafe partial class Methods
 
     [DllImport("Evergreen.Graphics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("EgWindowBool")]
+    public static extern System.Boolean egWindowIsBorderless(EgWindow window);
+
+    [DllImport("Evergreen.Graphics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    public static extern void egWindowSetBorderless(EgWindow window, [NativeTypeName("EgWindowBool")] System.Boolean value);
+
+    [DllImport("Evergreen.Graphics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("EgWindowBool")]
     public static extern System.Boolean egWindowIsHidden(EgWindow window);
 
     [DllImport("Evergreen.Graphics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

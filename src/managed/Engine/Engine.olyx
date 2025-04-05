@@ -87,6 +87,7 @@ main(args: string[]): () =
         
         let options = RenderingOptions()
 #if DEBUG
+        options.IsBorderless <- true
         options.IsValidationEnabled <- true
 #end
         let r = Rendering(options)

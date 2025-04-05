@@ -38,9 +38,12 @@ enum AntiAliasingKind =
 
 class SettingsMenuViewModel =
     IsFullscreen: Var<bool> get = Var(false)
+    IsBorderless: Var<bool> get = Var(false)
     VerticalSync: Var<bool> get = Var(false)
     AntiAliasingChoices: Var<AntiAliasingKind[]> get = Var([AntiAliasingKind.None; AntiAliasingKind.SSAAx2; AntiAliasingKind.SSAAx4])
     AntiAliasing: Var<AntiAliasingKind> get = Var(AntiAliasingKind.None)
+
+    ShowPhysicsDebugInfo: Var<bool> get = Var(false)
     ShowDiagnostics: Var<bool> get = Var(false)
     ShowImGuiDemo: Var<bool> get = Var(false)
     SimulateLatency: Var<bool> get = Var(false)

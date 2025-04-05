@@ -73,49 +73,49 @@ module ClientServerGameHelpers =
                 let keyEvent = keyEvents[i]
                 if (keyEvent.IsPressed)
                     match (keyEvent.key)
-                    | Key.EgWindowKey_F5 =>
+                    | Key.F5 =>
                         clientEventPublisher.SaveGameRequested("quick_save.json")
-                    | Key.EgWindowKey_BACKQUOTE =>
+                    | Key.BACKQUOTE =>
                         clientEventPublisher.ConsoleRequested()
-                    | Key.EgWindowKey_ESCAPE =>
+                    | Key.ESCAPE =>
                         clientEventPublisher.MainMenuRequested()
                     | _ =>
                         ()
 
                     match (keyEvent.key)
-                    | Key.EgWindowKey_F7 =>
+                    | Key.F7 =>
                         clientEventPublisher.LoadGameRequested("quick_save.json")
                     | _ =>
                         ()
 
                 match (keyEvent.key)
-                | Key.EgWindowKey_w =>
+                | Key.w =>
                     if (keyEvent.IsDown || keyEvent.IsPressed)
                         clientEventPublisher.MoveForwardRequested(1)
                     else
                         clientEventPublisher.MoveForwardRequested(0)
         
-                | Key.EgWindowKey_s =>
+                | Key.s =>
                     if (keyEvent.IsDown || keyEvent.IsPressed)
                         clientEventPublisher.MoveBackwardRequested(1)
                     else
                         clientEventPublisher.MoveBackwardRequested(0)
         
-                | Key.EgWindowKey_a =>
+                | Key.a =>
                     if (keyEvent.IsDown || keyEvent.IsPressed)
                         clientEventPublisher.MoveLeftRequested(1)
                     else
                         clientEventPublisher.MoveLeftRequested(0)
         
-                | Key.EgWindowKey_d =>
+                | Key.d =>
                     if (keyEvent.IsDown || keyEvent.IsPressed)
                         clientEventPublisher.MoveRightRequested(1)
                     else
                         clientEventPublisher.MoveRightRequested(0)
         
-                | Key.EgWindowKey_SPACE =>
+                | Key.SPACE =>
                     clientEventPublisher.JumpUpRequested()
-                | Key.EgWindowKey_q =>
+                | Key.q =>
                     clientEventPublisher.ActivateSpecialRequested()
 
                 | _ =>
@@ -344,6 +344,11 @@ class ClientServerGame =
             else
                 AntiAliasingKind.None
 
+        let window = renv.Window
+
+        Gui.SetIsFullscreen(guiEnv, window.IsFullscreen)
+        Gui.SetIsBorderless(guiEnv, window.IsBorderless)
+
         {
             SV = svGame
             CL = ClientGameProxy(genv, renv, clientEventPublisher)
@@ -403,6 +408,7 @@ class ClientServerGame =
         renv.PipelineUI.CanShowImGuiDemo <- Gui.CanShowImGuiDemo(guiEnv)
         window.IsCursorVisible           <- Gui.IsCursorVisible(guiEnv)
         window.IsFullscreen              <- Gui.IsFullscreen(guiEnv)
+        window.IsBorderless              <- Gui.IsBorderless(guiEnv)
         gpu.VerticalSyncEnabled          <- Gui.IsVerticalSyncEnabled(guiEnv)
         gpu.SuperSamplingAmount          <- Gui.GetSuperSamplingAmount(guiEnv)
 
@@ -504,6 +510,13 @@ class ClientServerGame =
             Gui.IsFullscreen(this.GuiEnv)
         set(value) =
             Gui.SetIsFullscreen(this.GuiEnv, value)
+
+    /// Main-thread only
+    IsBorderless: bool
+        get() =
+            Gui.IsBorderless(this.GuiEnv)
+        set(value) =
+            Gui.SetIsBorderless(this.GuiEnv, value)
 
     /// Main-thread only
     CanShowDiagnostics: bool

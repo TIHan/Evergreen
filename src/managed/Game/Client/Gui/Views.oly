@@ -211,7 +211,12 @@ CreateSettingsMenu(vm: SettingsMenuViewModel, publisher: ClientEventPublisher): 
         gameTabView.OnClicked <- () -> publisher.MenuButtonClicked()
         gameTabView.OnHovered <- () -> publisher.MenuButtonHovered()
         gameTabView.Label <- "Developer"
-        // TODO
+        gameTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Show Physics Debug Info"
+            Binding.IsChecked(view, vm.ShowPhysicsDebugInfo)
+            view
+        )
         gameTabView.Children.Add(
             let view = CheckboxView()
             view.Label <- "Show Diagnostics"
@@ -306,6 +311,12 @@ CreateSettingsMenu(vm: SettingsMenuViewModel, publisher: ClientEventPublisher): 
             let view = CheckboxView()
             view.Label <- "Fullscreen"
             Binding.IsChecked(view, vm.IsFullscreen)
+            view
+        )
+        displayTabView.Children.Add(
+            let view = CheckboxView()
+            view.Label <- "Borderless"
+            Binding.IsChecked(view, vm.IsBorderless)
             view
         )
         displayTabView.Children.Add(

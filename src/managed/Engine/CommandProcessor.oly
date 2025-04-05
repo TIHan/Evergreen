@@ -99,6 +99,7 @@ class CommandProcessor =
             this.AddDef(ActionCommand<int32>.Impl("print_entity", "entity_index", x -> game.PrintClientEntity(x)))
 
             this.AddDef(FieldCommand<bool>.Impl("r_fullscreen",  () -> game.IsFullscreen,       value -> game.IsFullscreen <- value))
+            this.AddDef(FieldCommand<bool>.Impl("r_borderless",  () -> game.IsBorderless,       value -> game.IsBorderless <- value))
             this.AddDef(FieldCommand<bool>.Impl("r_diagnostics", () -> game.CanShowDiagnostics, value -> game.CanShowDiagnostics <- value))
 
             this.AddDef(

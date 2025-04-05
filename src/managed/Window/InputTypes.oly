@@ -21,16 +21,16 @@ extension KeyEventExtensions =
 
     IsDown: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_DOWN
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.DOWN
 
     IsUp: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_UP
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.UP
 
     // TODO: Get rid of this. Instead, the actual event shouldn't rely on REPEAT.
     IsRepeat: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_REPEAT == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.EgWindowKeyEventFlags_REPEAT
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.REPEAT == Evergreen.Graphics.Window.Backend.Interop.EgWindowKeyEventFlags.REPEAT
 
     // TODO: Get rid of this. Instead, the actual event shouldn't rely on PRESSED.
     IsPressed: bool get() = this.IsDown && !this.IsRepeat
@@ -41,11 +41,11 @@ extension MouseButtonEventExtensions =
 
     IsDown: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_DOWN
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.DOWN
 
     IsUp: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.EgWindowMouseButtonEventFlags_UP
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowMouseButtonEventFlags.UP
 
 #[open]
 extension GamepadButtonEventExtensions =
@@ -53,11 +53,11 @@ extension GamepadButtonEventExtensions =
 
     IsDown: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_DOWN
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.DOWN == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.DOWN
 
     IsUp: bool
         get() =
-            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.EgWindowGamepadButtonEventFlags_UP
+            this.flags & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.UP == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadButtonEventFlags.UP
 
 #[open]
 extension GamepadEventExtensions =
@@ -65,11 +65,11 @@ extension GamepadEventExtensions =
 
     IsAdded: bool
         get() =
-            this.kind & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_ADDED == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_ADDED
+            this.kind & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.ADDED == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.ADDED
 
     IsUp: bool
         get() =
-            this.kind & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_REMOVED == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.EgWindowGamepadEventKind_REMOVED
+            this.kind & Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.REMOVED == Evergreen.Graphics.Window.Backend.Interop.EgWindowGamepadEventKind.REMOVED
 
 class InputSnapshot =
     KeyEvents: KeyEvent[] get
