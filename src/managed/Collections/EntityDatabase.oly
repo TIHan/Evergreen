@@ -1359,6 +1359,11 @@ class EntityDatabase =
             let archetypedIndex = dst.GetArchetypedIndex(result.ArchetypeId)
             let dstArchetype = dst.GetArchetype(archetypedIndex)
 
+#if DEBUG
+            if (prevArchetypeCopy.Id != prevArchetype.Id)
+                fail("Archetype integrity failed in replication")
+#end
+
             let diff = prevArchetype.FullId & dstArchetype.FullId.BitwiseNot()
             if (!diff.IsZero)
                 prevArchetype.TriggerComponentRemoving(diff, result.PreviousIndex)
