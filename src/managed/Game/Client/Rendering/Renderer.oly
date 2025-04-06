@@ -645,6 +645,7 @@ class InstanceOutputs =
 
     PlayerCamera: GpuBuffer<ShaderInstance> get
     PlayerCameraDrawCommands: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand> get
+    PlayerCameraComputeDescriptorSet: GpuDescriptorSet get
     LightCameras: GpuBuffer<ShaderInstance>[] get
     LightCamerasDrawCommands: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>[] get
     
@@ -652,6 +653,17 @@ class InstanceOutputs =
         {
             PlayerCamera = GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
             PlayerCameraDrawCommands = GpuBuffer.ZeroCreate<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+            PlayerCameraComputeDescriptorSet =
+                GpuDescriptorSet(
+                    "player_draw_compute",
+                    GpuDescriptorSetLayout(
+                        [
+                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        ]
+                    ),
+                    [this.PlayerCamera: IGpuInput; this.PlayerCameraDrawCommands]
+                )
             LightCameras = 
                 initArray(maxLightCount, (_) -> GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities))
             LightCamerasDrawCommands =
@@ -676,6 +688,7 @@ class InstanceOutputs =
         ForEach(this.LightCamerasDrawCommands, x -> x.NeedsUpdate <- true)
 
     Free(gpu: Gpu): () =
+        gpu.Free(this.PlayerCameraComputeDescriptorSet)
         gpu.Free(this.PlayerCamera)
         gpu.Free(this.PlayerCameraDrawCommands)
         ForEach(this.LightCameras, x -> gpu.Free(x)) // TODO-language-bug: Cannot do 'ForEach(this.ShadowMapCameras, gpu.Free)' because of an overload bug on 'gpu.Free'
@@ -766,10 +779,9 @@ class Renderer =
                     [
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
                         GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
-                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
                     ]
                 ),
-                [lerpedInstances: IGpuInput; drawBatchIndices; instanceOutputs.PlayerCameraDrawCommands]
+                [lerpedInstances: IGpuInput; drawBatchIndices]
             )
 
         let aabbs = GpuBuffer.ZeroCreate<AABB>(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
@@ -1059,7 +1071,7 @@ class Renderer =
                     gpuCommands.BindDescriptorSet(0, renv.GlobalsComputeDescriptorSet)
                     gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
                     gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
-                    gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.PlayerCamera.GetComputeDescriptorSet())
+                    gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.PlayerCameraComputeDescriptorSet)
                     gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
             )
 
