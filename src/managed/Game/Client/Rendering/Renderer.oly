@@ -896,6 +896,11 @@ class Renderer =
 
         ReadOnlySpan(drawCmds, 0, this.NextDrawCommandIndex).CopyTo(Span(instanceOutputs.PlayerCameraDrawCommands.Array))
         instanceOutputs.PlayerCameraDrawCommands.UpdateRanges.Add((0, this.NextDrawCommandIndex))
+        ForEach(instanceOutputs.LightCamerasDrawCommands, 
+            x -> 
+                ReadOnlySpan(drawCmds, 0, this.NextDrawCommandIndex).CopyTo(Span(x.Array))
+                x.UpdateRanges.Add((0, this.NextDrawCommandIndex))
+        )
 
         instanceOutputs.AddUpdateRange((0, count))
 
@@ -943,24 +948,24 @@ class Renderer =
                     )
         )
 
-    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuPipeline: GpuPipeline, gpuCommands: GpuCommandList, draw: scoped (RenderKey, GpuCommandList) -> ()): () =
+    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, drawCmds: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, globalsDs: GpuDescriptorSet, gpuPipeline: GpuPipeline, gpuCommands: GpuCommandList, draw: scoped (RenderKey, GpuCommandList) -> ()): () =
         ForEach(this.NoOutlineLookup,
             (mutable pair) ->
                 let (_, _, _, drawQueue) = pair.Value
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.InstanceOutputs.PlayerCameraDrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, drawCmds, globalsDs, gpuPipeline, gpuCommands, draw)
         )
         ForEach(this.OutlineLookup,
             (mutable pair) ->
                 let (_, _, _, drawQueue) = pair.Value
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.InstanceOutputs.PlayerCameraDrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, drawCmds, globalsDs, gpuPipeline, gpuCommands, draw)
         )
         ForEach(this.TransparencyLookup,
             (mutable pair) ->
                 let (_, _, _, drawQueue) = pair.Value
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.InstanceOutputs.PlayerCameraDrawCommands, globalsDs, gpuPipeline, gpuCommands, draw)
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, drawCmds, globalsDs, gpuPipeline, gpuCommands, draw)
         )
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, globalsDs: GpuDescriptorSet, gpuCommands: GpuCommandList, draw: scoped (RenderKey, GpuCommandList) -> ()): () =
@@ -1088,6 +1093,29 @@ class Renderer =
 
             gpuCommands.PipelineBarrier(GpuPipelineBarrierKind.DispatchToDispatch)
 
+            let globalsManager = renv.GlobalsManager
+            let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
+
+            let mutable shadowMapCount = 0
+            For(lightCount,
+                i ->
+                    if (shadowMapCount < renv.ShadowMaps.LayerCount)
+                        let shadowMapGlobals = globalsManager.Get(shadowMapGlobalsIds[shadowMapCount])
+
+                        ForEach(renderers,
+                            renderer ->
+                                let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
+                                gpuCommands.BindPipeline(frustumCullingPipeline)
+                                gpuCommands.BindDescriptorSet(0, shadowMapGlobals.GetComputeDescriptorSet()) // TODO-language-bug: renv.GlobalsComputeDescriptorSet() should not be called like a function
+                                gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
+                                gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
+                                gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.LightCamerasComputeDescriptorSets[shadowMapCount])
+                                gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
+                        )
+                        
+                        shadowMapCount <- shadowMapCount + 1
+            )
+
             ForEach(renderers,
                 renderer ->
                     let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
@@ -1097,24 +1125,6 @@ class Renderer =
                     gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
                     gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.PlayerCameraComputeDescriptorSet)
                     gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
-            )
-
-            let globalsManager = renv.GlobalsManager
-            let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
-            For(lightCount,
-                i ->
-                    let shadowMapGlobals = globalsManager.Get(shadowMapGlobalsIds[i])
-
-                    ForEach(renderers,
-                        renderer ->
-                            let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
-                            gpuCommands.BindPipeline(frustumCullingPipeline)
-                            gpuCommands.BindDescriptorSet(0, shadowMapGlobals.GetComputeDescriptorSet())
-                            gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
-                            gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
-                            gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.LightCamerasComputeDescriptorSets[i])
-                            gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
-                    )                  
             )
 
             gpuCommands.PipelineBarrier(GpuPipelineBarrierKind.DispatchToDrawIndirect)
@@ -1184,9 +1194,9 @@ class Renderer =
                                 let program = renderer.Behavior.GetShadowMapPipeline(renv)
 
                                 gpuCommands.BeginFrame(shadowMapFrame)
-                                renderer.Draw(renv, rfenv, shadowMapGlobals.GetVertexFragmentDescriptorSet(), program, gpuCommands,
+                                renderer.Draw(renv, rfenv, renderer.InstanceOutputs.LightCamerasDrawCommands[shadowMapCount], shadowMapGlobals.GetVertexFragmentDescriptorSet(), program, gpuCommands,
                                     (key, gpuCommands) ->
-                                        renderer.Behavior.DrawShadowMaps(renv, rfenv, key, renderer.InstanceOutputs.PlayerCamera.GetVertexDescriptorSet(), gpuCommands)
+                                        renderer.Behavior.DrawShadowMaps(renv, rfenv, key, renderer.InstanceOutputs.LightCameras[shadowMapCount].GetVertexDescriptorSet(), gpuCommands)
                                 )
                                 gpuCommands.EndFrame()
                         )
