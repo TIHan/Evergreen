@@ -5,6 +5,15 @@
 #package "Spectre.Console.Cli,0.49.1"
 #package "System.Drawing.Common,8.0.11"
 
+#if DEBUG
+#copy "../../native/libs/Evergreen.Graphics/x64/Debug/Evergreen.Graphics.Native.dll"
+#copy "../../native/libs/Evergreen.Graphics/x64/Debug/Evergreen.Graphics.Native.pdb"
+#end
+        
+#if RELEASE
+#copy "../../native/libs/Evergreen.Graphics/x64/Release/Evergreen.Graphics.Native.dll"
+#end
+
 namespace GpuTest
 
 open System

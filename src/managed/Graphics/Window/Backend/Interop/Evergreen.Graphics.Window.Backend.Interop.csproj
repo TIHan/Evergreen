@@ -19,6 +19,12 @@
     <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Debug\Evergreen.Graphics.Native.pdb" Link="Evergreen.Graphics.Native.pdb">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\..\..\..\..\native\external\lunasvg\build\Debug\lunasvg.dll" Link="lunasvg.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\external\lunasvg\build\Debug\lunasvg.pdb" Link="lunasvg.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 	
   <ItemGroup Condition=" '$(Configuration)' == 'Release' ">
@@ -26,6 +32,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="..\..\..\..\..\native\libs\Evergreen.Graphics\x64\Release\Evergreen.Graphics.Native.dll" Link="Evergreen.Graphics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+	<None Include="..\..\..\..\..\native\external\lunasvg\build\Release\lunasvg.dll" Link="lunasvg.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

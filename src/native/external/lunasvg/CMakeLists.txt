@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.3)
+cmake_minimum_required(VERSION 3.5)
 
-project(lunasvg VERSION 2.3.9 LANGUAGES CXX C)
+project(lunasvg VERSION 2.4.1 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_C_STANDARD 11)
 
-option(BUILD_SHARED_LIBS "Build as a shared library" OFF)
+option(BUILD_SHARED_LIBS "Build as a shared library" ON)
 option(LUNASVG_BUILD_EXAMPLES "Build example(s)" OFF)
 
 add_library(lunasvg)
@@ -14,9 +14,9 @@ add_subdirectory(include)
 add_subdirectory(source)
 add_subdirectory(3rdparty/plutovg)
 
-if(BUILD_SHARED_LIBS)
-    target_compile_definitions(lunasvg PUBLIC LUNASVG_SHARED)
-    target_compile_definitions(lunasvg PRIVATE LUNASVG_EXPORT)
+target_compile_definitions(lunasvg PRIVATE LUNASVG_BUILD)
+if(NOT BUILD_SHARED_LIBS)
+    target_compile_definitions(lunasvg PRIVATE LUNASVG_BUILD_STATIC)
 endif()
 
 if(LUNASVG_BUILD_EXAMPLES)

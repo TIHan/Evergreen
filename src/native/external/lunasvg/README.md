@@ -1,8 +1,6 @@
-[![Releases](https://img.shields.io/badge/Version-2.3.8-orange.svg)](https://github.com/sammycage/lunasvg/releases)
+[![Releases](https://img.shields.io/badge/Version-2.4.1-orange.svg)](https://github.com/sammycage/lunasvg/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/sammycage/lunasvg/blob/master/LICENSE)
 [![Build Status](https://github.com/sammycage/lunasvg/actions/workflows/ci.yml/badge.svg)](https://github.com/sammycage/lunasvg/actions)
-
-> If you like the work lunasvg is doing please consider a small donation : [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.me/sammycage)
 
 # LunaSVG - SVG rendering library in C++
 
@@ -78,7 +76,11 @@ svg2png [filename] [resolution] [bgColor]
 - [PICsimLab](https://github.com/lcgamboa/picsimlab)
 - [MoneyManagerEx](https://github.com/moneymanagerex/moneymanagerex)
 - [RmlUi](https://github.com/mikke89/RmlUi)
-- [EKA2L1](https://github.com/EKA2L/EKA2L1)
 - [ObEngine](https://github.com/ObEngine/ObEngine)
 - [OTTO](https://github.com/bitfieldaudio/OTTO)
 - [EmulationStation-DE](https://gitlab.com/es-de/emulationstation-de)
+- [SvgBooga](https://github.com/etodanik/SvgBooga/tree/main)
+- [Dear ImGui](https://github.com/ocornut/imgui)
+- [Multi Theft Auto: San Andreas](https://github.com/multitheftauto/mtasa-blue)
+- [eScada Solutions](https://www.escadasolutions.com)
+
