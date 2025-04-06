@@ -29,10 +29,10 @@
     "Pitch": 0,
     "Roll": 0,
     "FieldOfView": 0,
-    "Width": 10,
-    "Height": 10,
-    "NearPlaneDistance": 0.1,
-    "FarPlaneDistance": 1000.0,
+    "Width": 20,
+    "Height": 20,
+    "NearPlaneDistance": 1.0,
+    "FarPlaneDistance": 1000000.0,
     "ProjectionKind": "Orthographic"
   },
   "Light": {

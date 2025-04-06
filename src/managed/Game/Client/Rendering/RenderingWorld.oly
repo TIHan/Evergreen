@@ -293,10 +293,8 @@ private module Rendering =
                         let mutable item = lights[i]
 
                         if (item.Light.Kind == LightKind.Directional)
-
-                            // Move light's camera relative to the target camera.
-                            let prevPosition = prev.Position - item.PreviousCamera.Direction * MathF.Min(float32(item.PreviousCamera.Width), float32(item.PreviousCamera.Height))
-                            let position = curr.Position - item.Camera.Direction * MathF.Min(float32(item.Camera.Width), float32(item.Camera.Height))
+                            let prevPosition = prev.Position - item.PreviousCamera.Direction * (item.PreviousCamera.FarPlaneDistance / 2)
+                            let position = curr.Position - item.Camera.Direction * (item.Camera.FarPlaneDistance / 2)
 
                             // We round to stabilize the shadows when the target camera is moving.
                             let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
