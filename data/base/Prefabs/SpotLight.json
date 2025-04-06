@@ -27,6 +27,7 @@
     },
     "Yaw": 0,
     "Pitch": 0,
+    "Roll": 0,
     "FieldOfView": 45,
     "Width": 250,
     "Height": 250,

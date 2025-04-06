@@ -3051,6 +3051,13 @@ class Gpu =
                                     let prevFontCount = gpuPipelineUI.Fonts.Count
 
                                     let context = UIContext(this, gpuPipelineUI)
+                                    ForEach(windowViews, 
+                                        windowView ->
+                                            UI.PreloadFonts(context, windowView)
+                                    )
+                                    let fontCount = gpuPipelineUI.Fonts.Count
+                                    if (prevFontCount != fontCount)
+                                        ImGui.UploadFonts(context.ImGuiContext)
                                     UI.NewFrame(context)
                                     ForEach(windowViews, 
                                         windowView ->
@@ -3060,18 +3067,18 @@ class Gpu =
                                         UI.ShowImGuiDemo(context)
                                     UI.EndFrame(context)
                                     
-                                    let fontCount = gpuPipelineUI.Fonts.Count
+                                    // let fontCount = gpuPipelineUI.Fonts.Count
 
-                                    if (prevFontCount != fontCount)
-                                        ImGui.UploadFonts(context.ImGuiContext)
-                                        UI.NewFrame(context)
-                                        ForEach(windowViews, 
-                                            windowView ->
-                                                UI.Show(context, windowView)
-                                        )
-                                        if (gpuPipelineUI.CanShowImGuiDemo)
-                                            UI.ShowImGuiDemo(context)
-                                        UI.EndFrame(context)
+                                    // if (prevFontCount != fontCount)
+                                    //     ImGui.UploadFonts(context.ImGuiContext)
+                                    //     UI.NewFrame(context)
+                                    //     ForEach(windowViews, 
+                                    //         windowView ->
+                                    //             UI.Show(context, windowView)
+                                    //     )
+                                    //     if (gpuPipelineUI.CanShowImGuiDemo)
+                                    //         UI.ShowImGuiDemo(context)
+                                    //     UI.EndFrame(context)
 
                                     UI.Draw(context, commandBuffer.CommandBuffer, VkPipeline.NULL)
                                     gpuPipelineUI.CanInitializeWindow <- false
@@ -3256,9 +3263,7 @@ class Rendering =
             let defaultDisplayModeIndex =
                 tryFindIndex(window.GetDisplayModes(), 
                     (_, x) -> 
-                        1280 == x.Width && 
-                            720 == x.Height && 
-                            defaultDisplayMode.RefreshRate == x.RefreshRate
+                        1280 == x.Width && 720 == x.Height
                 )
             let defaultDisplayMode =
                 if (defaultDisplayModeIndex == -1)

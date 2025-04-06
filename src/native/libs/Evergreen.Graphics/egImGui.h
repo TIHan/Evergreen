@@ -287,6 +287,6 @@ extern "C" {
     EG_EXPORT void egImGui_PushStyleVar_WindowPadding(EgImGuiContext context, EgImGuiVector2 padding);
     EG_EXPORT void egImGui_PopStyleVar(EgImGuiContext context);
     EG_EXPORT EgImGuiVector2 egImGui_GetStyleVar_WindowBorderSize(EgImGuiContext context);
-    EG_EXPORT void egImGui_PushStyleVar_WindowBorderSize(EgImGuiContext context, EgImGuiVector2 value);
+    EG_EXPORT void egImGui_PushStyleVar_WindowBorderSize(EgImGuiContext context, float value);
 }
 

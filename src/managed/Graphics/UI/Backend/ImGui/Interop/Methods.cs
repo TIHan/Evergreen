@@ -469,5 +469,5 @@ public static unsafe partial class Methods
     public static extern System.Numerics.Vector2 egImGui_GetStyleVar_WindowBorderSize(EgImGuiContext context);
 
     [DllImport("Evergreen.Graphics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-    public static extern void egImGui_PushStyleVar_WindowBorderSize(EgImGuiContext context, [NativeTypeName("EgImGuiVector2")] System.Numerics.Vector2 value);
+    public static extern void egImGui_PushStyleVar_WindowBorderSize(EgImGuiContext context, float value);
 }

@@ -6,6 +6,24 @@
 #reference "../Game/Client/Game.Client.olyx"
 #reference "../Game/Shared/Game.Shared.olyx"
 
+#if DEBUG
+#copy "../../native/libs/Evergreen.Graphics/x64/Debug/Evergreen.Graphics.Native.dll"
+#copy "../../native/libs/Evergreen.Graphics/x64/Debug/Evergreen.Graphics.Native.pdb"
+#end
+        
+#if RELEASE
+#copy "../../native/libs/Evergreen.Graphics/x64/Release/Evergreen.Graphics.Native.dll"
+#end
+
+#if DEBUG
+#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.dll"
+#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.pdb"
+#end
+
+#if RELEASE
+#copy "../../native/libs/Evergreen.Physics/x64/Release/Evergreen.Physics.Backend.Jolt.Native.dll"
+#end
+
 open System
 open System.IO
 open System.Runtime.Intrinsics
@@ -79,6 +97,8 @@ main(args: string[]): () =
         fail("Invalid arguments")
     else
         Environment.CurrentDirectory <- args[0]
+
+        let x = Evergreen.Physics.Backend.Jolt.Interop.Methods.egJoltSharedInit()
 
         let markerTy = DotNet.TypeOf<Marker>
         let file = File.OpenRead(markerTy.Assembly.Location)

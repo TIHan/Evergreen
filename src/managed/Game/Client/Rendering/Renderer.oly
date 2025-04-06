@@ -1083,7 +1083,7 @@ class Renderer =
                     renderer.DrawOutlineNoMask(renv, rfenv, gpuCommands)
             )
 
-        DrawShadows(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, lights: IReadOnlyList<DrawLightInfo>, shadowMaps: IGpuFrame[], gpuCommands: GpuCommandList): () =
+        DrawShadows(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, lights: IReadOnlyList<DrawLightInfo>, shadowMaps: IGpuFrame[], alpha: float32, gpuCommands: GpuCommandList): () =
             let mainGlobalsBuffer = renv.GlobalsBuffer
             let sMainGlobals: inref<ShaderGlobals> = &mainGlobalsBuffer.Array[0]
 
@@ -1111,8 +1111,11 @@ class Renderer =
                             sGlobals.LightKind <- 1
                         else
                             sGlobals.LightKind <- 0
+
+                        let mutable prevTransform = item.GetPreviousCameraTransform()
+                        let mutable transform = item.GetCameraTransform()       
+                        sGlobals.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
                             
-                        sGlobals.View <- item.GetCameraTransform().WorldToLocalMatrix
                         sGlobals.Projection <- camera.Projection
                         sGlobals.Resolution <- shadowMapFrame.Size
                         sGlobals.SuperSamplingAmount <- 1

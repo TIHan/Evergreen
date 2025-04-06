@@ -1,6 +1,7 @@
 import subprocess
 import os
 import datetime
+import shutil
 
 # Utility
 def absolute_path(path):
@@ -48,8 +49,12 @@ lunasvg_build_directory = absolute_path('src/native/external/lunasvg/build/')
 # Setup LunaSVG
 title = 'LunaSVG'
 print_setup_started(title)
-run('mkdir build', working_directory = lunasvg_directory)
-delta_time = run('cmake ..', working_directory = lunasvg_build_directory)
+try:
+    shutil.rmtree(lunasvg_build_directory)
+except:
+    ()
+delta_time = run('mkdir build', working_directory = lunasvg_directory)
+delta_time += run('cmake ..', working_directory = lunasvg_build_directory)
 delta_time += run('msbuild lunasvg.sln /p:Configuration=Debug', working_directory = lunasvg_build_directory)
 delta_time += run('msbuild lunasvg.sln /p:Configuration=Release', working_directory = lunasvg_build_directory)
 print_setup_finished(title, delta_time)
@@ -73,8 +78,8 @@ print_setup_finished(title, delta_time)
 title = 'VulkanMemoryAllocator'
 print_setup_started(title)
 delta_time = run('cmake -S .  -B build -D VMA_BUILD_SAMPLES=ON', working_directory = vma_directory)
-delta_time += run('msbuild build\VMA.sln', working_directory = vma_directory)
-delta_time += run('msbuild build\VMA.sln /p:Configuration=Release', working_directory = vma_directory)
+delta_time += run('msbuild build\\VMA.sln', working_directory = vma_directory)
+delta_time += run('msbuild build\\VMA.sln /p:Configuration=Release', working_directory = vma_directory)
 print_setup_finished(title, delta_time)
 
 # Setup SDL

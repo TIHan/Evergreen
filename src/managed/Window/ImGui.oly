@@ -515,8 +515,8 @@ PopStyleVar(context: ImGuiContext): () =
 GetStyleVar_WindowBorderSize(context: ImGuiContext): Vector2 =
     egImGui_GetStyleVar_WindowBorderSize(context.Context)
 
-PushStyleVar_WindowBorderSize(context: ImGuiContext, size: Vector2): () =
-    egImGui_PushStyleVar_WindowBorderSize(context.Context, size)
+PushStyleVar_WindowBorderSize(context: ImGuiContext, value: float32): () =
+    egImGui_PushStyleVar_WindowBorderSize(context.Context, value)
 
 SetCursorPositionX(context: ImGuiContext, x: float32): () =
     egImGuiSetCursorPositionX(context.Context, x)

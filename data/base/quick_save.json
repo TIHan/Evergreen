@@ -43,7 +43,8 @@
           "Z": 0
         },
         "Yaw": 0,
-        "Pitch": -45,
+        "Pitch": 45,
+        "Roll": 0,
         "FieldOfView": 0,
         "Width": 10,
         "Height": 10,
@@ -477,8 +478,9 @@
           "Y": 0,
           "Z": 1.7
         },
-        "Yaw": 0.5059996,
-        "Pitch": -1.3775303,
+        "Yaw": 35.867115,
+        "Pitch": -5.844166,
+        "Roll": 0,
         "FieldOfView": 70,
         "Width": 40,
         "Height": 22,
@@ -490,8 +492,8 @@
       "Transform": {
         "Sequence": 0,
         "Position": {
-          "X": 10.482259,
-          "Y": 2.3185735,
+          "X": 3.9950902,
+          "Y": 0.19442868,
           "Z": -10
         },
         "Rotation": {
@@ -511,7 +513,7 @@
         "Flags": "CastShadows, AcceptLight"
       },
       "Player": {
-        "ClientInputFrame": 337,
+        "ClientInputFrame": 3158,
         "ClientIndex": 1
       },
       "VirtualCharacter": {

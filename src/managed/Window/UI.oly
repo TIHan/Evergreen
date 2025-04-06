@@ -105,6 +105,8 @@ abstract class View =
 
     IsHovered: bool abstract default get() = false
 
+    internal abstract GetReadOnlyChildren(): IReadOnlyList<View>
+
     internal WillFocus: bool get, set
 
     internal new(tag: ViewTag) = 
@@ -179,6 +181,8 @@ abstract class View =
 abstract class AbstractLabelView =
     inherits View
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     internal new(tag: ViewTag) =
         base(tag) with {
             labelBuffer = zeroArray(256)
@@ -203,6 +207,8 @@ abstract class AbstractLabelView =
 
 abstract class AbstractTextView =
     inherits View
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     internal new(tag: ViewTag) =
         base(tag) with {
@@ -233,6 +239,8 @@ abstract class AbstractTextView =
 
 abstract class AbstractLabelTextView =
     inherits AbstractLabelView
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     internal new(tag: ViewTag) =
         base(tag) with {
@@ -277,7 +285,7 @@ class Style =
     ModalScreenColor: OptionStruct<Color> get, set
     ButtonColor: OptionStruct<Color> get, set
     WindowPadding: OptionStruct<Vector2> get, set
-    WindowBorderSize: OptionStruct<Vector2> get, set
+    WindowBorderSize: OptionStruct<float32> get, set
     WindowBackgroundColor: OptionStruct<Color> get, set
 
     new() =
@@ -299,6 +307,8 @@ enum WindowKind =
 
 class WindowView =
     inherits View
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = this.Children
 
     internal isHovered: bool get, set
     internal WillBringToFront: bool get, set
@@ -374,6 +384,8 @@ class WindowView =
 class ButtonView =
     inherits AbstractLabelView
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     internal isHovered: bool get, set
 
     new() =
@@ -392,6 +404,8 @@ class CompletionItem =
 
 class TextInputView =
     inherits AbstractLabelView
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     private Buffer: mutable byte[] get
 
@@ -516,6 +530,8 @@ class LabelView =
 class ImageView =
     inherits View
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     IsScaling: bool get, set
     Size: Vector2 get, set
 
@@ -544,6 +560,8 @@ class ImageView =
 class CheckboxView =
     inherits AbstractLabelView
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     internal isHovered: bool get, set
 
     new() =
@@ -561,6 +579,8 @@ class CheckboxView =
 
 class ComboBoxView =
     inherits AbstractLabelView
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     new() =
         base(ViewTag.ComboBox) with {
@@ -611,6 +631,8 @@ class ComboBoxView =
 class LinePlotView =
     inherits AbstractLabelTextView
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     new() =
         base(ViewTag.LinePlot) with {
             Values = mutable []
@@ -629,6 +651,8 @@ class LinePlotView =
 class TabBarView =
     inherits View
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = this.Children
+
     internal SelectedTabId: uint32 get, set
     Children: List<View> get
 
@@ -640,6 +664,8 @@ class TabBarView =
 
 class TabItemView =
     inherits AbstractLabelView
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = this.Children
 
     internal isHovered: bool get, set
 
@@ -661,6 +687,8 @@ class TabItemView =
 class TextView =
     inherits AbstractTextView
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     internal isHovered: bool get, set
 
     Experimental_IsSelectable: bool get, set
@@ -678,6 +706,8 @@ class TextView =
 class GridView =
     inherits View
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = this.Children
+
     CellPadding: Vector2 get, set
     ColumnCount: int32 get, set
     Children: List<View> get
@@ -692,6 +722,8 @@ class GridView =
 class StackPanelView =
     inherits View
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = this.Children
+
     Children: List<View> get
     IsHorizontal: bool get, set
 
@@ -704,6 +736,8 @@ class StackPanelView =
 class IntInputView =
     inherits AbstractLabelView
 
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
+
     Value: int32 get, set
     OnValueChanged: (previousInt: int32, int: int32) -> () get, set
 
@@ -715,6 +749,8 @@ class IntInputView =
 
 class SliderFloatView =
     inherits AbstractLabelView
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     Value: float32 get, set
     MaxValue: float32 get, set
@@ -732,6 +768,8 @@ class SliderFloatView =
 class ScrollbarView =
     inherits View
     implements ISizeableView
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = this.Children
 
     internal isHovered: bool get, set
     internal WillScrollToBottom: bool get, set
@@ -757,6 +795,8 @@ class ScrollbarView =
 
 class DummyView =
     inherits View
+
+    internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     Size: Vector2 get, set
 
@@ -828,24 +868,7 @@ module UI =
 
     private PushFont(context: UIContext, font: Font): () =
         if (!font.IsInitialized)
-            font.IsInitialized <- true
-            match (font.FilePath2)
-            | Some(filePath2) =>
-                font.ImFont <-
-                    let fontSize = font.Size * ImGui.GetScaleFactor(context.ImGuiContext)
-                    let fontSize2 = font.Size2 * ImGui.GetScaleFactor(context.ImGuiContext)
-                    ImGui.MergeFonts(
-                        context.ImGuiContext,
-                        [font.FilePath;filePath2],
-                        [fontSize;fontSize2],
-                        [
-                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
-                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
-                        ]
-                    )
-            | _ =>
-                font.ImFont <- ImGui.AddFont(context.ImGuiContext, font.FilePath, font.Size * ImGui.GetScaleFactor(context.ImGuiContext))
-            context.Fonts.Add(font)
+            fail("Font must be initialized before pushing")
         ImGui.PushFont(context.ImGuiContext, font.ImFont)
 
     private MakeNode(context: UIContext, view: View): () =
@@ -1072,6 +1095,7 @@ module UI =
     private PopStyle(context: UIContext, style: Style): () =
         if (style.WindowBackgroundColor.IsSome)
             ImGui.PopStyleColor(context.ImGuiContext)
+            ImGui.PopStyleColor(context.ImGuiContext)
 
         if (style.WindowBorderSize.IsSome)
             ImGui.PopStyleVar(context.ImGuiContext)
@@ -1086,6 +1110,7 @@ module UI =
             ImGui.PopStyleColor(context.ImGuiContext)
 
         if (style.BackgroundColor.IsSome)
+            ImGui.PopStyleColor(context.ImGuiContext)
             ImGui.PopStyleColor(context.ImGuiContext)
 
         if (style.TextColor.IsSome)
@@ -1487,10 +1512,61 @@ module UI =
             if (view.WillScrollToBottom)
                 view.WillScrollToBottom <- false
                 ImGui.SetScrollHereY(context.ImGuiContext, 1)
-                
-            ImGui.EndChild(context.ImGuiContext)
         else
             view.isHovered <- false
+        ImGui.EndChild(context.ImGuiContext)
+
+    private PreloadFont(context: UIContext, font: Font): () =
+        if (!font.IsInitialized)
+            font.IsInitialized <- true
+            match (font.FilePath2)
+            | Some(filePath2) =>
+                font.ImFont <-
+                    let fontSize = font.Size * ImGui.GetScaleFactor(context.ImGuiContext)
+                    let fontSize2 = font.Size2 * ImGui.GetScaleFactor(context.ImGuiContext)
+                    ImGui.MergeFonts(
+                        context.ImGuiContext,
+                        [font.FilePath;filePath2],
+                        [fontSize;fontSize2],
+                        [
+                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
+                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
+                        ]
+                    )
+            | _ =>
+                font.ImFont <- ImGui.AddFont(context.ImGuiContext, font.FilePath, font.Size * ImGui.GetScaleFactor(context.ImGuiContext))
+            context.Fonts.Add(font)
+
+    private PreloadFontsByNode(context: UIContext, view: View): () =
+        let hasParent = context.TryGetParent().IsSome
+            
+        let canMake =
+            match (view)
+            | View.Window(_) => !hasParent && view.IsVisible
+            | _ => hasParent && view.IsVisible
+
+        if (true)
+            match (view.Style)
+            | Some(style) =>
+                match (style.Font)
+                | Some(font) =>
+                    PreloadFont(context, font)
+                | _ =>
+                    ()
+            | _ =>
+                ()
+
+            let children = view.GetReadOnlyChildren()
+            context.ParentStack.Push(view)
+            For(children.Count,
+                i ->
+                    let childView = children[i]
+                    PreloadFontsByNode(context, childView)
+            )
+            let _ = context.ParentStack.Pop()
+
+    PreloadFonts(context: UIContext, view: WindowView): () =
+        PreloadFontsByNode(context, view)
 
     NewFrame(context: UIContext): () =
         ImGui.SetCurrentContext(context.ImGuiContext)

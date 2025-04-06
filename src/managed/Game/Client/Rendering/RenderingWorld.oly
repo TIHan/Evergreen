@@ -99,12 +99,13 @@ class RenderingWorld =
             cmds
         )
 
-    Draw(renv: RenderEnv, preCont: scoped GpuCommandList -> (), cont: scoped GpuCommandList -> (), cmds: GpuCommandList): () =
+    Draw(renv: RenderEnv, alpha: float32, preCont: scoped GpuCommandList -> (), cont: scoped GpuCommandList -> (), cmds: GpuCommandList): () =
         Rendering.Draw(
             renv,
             this.rfenv,
             this.renderers,
             this.lights,
+            alpha,
             preCont,
             cont,
             cmds
@@ -287,16 +288,14 @@ private module Rendering =
 
                 globalsBuffer.NeedsUpdate <- true
 
-                let positionLerp = Vector3.Lerp(prev.Position, curr.Position, alpha) + Vector3(0, 0, 1)
-
                 For(lights.Count,
                     i ->
                         let mutable item = lights[i]
 
                         if (item.Light.Kind == LightKind.Directional)
                             // Move light's camera relative to the target camera.
-                            let prevPosition = positionLerp - item.PreviousCamera.Direction * MathF.Min(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
-                            let position = positionLerp - item.Camera.Direction * MathF.Min(float32(item.PreviousCamera.Width) / 2, float32(item.PreviousCamera.Height) / 2)
+                            let prevPosition = prev.Position - item.PreviousCamera.Direction * MathF.Min(float32(item.PreviousCamera.Width), float32(item.PreviousCamera.Height))
+                            let position = curr.Position - item.Camera.Direction * MathF.Min(float32(item.Camera.Width), float32(item.Camera.Height))
 
                             // We round to stabilize the shadows when the target camera is moving.
                             let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
@@ -326,8 +325,8 @@ private module Rendering =
 
                     let mutable prevTransform = info.GetPreviousCameraTransform()
                     let mutable transform = info.GetCameraTransform()
-
                     sLight.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
+
                     sLight.Projection <- info.Camera.Projection
                     sLight.ViewProjection <- sLight.View * sLight.Projection
                     if (!Matrix4x4.Invert(sLight.View, &sLight.ViewInverse))
@@ -350,7 +349,8 @@ private module Rendering =
             renv: RenderEnv, 
             rfenv: RenderFrameEnv, 
             renderers: IReadOnlyList<Renderer>, 
-            lights: IReadOnlyList<DrawLightInfo>, 
+            lights: IReadOnlyList<DrawLightInfo>,
+            alpha: float32,
             preCont: scoped GpuCommandList -> (), 
             cont: scoped GpuCommandList -> (),
             cmds: GpuCommandList): () =
@@ -382,7 +382,7 @@ private module Rendering =
         let screenMesh = renv.ScreenMesh
 
         // Begin Shadow Map
-        Renderer.Passes.DrawShadows(renv, rfenv, renderers, lights, shadowMaps, cmds)
+        Renderer.Passes.DrawShadows(renv, rfenv, renderers, lights, shadowMaps, alpha, cmds)
         // End Shadow Map
 
         cmds.PipelineBarrier(GpuPipelineBarrierKind.DepthStencilToVertexFragmentRead)
