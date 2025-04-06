@@ -1289,6 +1289,8 @@ class EntityDatabase =
             let archetypeIndex = this.entityArchetypeIndices[i]
 
             if (prevVersion != version)
+                if (prevArchetypeIndex != -1 && archetypeIndex != -1)
+                    fail("zoot")
                 if (prevArchetypeIndex != -1)
                     let mutable entId = EntityId()
                     entId.Index <- i
@@ -1471,6 +1473,8 @@ class EntityDatabase =
             let archetypeIndex = this.entityArchetypeIndices[i]
 
             if (prevVersion != version)
+                if (prevArchetypeIndex != -1 && archetypeIndex != -1)
+                    fail("doot")
                 if (prevArchetypeIndex != -1)
                     let mutable entId = EntityId()
                     entId.Index <- i

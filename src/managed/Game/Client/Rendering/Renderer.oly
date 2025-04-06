@@ -445,16 +445,10 @@ struct DrawBatchInfo =
 
 struct DrawLightInfo =
     public field mutable PreviousCamera: Camera = default
-    public field mutable PreviousCameraPosition: vec3 = default
+    public field mutable PreviousCameraTransform: Transform = default
     public field mutable Camera: Camera = default
-    public field mutable CameraPosition: vec3 = default
+    public field mutable CameraTransform: Transform = default
     public field mutable Light: Light = default
-
-    GetPreviousCameraTransform(): Transform =
-        this.PreviousCamera.GetTransform(this.PreviousCameraPosition)
-
-    GetCameraTransform(): Transform =
-        this.Camera.GetTransform(this.CameraPosition)
 
 module DrawHelpers =
 
@@ -1112,8 +1106,8 @@ class Renderer =
                         else
                             sGlobals.LightKind <- 0
 
-                        let mutable prevTransform = item.GetPreviousCameraTransform()
-                        let mutable transform = item.GetCameraTransform()       
+                        let mutable prevTransform = item.PreviousCameraTransform
+                        let mutable transform = item.CameraTransform
                         sGlobals.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
                             
                         sGlobals.Projection <- camera.Projection

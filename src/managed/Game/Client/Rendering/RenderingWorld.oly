@@ -293,6 +293,7 @@ private module Rendering =
                         let mutable item = lights[i]
 
                         if (item.Light.Kind == LightKind.Directional)
+
                             // Move light's camera relative to the target camera.
                             let prevPosition = prev.Position - item.PreviousCamera.Direction * MathF.Min(float32(item.PreviousCamera.Width), float32(item.PreviousCamera.Height))
                             let position = curr.Position - item.Camera.Direction * MathF.Min(float32(item.Camera.Width), float32(item.Camera.Height))
@@ -301,8 +302,11 @@ private module Rendering =
                             let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
                             let roundedPosition = Vector3(MathF.Round(position.X), MathF.Round(position.Y), MathF.Round(position.Z))
 
-                            item.PreviousCameraPosition <- roundedPrevPosition
-                            item.CameraPosition <- roundedPosition
+                          //  let prevM = Transform.FromMatrix(mat4.CreateLookAt(roundedPrevPosition, prev.Position, Vector3.Up))
+                          //  let m = Transform.FromMatrix(mat4.CreateLookAt(roundedPosition, curr.Position, Vector3.Up))
+
+                            item.PreviousCameraTransform <- item.PreviousCamera.GetTransform(roundedPrevPosition)
+                            item.CameraTransform <- item.Camera.GetTransform(roundedPosition)
 
                         lights[i] <- item
                 )
@@ -323,8 +327,8 @@ private module Rendering =
                 if (lightCount < ShaderLights.MaxCount)
                     let sLight = &sLights[lightCount]
 
-                    let mutable prevTransform = info.GetPreviousCameraTransform()
-                    let mutable transform = info.GetCameraTransform()
+                    let mutable prevTransform = info.PreviousCameraTransform
+                    let mutable transform = info.CameraTransform
                     sLight.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
 
                     sLight.Projection <- info.Camera.Projection
