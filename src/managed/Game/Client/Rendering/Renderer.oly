@@ -646,8 +646,10 @@ class InstanceOutputs =
     PlayerCamera: GpuBuffer<ShaderInstance> get
     PlayerCameraDrawCommands: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand> get
     PlayerCameraComputeDescriptorSet: GpuDescriptorSet get
+
     LightCameras: GpuBuffer<ShaderInstance>[] get
     LightCamerasDrawCommands: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>[] get
+    LightCamerasComputeDescriptorSets: GpuDescriptorSet[] get
     
     new(maxLightCount: int32) =
         {
@@ -655,7 +657,7 @@ class InstanceOutputs =
             PlayerCameraDrawCommands = GpuBuffer.ZeroCreate<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
             PlayerCameraComputeDescriptorSet =
                 GpuDescriptorSet(
-                    "player_draw_compute",
+                    "player_frustum_culling",
                     GpuDescriptorSetLayout(
                         [
                             GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
@@ -665,10 +667,27 @@ class InstanceOutputs =
                     [this.PlayerCamera: IGpuInput; this.PlayerCameraDrawCommands]
                 )
             LightCameras = 
-                initArray(maxLightCount, (_) -> GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities))
+                initArray(maxLightCount, 
+                    (_) -> GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+                )
             LightCamerasDrawCommands =
-                initArray(maxLightCount, (_) -> GpuBuffer.ZeroCreate<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities))
-            
+                initArray(maxLightCount, 
+                    (_) -> GpuBuffer.ZeroCreate<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
+                )
+            LightCamerasComputeDescriptorSets =
+                initArray(maxLightCount,
+                    (mutable i) ->
+                        GpuDescriptorSet(
+                            "light" + i.ToString() + "_frustum_culling",
+                            GpuDescriptorSetLayout(
+                                [
+                                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                                ]
+                            ),
+                            [this.LightCameras[i]: IGpuInput; this.LightCamerasDrawCommands[i]]
+                        )
+                )        
         }
 
     ClearUpdateRanges(): () =
@@ -691,6 +710,7 @@ class InstanceOutputs =
         gpu.Free(this.PlayerCameraComputeDescriptorSet)
         gpu.Free(this.PlayerCamera)
         gpu.Free(this.PlayerCameraDrawCommands)
+        ForEach(this.LightCamerasComputeDescriptorSets, x -> gpu.Free(x))
         ForEach(this.LightCameras, x -> gpu.Free(x)) // TODO-language-bug: Cannot do 'ForEach(this.ShadowMapCameras, gpu.Free)' because of an overload bug on 'gpu.Free'
         ForEach(this.LightCamerasDrawCommands, x -> gpu.Free(x))
 
@@ -1048,7 +1068,11 @@ class Renderer =
 
     module Passes =
 
-        Dispatch(renv: RenderEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
+        Dispatch(
+                renv: RenderEnv, 
+                renderers: IReadOnlyList<Renderer>,
+                lightCount: int32,
+                gpuCommands: GpuCommandList): () =
             let computeLerp = renv.PipelineManager.Get("Compute/Interpolation.json") // TODO: replace with getting this pipeline by index
 
             ForEach(renderers,
@@ -1075,6 +1099,24 @@ class Renderer =
                     gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
             )
 
+            let globalsManager = renv.GlobalsManager
+            let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
+            For(lightCount,
+                i ->
+                    let shadowMapGlobals = globalsManager.Get(shadowMapGlobalsIds[i])
+
+                    ForEach(renderers,
+                        renderer ->
+                            let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
+                            gpuCommands.BindPipeline(frustumCullingPipeline)
+                            gpuCommands.BindDescriptorSet(0, shadowMapGlobals.GetComputeDescriptorSet())
+                            gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
+                            gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
+                            gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.LightCamerasComputeDescriptorSets[i])
+                            gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
+                    )                  
+            )
+
             gpuCommands.PipelineBarrier(GpuPipelineBarrierKind.DispatchToDrawIndirect)
 
         DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
@@ -1097,6 +1139,7 @@ class Renderer =
 
             let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
     
+            // TODO: Move these updates to the globals outside of DrawShadows.
             let mutable shadowMapCount = 0
             For(lights.Count,
                 i ->

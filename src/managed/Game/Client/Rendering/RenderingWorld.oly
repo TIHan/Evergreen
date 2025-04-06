@@ -251,7 +251,7 @@ private module Rendering =
         db: EntityDatabase, 
         cameraEntId: EntityId, 
         screenSize: Vector2, 
-        lights: IList<DrawLightInfo>, 
+        lights: List<DrawLightInfo>, 
         alpha: float32,
         cmds: GpuCommandList): () =
 
@@ -343,12 +343,12 @@ private module Rendering =
         globalsBuffer.NeedsUpdate <- true
 
         // Begin Dispatch
-        Renderer.Passes.Dispatch(renv, renderers, cmds)
+        Renderer.Passes.Dispatch(renv, renderers, lights.Count, cmds)
         // End Dispatch
 
     Draw(
             renv: RenderEnv, 
-            rfenv: RenderFrameEnv, 
+            rfenv: RenderFrameEnv,
             renderers: IReadOnlyList<Renderer>, 
             lights: IReadOnlyList<DrawLightInfo>,
             alpha: float32,
