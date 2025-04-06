@@ -187,5 +187,29 @@ abstract default class World =
                 assetId <- genv.Images.TryFindId(reader.GetString())
         )
 
+        registerJsonFieldMapping<float32>(
+            "Yaw", "Yaw",
+            (value, writer) ->
+                writer.WriteNumberValue(degrees(value)),
+            (reader, value) ->
+                value <- radians(reader.GetSingle())
+        )
+
+        registerJsonFieldMapping<float32>(
+            "Pitch", "Pitch",
+            (value, writer) ->
+                writer.WriteNumberValue(degrees(value)),
+            (reader, value) ->
+                value <- radians(reader.GetSingle())
+        )
+
+        registerJsonFieldMapping<float32>(
+            "Roll", "Roll",
+            (value, writer) ->
+                writer.WriteNumberValue(degrees(value)),
+            (reader, value) ->
+                value <- radians(reader.GetSingle())
+        )
+
     Reset(): () =
         EntityDatabase.Reset(this.Database)

@@ -203,6 +203,7 @@ struct Camera =
 
     public field mutable Yaw: float32
     public field mutable Pitch: float32
+    public field mutable Roll: float32
 
     public field mutable FieldOfView: float32
     public field mutable Width: int32
@@ -216,6 +217,7 @@ struct Camera =
             Offset = vec3.Zero
             Yaw = 0
             Pitch = 0
+            Roll = 0
             FieldOfView = fov
             Width = width
             Height = height
@@ -227,6 +229,9 @@ struct Camera =
     mutable SetYawPitch(yaw: float32, pitch: float32): () =
         this.Yaw <- yaw
         this.Pitch <- pitch
+
+    mutable SetRoll(roll: float32): () =
+        this.Roll <- roll
 
     GetPosition(position: vec3): vec3 =
         position + this.Offset
@@ -247,7 +252,7 @@ struct Camera =
 
     RealRotation: quat
         get() =
-            quat.CreateFromYawPitchRoll(this.Yaw, this.Pitch, 0)
+            quat.CreateFromYawPitchRoll(this.Yaw, this.Pitch, this.Roll)
 
     Projection: Matrix4x4
         get() =

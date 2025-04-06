@@ -75,7 +75,7 @@ class RenderScene =
     Render(renv: RenderEnv, time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, preCont: scoped GpuCommandList -> (), cont: scoped GpuCommandList -> (), cmds: GpuCommandList): () =
         this.WorldFront.Dispatch(renv, time, alpha, screenSize, cameraEntId, cmds)
         if (this.WorldFront.Database.Has<Camera>(cameraEntId))
-            this.WorldFront.Draw(renv, preCont, cont, cmds)
+            this.WorldFront.Draw(renv, alpha, preCont, cont, cmds)
         else
             preCont(cmds)
             cmds.PipelineBarrier(GpuPipelineBarrierKind.BottomPipeToAllGraphics)
