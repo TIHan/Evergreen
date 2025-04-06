@@ -745,7 +745,7 @@ CreateConsole(vm: ConsoleViewModel, publisher: ClientEventPublisher): WindowView
     window.IsBackgroundVisible <- false
     window.IsScrollingEnabled <- false
     window.CanShowTitle <- false
-    window.Kind <- WindowKind.PopupModal
+    window.Kind <- WindowKind.Overlay
     window.ScreenVerticalAlignment <- VerticalAlignment.Stretch
     window.ScreenHorizontalAlignment <- HorizontalAlignment.Stretch
     window.ScreenVerticalStretchFactor <- 0.4
@@ -880,7 +880,7 @@ CreateConsole(vm: ConsoleViewModel, publisher: ClientEventPublisher): WindowView
      // -- background ---
 
     let backgroundWindowStyle = Style()
-    backgroundWindowStyle.WindowBorderSize <- SomeStruct(Vector2.Zero)
+    backgroundWindowStyle.WindowBorderSize <- SomeStruct(0: float32)
     backgroundWindowStyle.WindowPadding <- SomeStruct(Vector2.Zero)
     let backgroundWindow = WindowView()
     backgroundWindow.Style <- Some(backgroundWindowStyle)
@@ -913,7 +913,7 @@ CreateConsole(vm: ConsoleViewModel, publisher: ClientEventPublisher): WindowView
 
     textInputView.IsEnabled <- false
     vm.IsVisible.Add(
-        isEnabled ->
+        isEnabled ->  
             if (isEnabled)
                 let _ = Tween.StepZero(&openTween)
                 openTween.Alpha <- 1 - closeTween.Alpha

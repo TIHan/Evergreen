@@ -1005,8 +1005,8 @@ extern "C" {
         return ToEgVector2(*value);
     }
 
-    EG_EXPORT void egImGui_PushStyleVar_WindowBorderSize(EgImGuiContext context, EgImGuiVector2 value)
+    EG_EXPORT void egImGui_PushStyleVar_WindowBorderSize(EgImGuiContext context, float value)
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, ToImVec2(value));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, value);
     }
 }

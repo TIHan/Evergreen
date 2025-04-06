@@ -97,7 +97,6 @@ main(args: string[]): () =
         fail("Invalid arguments")
     else
         Environment.CurrentDirectory <- args[0]
-      //  let _ = System.Console.ReadLine()
 
         let x = Evergreen.Physics.Backend.Jolt.Interop.Methods.egJoltSharedInit()
 
