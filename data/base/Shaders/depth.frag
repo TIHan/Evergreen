@@ -8,6 +8,7 @@ layout(set = 2, binding = 0) uniform sampler2D in_tex_sampler;
 
 void main() 
 {
+   vec3 dir = normalize(iView[2].xyz);
    vec4 color = texture(in_tex_sampler, in_tex_coord);
    if (color.a == 0)
    {

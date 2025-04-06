@@ -5,7 +5,7 @@
                 {
                     "Kind": "Uniform",
                     "Flags": "None",
-                    "StageFlags": "Vertex"
+                    "StageFlags": "Vertex, Fragment"
                 }
             ]
         },

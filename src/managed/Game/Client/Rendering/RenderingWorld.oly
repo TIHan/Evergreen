@@ -302,9 +302,6 @@ private module Rendering =
                             let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
                             let roundedPosition = Vector3(MathF.Round(position.X), MathF.Round(position.Y), MathF.Round(position.Z))
 
-                          //  let prevM = Transform.FromMatrix(mat4.CreateLookAt(roundedPrevPosition, prev.Position, Vector3.Up))
-                          //  let m = Transform.FromMatrix(mat4.CreateLookAt(roundedPosition, curr.Position, Vector3.Up))
-
                             item.PreviousCameraTransform <- item.PreviousCamera.GetTransform(roundedPrevPosition)
                             item.CameraTransform <- item.Camera.GetTransform(roundedPosition)
 

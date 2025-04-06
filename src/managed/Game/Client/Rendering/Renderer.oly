@@ -180,7 +180,6 @@ class RenderEnv =
 
     GlobalsDescriptorSet: GpuDescriptorSet get
     GlobalsComputeDescriptorSet: GpuDescriptorSet get
-    GlobalsVertexDescriptorSet: GpuDescriptorSet get
     Lit_DescriptorSet: GpuDescriptorSet get
 
     SetBackgroundAlpha(value: float32): () =
@@ -294,15 +293,6 @@ class RenderEnv =
                 [globals: IGpuInput]
             )
 
-        let globalsVertexDs =
-            GpuDescriptorSet(
-                "globals_vertex",
-                GpuDescriptorSetLayout(
-                    [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex)]
-                ),
-                [globals: IGpuInput]
-            )
-
         let lit_descriptorSet = 
             GpuDescriptorSet(
                 "lit",
@@ -351,7 +341,6 @@ class RenderEnv =
 
             GlobalsDescriptorSet = globalsDs
             GlobalsComputeDescriptorSet = globalsComputeDs
-            GlobalsVertexDescriptorSet = globalsVertexDs
             Lit_DescriptorSet = lit_descriptorSet
 
             PlaneRenderMeshId = meshManager.FindId("plane.obj")
@@ -902,7 +891,7 @@ class Renderer =
                 let (_, _, _, drawQueue) = pair.Value
 
                 if (drawQueue.Count > 0)
-                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, renv.GlobalsVertexDescriptorSet, pipeline, gpuCommands,
+                    DrawHelpers.Draw(renv.MeshManager, renv.ImageManager, drawQueue, this.DrawCommands, renv.GlobalsDescriptorSet, pipeline, gpuCommands,
                         (key, gpuCommands) ->
                             let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
                             gpuCommands.BindDescriptorSet(1, this.InstanceOutputs.PlayerCamera.GetVertexDescriptorSet())
@@ -1129,7 +1118,7 @@ class Renderer =
                                 let program = renderer.Behavior.GetShadowMapPipeline(renv)
 
                                 gpuCommands.BeginFrame(shadowMapFrame)
-                                renderer.Draw(renv, rfenv, shadowMapGlobals.GetVertexDescriptorSet(), program, gpuCommands,
+                                renderer.Draw(renv, rfenv, shadowMapGlobals.GetVertexFragmentDescriptorSet(), program, gpuCommands,
                                     (key, gpuCommands) ->
                                         renderer.Behavior.DrawShadowMaps(renv, rfenv, key, renderer.InstanceOutputs.PlayerCamera.GetVertexDescriptorSet(), gpuCommands)
                                 )
