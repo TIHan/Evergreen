@@ -131,7 +131,7 @@ class MeshRendererBehavior =
 
     GetOutlineMaskPipeline(renv: RenderEnv): GpuPipeline = renv.GetMaskPipeline()
 
-    GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.ShadowMaps.Layers
+    GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.Lighting.MeshShadowMapFrames
 
     Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, instanceOutputs: InstanceOutputs, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
         let mutable cameraPosition = vec3.Zero
@@ -173,12 +173,11 @@ class MeshRendererBehavior =
                 )
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
-        let lightsDs = renv.LightsBuffer.GetVertexFragmentDescriptorSet()
         let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
         gpuCommands.BindDescriptorSet(1, imageDs)
         gpuCommands.BindDescriptorSet(2, instancesDs)
-        gpuCommands.BindDescriptorSet(3, lightsDs)
-        gpuCommands.BindDescriptorSet(4, renv.Lit_DescriptorSet)
+        gpuCommands.BindDescriptorSet(3, renv.Lighting.LightsVertexFragmentDescriptorSet)
+        gpuCommands.BindDescriptorSet(4, renv.Lighting.ShadowMapDescriptorSet)
         gpuCommands.BindDescriptorSet(5, rfenv.Textures.DescriptorSet)
 
     DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
@@ -198,7 +197,7 @@ class SpriteRendererBehavior =
 
     GetOutlineMaskPipeline(renv: RenderEnv): GpuPipeline = renv.GetSpriteMaskPipeline()
 
-    GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.SpriteShadowMaps.Layers
+    GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.Lighting.SpriteShadowMapFrames
 
     Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, instanceOutputs: InstanceOutputs, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
         let meshRef = renv.GetPlaneRenderMeshReference()
@@ -219,12 +218,11 @@ class SpriteRendererBehavior =
         )
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
-        let lightsDs = renv.LightsBuffer.GetVertexFragmentDescriptorSet()
         let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
         gpuCommands.BindDescriptorSet(1, imageDs)
         gpuCommands.BindDescriptorSet(2, instancesDs)
-        gpuCommands.BindDescriptorSet(3, lightsDs)
-        gpuCommands.BindDescriptorSet(4, renv.Lit_DescriptorSet)
+        gpuCommands.BindDescriptorSet(3, renv.Lighting.LightsVertexFragmentDescriptorSet)
+        gpuCommands.BindDescriptorSet(4, renv.Lighting.ShadowMapDescriptorSet)
 
     DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
         let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
@@ -307,20 +305,13 @@ private module Rendering =
                 )
         )
 
-        let lightsBuffer = renv.LightsBuffer
-        let mutable lightsMemory = Memory(lightsBuffer.Array)
-        let mutable lightsSpan = lightsMemory.Span
-        let sLights = &lightsSpan[0]
-
-        let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
-
-        let maxLights = 8
+        let maxLights = renv.Lighting.MaxLightCount
         let mutable lightCount = 0
         // TODO: Only gather the closest lights.
         ForEach(lights,
             info ->
-                if (lightCount < ShaderLights.MaxCount)
-                    let sLight = &sLights[lightCount]
+                if (lightCount < maxLights)
+                    let sLight = &renv.Lighting.GetShaderLightByIndex(lightCount)
 
                     let mutable prevTransform = info.PreviousCameraTransform
                     let mutable transform = info.CameraTransform
@@ -336,8 +327,7 @@ private module Rendering =
 
                     lightCount <- lightCount + 1
         )
-        sLights.Count <- lightCount
-        lightsBuffer.NeedsUpdate <- true
+        renv.Lighting.LightCount <- lightCount
         globalsBuffer.NeedsUpdate <- true
 
         // Begin Dispatch
@@ -366,10 +356,6 @@ private module Rendering =
         let verticalBlurPipeline = renv.GetBeginBoxBlurPipeline()
         let finalBlurPipeline = renv.GetEndBoxBlurPipeline()
 
-        // Shadow Maps
-        let shadowMaps = renv.ShadowMaps.Layers
-        let spriteShadowMaps = renv.SpriteShadowMaps.Layers
-
         // Images
         let maskImage = maskFrame.ColorImage
         let screenImage = screenFrame.ColorImage
@@ -381,7 +367,7 @@ private module Rendering =
         let screenMesh = renv.ScreenMesh
 
         // Begin Shadow Map
-        Renderer.Passes.DrawShadows(renv, rfenv, renderers, lights, shadowMaps, alpha, cmds)
+        Renderer.Passes.DrawShadows(renv, rfenv, renderers, lights, alpha, cmds)
         // End Shadow Map
 
         cmds.PipelineBarrier(GpuPipelineBarrierKind.DepthStencilToVertexFragmentRead)

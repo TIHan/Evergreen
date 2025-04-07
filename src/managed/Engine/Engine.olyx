@@ -123,7 +123,7 @@ main(args: string[]): () =
 
         let connectionKey = "oly" + engineHash
         let genv = GameEnv(connectionKey, engineHash, resx.Maps, resx.RenderMeshes, resx.Sounds, resx.Pipelines, resx.Images)
-        let renv = RenderEnv(r, resx.ShaderGlobals, resx.Frames, resx.Pipelines, resx.RenderMeshes, resx.Images, resx.ShadowMaps, resx.SpriteShadowMaps)
+        let renv = RenderEnv(r, resx.ShaderGlobals, resx.Frames, resx.Pipelines, resx.RenderMeshes, resx.Images)
 
         Tests.SerializeDeserializePlayer(genv)
         Tests.SerializeDeserializePlayer2(genv)

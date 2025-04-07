@@ -151,9 +151,6 @@ class Resources =
     RenderMeshes: AssetManager<RenderMeshGroup> get
     ShaderGlobals: AssetManager<GpuBuffer<ShaderGlobals>> get
 
-    ShadowMaps: GpuFrame get
-    SpriteShadowMaps: GpuFrame get
-
     new(r: Rendering) =        
         // Asset Management
         let fs = FileSystem()
@@ -194,30 +191,6 @@ class Resources =
                     Log("Freeing frame '" + name + "'")
                     r.Gpu.Free(frame)
             )
-    
-        frameManager.Register("shadow_maps",
-            (_) ->
-                let mutable options = GpuFrameOptions()
-                options.FilterMode <- GpuFilterMode.Linear
-                options.MipmapMode <- GpuMipmapMode.Linear
-                options.MipmapLevels <- 100
-                options.SizeMode <- GpuFrameSizeMode.Custom
-                options.LayerCount <- 8
-                options.RenderPassFlags <- GpuRenderPassFlags.ClearDepthStencil
-                return GpuFrame(options, 2048, 2048)
-        )
-
-        frameManager.Register("sprite_shadow_maps",
-            (_) ->
-                let mutable options = GpuFrameOptions()
-                options.FilterMode <- GpuFilterMode.Linear
-                options.MipmapMode <- GpuMipmapMode.Linear
-                options.MipmapLevels <- 100
-                options.SizeMode <- GpuFrameSizeMode.Custom
-                options.LayerCount <- 8
-                options.RenderPassFlags <- GpuRenderPassFlags.ClearDepthStencil
-                return GpuFrame(options, 2048, 2048)
-        )
     
         frameManager.Register("mask", 
             (_) -> 
@@ -272,9 +245,6 @@ class Resources =
                     Log("Freeing image '" + name + "'")
                     ForEach(images, x -> r.Gpu.Free(x))
             )
-    
-        let shadowMaps = frameManager.Get("shadow_maps")
-        let spriteShadowMaps = frameManager.Get("sprite_shadow_maps")
     
         let shaderManager = AssetManager<byte[]>((name, _bytes) -> Log("Freeing shader bytes '" + name + "'"))
     
@@ -410,24 +380,6 @@ class Resources =
                             i -> ShaderGlobals()
                         )
             )
-
-        let registerShadowMapGlobals(name) =
-            globalsManager.Register(name, 
-                (_) ->
-                    return
-                        GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1,
-                            i -> ShaderGlobals()
-                        )
-            )
-    
-        registerShadowMapGlobals("shadow_map0")
-        registerShadowMapGlobals("shadow_map1")
-        registerShadowMapGlobals("shadow_map2")
-        registerShadowMapGlobals("shadow_map3")
-        registerShadowMapGlobals("shadow_map4")
-        registerShadowMapGlobals("shadow_map5")
-        registerShadowMapGlobals("shadow_map6")
-        registerShadowMapGlobals("shadow_map7")
         
         {
             Maps = maps
@@ -439,7 +391,4 @@ class Resources =
             Pipelines = gpuPipelineManager
             RenderMeshes = renderMeshManager
             ShaderGlobals = globalsManager
-
-            ShadowMaps = shadowMaps
-            SpriteShadowMaps = spriteShadowMaps
         }

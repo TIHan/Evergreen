@@ -142,6 +142,91 @@ class ShaderTextures =
             this.lookup[image] <- index
         index
 
+class RenderLighting =
+
+    private MeshShadowMapsFrameLayer: GpuFrame get
+    private SpriteShadowMapsFrameLayer: GpuFrame get
+    private CountBuffer: GpuBuffer<int32> get
+    private GlobalsBuffers: GpuBuffer<ShaderGlobals>[] get
+    private LightsBuffer: GpuBuffer<ShaderLights> get
+
+    new(maxLightCount: int32, shadowMapSize: int32) =
+        let createFrameLayer() =
+            let mutable options = GpuFrameOptions()
+            options.FilterMode <- GpuFilterMode.Linear
+            options.MipmapMode <- GpuMipmapMode.Linear
+            options.MipmapLevels <- 100
+            options.SizeMode <- GpuFrameSizeMode.Custom
+            options.LayerCount <- maxLightCount
+            options.RenderPassFlags <- GpuRenderPassFlags.ClearDepthStencil
+            GpuFrame(options, shadowMapSize, shadowMapSize)
+
+        let createGlobalBuffer() =
+            GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1, (_) -> ShaderGlobals())
+        
+        {
+            MeshShadowMapsFrameLayer = createFrameLayer()
+            SpriteShadowMapsFrameLayer = createFrameLayer()
+            CountBuffer = GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1, (_) -> 0)
+            GlobalsBuffers = initArray(maxLightCount, (_) -> createGlobalBuffer())
+            LightsBuffer = GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, maxLightCount, (_) -> ShaderLights())
+
+            MaxLightCount = maxLightCount
+            ShadowMapSize = shadowMapSize
+            ShadowMapDescriptorSet =
+                GpuDescriptorSet(
+                    "shadow_maps",
+                    GpuImage.DescriptorSetLayout.AddBinding(
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Image, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)
+                    ).AddBinding(
+                        GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Fragment)
+                    ),
+                    [this.MeshShadowMapsFrameLayer.DepthImage: IGpuInput;this.SpriteShadowMapsFrameLayer.DepthImage;this.CountBuffer]
+                )
+        }
+
+    MaxLightCount: int32 get
+    ShadowMapSize: int32 get
+    ShadowMapDescriptorSet: GpuDescriptorSet get
+
+    LightsVertexFragmentDescriptorSet: GpuDescriptorSet
+        get() = this.LightsBuffer.GetVertexFragmentDescriptorSet()
+
+    LightCount: int32 
+        get() = this.CountBuffer.Array[0]
+        set(count) =
+            if (count < 0 || count > this.MaxLightCount)
+                throw System.ArgumentOutOfRangeException("count")
+            this.CountBuffer.Array[0] <- count
+            this.CountBuffer.NeedsUpdate <- true
+
+    MeshShadowMapFrames: IGpuFrame[] get() = this.MeshShadowMapsFrameLayer.Layers
+    SpriteShadowMapFrames: IGpuFrame[] get() = this.SpriteShadowMapsFrameLayer.Layers
+
+    GetShaderGlobalsByIndex(index: int32): byref<ShaderGlobals> =
+        let buffer = this.GlobalsBuffers[index]
+        buffer.NeedsUpdate <- true
+        &buffer.Array[0]
+
+    GetShaderLightByIndex(index: int32): byref<ShaderLight> =
+        let lightsBuffer = this.LightsBuffer
+        lightsBuffer.NeedsUpdate <- true
+        let mutable lightsMemory = Memory(lightsBuffer.Array)
+        let mutable lightsSpan = lightsMemory.Span
+        let sLights = &lightsSpan[0]
+        &sLights[index]
+       /// let buffer = this.LightsBuffer
+        //buffer.NeedsUpdate <- true
+        //&buffer.Array[0][index]
+
+    GetShaderGlobalsComputeDescriptorSetByIndex(index: int32): GpuDescriptorSet =
+        let buffer = this.GlobalsBuffers[index]
+        buffer.GetComputeDescriptorSet()
+
+    GetShaderGlobalsVertexFragmentDescriptorSetByIndex(index: int32): GpuDescriptorSet =
+        let buffer = this.GlobalsBuffers[index]
+        buffer.GetVertexFragmentDescriptorSet()
+
 struct ShaderInstance =
     public field mutable Transform: Matrix4x4 = Matrix4x4.Identity
     public field mutable TextureIndex: int32 = 0
@@ -170,17 +255,12 @@ class RenderEnv =
     MeshManager: AssetManager<RenderMeshGroup> get
     ImageManager: AssetManager<IGpuImage[]> get
 
-    ShadowMaps: GpuFrame get
-    SpriteShadowMaps: GpuFrame get
-    ShadowMapCount: GpuBuffer<int32> get
-    ShadowMapGlobalsIds: Int32Id[] get
-    LightsBuffer: GpuBuffer<ShaderLights> get
+    Lighting: RenderLighting get
 
     private CubeMeshId: Int32Id get
 
     GlobalsDescriptorSet: GpuDescriptorSet get
     GlobalsComputeDescriptorSet: GpuDescriptorSet get
-    Lit_DescriptorSet: GpuDescriptorSet get
 
     SetBackgroundAlpha(value: float32): () =
         let gpuGlobals = this.GlobalsBuffer
@@ -252,28 +332,18 @@ class RenderEnv =
             frameManager: AssetManager<GpuFrame>,
             pipelineManager: AssetManager<GpuPipeline>, 
             meshManager: AssetManager<RenderMeshGroup>, 
-            imageManager: AssetManager<IGpuImage[]>,
-            shadowMaps: GpuFrame,
-            spriteShadowMaps: GpuFrame
+            imageManager: AssetManager<IGpuImage[]>
         ) =
 
         let markerTy = DotNet.TypeOf<RenderEnv>
         let fontPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(markerTy.Assembly.Location), "ProggyClean.ttf")
     
         let gpuPipelineUI = GpuPipelineUI(fontPath)
-
-        let lights =
-            GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, shadowMaps.LayerCount,
-                i -> ShaderLights()
-            )
     
         let globals =
             GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1,
                 i -> ShaderGlobals()
             )
-
-        let shadowMapCount = GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1, i -> 0)
-        let shadowMapGlobalsIds = initArray(shadowMaps.LayerCount, (mutable i) -> globalsManager.TryFindId("shadow_map" + i.ToString()))
 
         let globalsDs =
             GpuDescriptorSet(
@@ -291,17 +361,6 @@ class RenderEnv =
                     [GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)]
                 ),
                 [globals: IGpuInput]
-            )
-
-        let lit_descriptorSet = 
-            GpuDescriptorSet(
-                "lit",
-                GpuImage.DescriptorSetLayout.AddBinding(
-                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Image, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Vertex | GpuStageFlags.Fragment)
-                ).AddBinding(
-                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Uniform, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Fragment)
-                ),
-                [shadowMaps.DepthImage: IGpuInput;spriteShadowMaps.DepthImage;shadowMapCount]
             )
 
         let maskFrameId = frameManager.FindId("mask")
@@ -333,15 +392,10 @@ class RenderEnv =
             ImageManager = imageManager
             CubeMeshId = meshManager.FindId("cube.obj")
 
-            ShadowMaps = shadowMaps
-            SpriteShadowMaps = spriteShadowMaps
-            ShadowMapCount = shadowMapCount
-            ShadowMapGlobalsIds = shadowMapGlobalsIds
-            LightsBuffer = lights
+            Lighting = RenderLighting(/* maxLightCount */ 8, /* shadowMapSize */ 2048)
 
             GlobalsDescriptorSet = globalsDs
             GlobalsComputeDescriptorSet = globalsComputeDs
-            Lit_DescriptorSet = lit_descriptorSet
 
             PlaneRenderMeshId = meshManager.FindId("plane.obj")
             MaskPipelineId = pipelineManager.TryFindId("OutlineMask.json")
@@ -376,12 +430,6 @@ class RenderEnv =
 
     GetCubeMesh(): RenderMesh =
         this.MeshManager.Get(this.CubeMeshId).Meshes[0]
-
-    SetShadowMapCount(count: int32): () =
-        if (count < 0)
-            throw System.ArgumentOutOfRangeException("count")
-        this.ShadowMapCount.Array[0] <- count
-        this.ShadowMapCount.NeedsUpdate <- true
 
 struct MeshKey =
     public field Id: Int32Id
@@ -1093,27 +1141,20 @@ class Renderer =
 
             gpuCommands.PipelineBarrier(GpuPipelineBarrierKind.DispatchToDispatch)
 
-            let globalsManager = renv.GlobalsManager
-            let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
-
-            let mutable shadowMapCount = 0
             For(lightCount,
                 i ->
-                    if (shadowMapCount < renv.ShadowMaps.LayerCount)
-                        let shadowMapGlobals = globalsManager.Get(shadowMapGlobalsIds[shadowMapCount])
-
+                    if (i < renv.Lighting.MaxLightCount)
+                        let lightGlobalsDescriptorSet = renv.Lighting.GetShaderGlobalsComputeDescriptorSetByIndex(i)
                         ForEach(renderers,
                             renderer ->
                                 let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
                                 gpuCommands.BindPipeline(frustumCullingPipeline)
-                                gpuCommands.BindDescriptorSet(0, shadowMapGlobals.GetComputeDescriptorSet()) // TODO-language-bug: renv.GlobalsComputeDescriptorSet() should not be called like a function
+                                gpuCommands.BindDescriptorSet(0, lightGlobalsDescriptorSet) // TODO-language-bug: renv.GlobalsComputeDescriptorSet() should not be called like a function
                                 gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
                                 gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
-                                gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.LightCamerasComputeDescriptorSets[shadowMapCount])
+                                gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.LightCamerasComputeDescriptorSets[i])
                                 gpuCommands.Dispatch(renderer.InstanceCount, 1, 1)
                         )
-                        
-                        shadowMapCount <- shadowMapCount + 1
             )
 
             ForEach(renderers,
@@ -1141,70 +1182,58 @@ class Renderer =
                     renderer.DrawOutlineNoMask(renv, rfenv, gpuCommands)
             )
 
-        DrawShadows(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, lights: IReadOnlyList<DrawLightInfo>, shadowMaps: IGpuFrame[], alpha: float32, gpuCommands: GpuCommandList): () =
+        DrawShadows(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, lights: IReadOnlyList<DrawLightInfo>, alpha: float32, gpuCommands: GpuCommandList): () =
             let mainGlobalsBuffer = renv.GlobalsBuffer
             let sMainGlobals: inref<ShaderGlobals> = &mainGlobalsBuffer.Array[0]
 
             let globalsManager = renv.GlobalsManager
 
-            let shadowMapGlobalsIds = renv.ShadowMapGlobalsIds
-    
-            // TODO: Move these updates to the globals outside of DrawShadows.
-            let mutable shadowMapCount = 0
-            For(lights.Count,
+            For(renv.Lighting.LightCount,
                 i ->
-                    if (shadowMapCount < renv.ShadowMaps.LayerCount)
+                    if (i < renv.Lighting.MaxLightCount)
                         let item = lights[i]
     
-                        let shadowMapGlobals = globalsManager.Get(shadowMapGlobalsIds[shadowMapCount])
-                        let shadowMapFrame = shadowMaps[shadowMapCount]
-    
-                        let sGlobals = &shadowMapGlobals.Array[0]
-                        sGlobals <- sMainGlobals // Copy same information from main globals
-                        // now just update the relevant info unique to the shadow-map
+                        let lightGlobals = &renv.Lighting.GetShaderGlobalsByIndex(i) 
+                        lightGlobals <- sMainGlobals
 
                         let camera = item.Camera
 
                         // TODO: What about interpolation?
                         if (item.Light.Kind == LightKind.Spot)
-                            sGlobals.LightKind <- 1
+                            lightGlobals.LightKind <- 1
                         else
-                            sGlobals.LightKind <- 0
+                            lightGlobals.LightKind <- 0
 
                         let mutable prevTransform = item.PreviousCameraTransform
                         let mutable transform = item.CameraTransform
-                        sGlobals.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
+                        lightGlobals.View <- Matrix4x4.Lerp(prevTransform.WorldToLocalMatrix, transform.WorldToLocalMatrix, alpha)
                             
-                        sGlobals.Projection <- camera.Projection
-                        sGlobals.Resolution <- shadowMapFrame.Size
-                        sGlobals.SuperSamplingAmount <- 1
-                        sGlobals.FrustumPlanes <- (sGlobals.View * sGlobals.Projection).GetFrustumPlanes()
-                        if (!Matrix4x4.Invert(sGlobals.View, &sGlobals.ViewInverse))
-                            sGlobals.ViewInverse <- Matrix4x4.Identity
+                        lightGlobals.Projection <- camera.Projection
+                        lightGlobals.Resolution <- Vector2(float32(renv.Lighting.ShadowMapSize))
+                        lightGlobals.SuperSamplingAmount <- 1
+                        lightGlobals.FrustumPlanes <- (lightGlobals.View * lightGlobals.Projection).GetFrustumPlanes()
+                        if (!Matrix4x4.Invert(lightGlobals.View, &lightGlobals.ViewInverse))
+                            lightGlobals.ViewInverse <- Matrix4x4.Identity
                             LogClientWarning("View matrix was unable to be inverted")
-                        if (!Matrix4x4.Invert(sGlobals.Projection, &sGlobals.ProjectionInverse))
-                            sGlobals.ProjectionInverse <- Matrix4x4.Identity
+                        if (!Matrix4x4.Invert(lightGlobals.Projection, &lightGlobals.ProjectionInverse))
+                            lightGlobals.ProjectionInverse <- Matrix4x4.Identity
                             LogClientWarning("Projection matrix was unable to be inverted")
 
-                        shadowMapGlobals.NeedsUpdate <- true
+                        let lightGlobalsDescriptorSet = renv.Lighting.GetShaderGlobalsVertexFragmentDescriptorSetByIndex(i)
     
                         ForEach(renderers,
                             renderer ->
-                                let shadowMapFrame = renderer.Behavior.GetShadowMaps(renv)[shadowMapCount]
+                                let shadowMapFrame = renderer.Behavior.GetShadowMaps(renv)[i]
                                 let program = renderer.Behavior.GetShadowMapPipeline(renv)
 
                                 gpuCommands.BeginFrame(shadowMapFrame)
-                                renderer.Draw(renv, rfenv, renderer.InstanceOutputs.LightCamerasDrawCommands[shadowMapCount], shadowMapGlobals.GetVertexFragmentDescriptorSet(), program, gpuCommands,
+                                renderer.Draw(renv, rfenv, renderer.InstanceOutputs.LightCamerasDrawCommands[i], lightGlobalsDescriptorSet, program, gpuCommands,
                                     (key, gpuCommands) ->
-                                        renderer.Behavior.DrawShadowMaps(renv, rfenv, key, renderer.InstanceOutputs.LightCameras[shadowMapCount].GetVertexDescriptorSet(), gpuCommands)
+                                        renderer.Behavior.DrawShadowMaps(renv, rfenv, key, renderer.InstanceOutputs.LightCameras[i].GetVertexDescriptorSet(), gpuCommands)
                                 )
                                 gpuCommands.EndFrame()
                         )
-    
-                        shadowMapCount <- shadowMapCount + 1
             )
-    
-            renv.SetShadowMapCount(shadowMapCount)
 
         Draw(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, gpuCommands: GpuCommandList): () =
             ForEach(renderers,
