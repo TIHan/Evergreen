@@ -198,7 +198,9 @@ class RenderLighting =
             if (count < 0 || count > this.MaxLightCount)
                 throw System.ArgumentOutOfRangeException("count")
             this.CountBuffer.Array[0] <- count
+            this.LightsBuffer.Array[0].Count <- count
             this.CountBuffer.NeedsUpdate <- true
+            this.LightsBuffer.NeedsUpdate <- true
 
     MeshShadowMapFrames: IGpuFrame[] get() = this.MeshShadowMapsFrameLayer.Layers
     SpriteShadowMapFrames: IGpuFrame[] get() = this.SpriteShadowMapsFrameLayer.Layers
