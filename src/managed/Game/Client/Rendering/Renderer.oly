@@ -211,15 +211,9 @@ class RenderLighting =
         &buffer.Array[0]
 
     GetShaderLightByIndex(index: int32): byref<ShaderLight> =
-        let lightsBuffer = this.LightsBuffer
-        lightsBuffer.NeedsUpdate <- true
-        let mutable lightsMemory = Memory(lightsBuffer.Array)
-        let mutable lightsSpan = lightsMemory.Span
-        let sLights = &lightsSpan[0]
-        &sLights[index]
-       /// let buffer = this.LightsBuffer
-        //buffer.NeedsUpdate <- true
-        //&buffer.Array[0][index]
+        let buffer = this.LightsBuffer
+        buffer.NeedsUpdate <- true
+        &buffer.Array[0][index]
 
     GetShaderGlobalsComputeDescriptorSetByIndex(index: int32): GpuDescriptorSet =
         let buffer = this.GlobalsBuffers[index]
@@ -534,13 +528,10 @@ module DrawHelpers =
             drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[],
             nextDrawCmdIndex: byref<int32>,
             lookup: DrawLookup,
-            order: byte): (RenderKey, transformIndex: int32) =
+            order: byte): () =
 
         let meshDataGroup = meshes.Get(meshId)
         let meshes = meshDataGroup.Meshes
-
-        let mutable resultKey = default
-        let mutable resultInstanceIndex = -1
 
         let images =
             match (images.GetNonBlocking(material.ImageId))
@@ -599,14 +590,8 @@ module DrawHelpers =
                         instance.Transform <- transform
                         instance.TextureIndex <- textureIndex
                                 
-                        resultKey <- key
-                        resultInstanceIndex <- instanceList.Count
                         instanceList.Add((prevInstance, instance))
             )
-
-            (resultKey, resultInstanceIndex)
-        else
-            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
 
     PrepareDraw(
             textures: ShaderTextures,
@@ -622,14 +607,12 @@ module DrawHelpers =
             drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[],
             nextDrawCmdIndex: byref<int32>,
             lookup: DrawLookup,
-            order: byte): (RenderKey, transformIndex: int32) =
+            order: byte): () =
 
         if (material.ImageId.IsValid && meshRef.MeshId.IsValid)
             let transformLerp = transformLerp.Value.Matrix
             let transform = transform.Matrix
             PrepareDraw(textures, pipelineId, isSprite, meshes, images, &transformLerp, &transform, meshRef.MeshId, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, lookup, order)
-        else
-            (RenderKey(Int32Id(0), MeshKey(Int32Id(0), 0, 0), Material(), 0), -1)
 
     QueueDraw(memoryOffset: int32, mutable prevInstances: Memory<ShaderInstance>, mutable instances: Memory<ShaderInstance>, mutable aabbs: Memory<AABB>, mutable drawBatchIndices: Memory<DrawBatchInfo>, lookup: DrawLookup): int32 =
         if (memoryOffset < 0)
@@ -1200,7 +1183,6 @@ class Renderer =
 
                         let camera = item.Camera
 
-                        // TODO: What about interpolation?
                         if (item.Light.Kind == LightKind.Spot)
                             lightGlobals.LightKind <- 1
                         else

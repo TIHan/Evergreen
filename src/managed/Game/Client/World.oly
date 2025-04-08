@@ -112,11 +112,8 @@ class ClientWorld =
                 )
 
                 physicsSystem
-
-            DebugEntities = ConcurrentDictionary()
         }
     
-    field DebugEntities: ConcurrentDictionary<EntityId, ()>
     public field Physics: ClientPhysicsSystem
 
     PredictionEnabled: bool

@@ -85,6 +85,5 @@ class ServerPhysicsSystem =
         )
         let mutable entId = default
         while (destroyQueue.TryDequeue(&entId))
-            let _ = db.TryDelete(entId)
-            
+            let _ = db.TryDelete(entId)            
             

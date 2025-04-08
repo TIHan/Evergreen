@@ -98,8 +98,6 @@ main(args: string[]): () =
     else
         Environment.CurrentDirectory <- args[0]
 
-        let x = Evergreen.Physics.Backend.Jolt.Interop.Methods.egJoltSharedInit()
-
         let markerTy = DotNet.TypeOf<Marker>
         let file = File.OpenRead(markerTy.Assembly.Location)
         let (_, engineHash) = Hash.SHA256(file)

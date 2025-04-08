@@ -3,6 +3,7 @@ namespace Game.Shared
 open System
 open System.Numerics
 open System.Runtime.InteropServices
+open System.Collections.Concurrent
 open Evergreen.Utilities
 open Evergreen.Physics
 open Evergreen.Collections

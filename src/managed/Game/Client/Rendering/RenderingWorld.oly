@@ -85,7 +85,7 @@ class RenderingWorld =
         )
 
     Update(renv: RenderEnv, cameraEntId: EntityId): () =
-        Renderer.Logic.Update(renv, this.rfenv, this.renderers, this.Database, cameraEntId, /* output */ this.lights)
+        Renderer.Logic.Update(renv, this.rfenv, this.renderers, this.Database, cameraEntId, /* output */ this.lights)            
 
     Dispatch(renv: RenderEnv, time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, cmds: GpuCommandList): () =
         Rendering.Dispatch(
@@ -149,16 +149,17 @@ class MeshRendererBehavior =
                         transparencyQueue.Enqueue(entId, -(cameraPosition - transform.Position).Length())
                     else
                         let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
-                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
+                        DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
         )
 
         db.ForEach<TransformLerp, Transform, MeshReference, Material, Outline>(
             (entId, transformLerp, transform, meshRef, material, outline) ->
                 if (entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
-                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
+        // Transparency
         let mutable transparencyOrder = 0: byte
         let mutable entId = default
         let mutable priority = default
@@ -167,7 +168,7 @@ class MeshRendererBehavior =
                 db.TryGet<TransformLerp, Transform, MeshReference, Material>(entId,
                     (transformLerp, transform, meshRef, material) ->
                         let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, false, &material)
-                        let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
+                        DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, false, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
                         if (transparencyOrder != 255)
                             transparencyOrder <- transparencyOrder + 1
                 )
@@ -207,14 +208,14 @@ class SpriteRendererBehavior =
             (entId, transformLerp, transform, _, material) ->
                 if (entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
-                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
+                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
         )
 
         db.ForEach<TransformLerp, Transform, Sprite, Material, Outline>(
             (entId, transformLerp, transform, _, material, outline) ->
                 if (entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, true, &material)
-                    let _ = DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, true, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, instanceOutputs, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
     Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
