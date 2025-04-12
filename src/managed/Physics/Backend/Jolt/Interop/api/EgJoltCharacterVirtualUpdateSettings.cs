@@ -16,4 +16,7 @@ public partial struct EgJoltCharacterVirtualUpdateSettings
 
     [NativeTypeName("EgJoltVector3")]
     public System.Numerics.Vector3 walkStairsStepDownExtra;
+
+    [NativeTypeName("unsigned char")]
+    public byte layer;
 }

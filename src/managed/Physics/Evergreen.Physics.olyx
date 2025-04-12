@@ -121,13 +121,16 @@ class Physics =
 
         field contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> ()
         field contactPersisted: (bodyId1: uint32, userData1: uint64, bodyId2: uint32, userData2: uint64) -> ()
+        field shouldCollide: (layer1: byte, layer2: byte) -> bool
 
         public field ContactAddedDelegate: Delegate
         public field ContactPersistedDelegate: Delegate
+        public field ShouldCollideDelegate: Delegate
 
         new(
                 contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> (), 
-                contactPersisted: (bodyId1: uint32, userData1: uint64, bodyId2: uint32, userData2: uint64) -> ()
+                contactPersisted: (bodyId1: uint32, userData1: uint64, bodyId2: uint32, userData2: uint64) -> (),
+                shouldCollide: (layer1: byte, layer2: byte) -> bool
             ) =
             {
                 contactAdded = contactAdded
@@ -135,6 +138,9 @@ class Physics =
 
                 contactPersisted = contactPersisted
                 ContactPersistedDelegate = DotNet.CreateDelegate(this, &&this.ContactPersisted)
+
+                shouldCollide = shouldCollide
+                ShouldCollideDelegate = DotNet.CreateDelegate(this, &&this.ShouldCollide)
             }
     
         //#[blittable] // TODO: need a new lang feature - #[blittable(cdecl)]
@@ -144,6 +150,10 @@ class Physics =
         //#[blittable] // TODO: need a new lang feature - #[blittable(cdecl)]
         ContactPersisted(args: EgJoltContactArgs): () =
             this.contactPersisted(args.bodyId1, args.userData1, args.bodyId2, args.userData2)
+
+        //#[blittable] // TODO: need a new lang feature - #[blittable(cdecl)]
+        ShouldCollide(layer1: byte, layer2: byte): bool =
+            this.shouldCollide(layer1, layer2)
 
     /// Earth's standard gravity
     /// m/s^2
@@ -223,6 +233,7 @@ class Physics =
            linearVelocity: Vector3, 
            angularVelocity: Vector3,
            gravityFactor: float32,
+           layer: byte,
            isActive: bool): DynamicObjectId =
         if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
            fail("Invalid scale")
@@ -238,6 +249,7 @@ class Physics =
         state.angularVelocity <- angularVelocity
         state.gravityFactor <- gravityFactor
         state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
+        state.layer <- layer
 
         let bodyId = egJoltAddBodyDynamicBox(this.Instance, scale, 1, mass, userData, &&deterministicId, &&state)
         if (this.Bodies.TryAdd(bodyId, ()))
@@ -247,7 +259,7 @@ class Physics =
         else
             fail("Body already exists.")
         
-    AddSphere(radius: float32, mass: float32, userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, linearVelocity: Vector3, angularVelocity: Vector3, isActive: bool): DynamicObjectId =
+    AddSphere(radius: float32, mass: float32, userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, linearVelocity: Vector3, angularVelocity: Vector3, layer: byte, isActive: bool): DynamicObjectId =
         if (this.bodyCount >= this.MaxBodyCount)
             fail("Too many bodies")
         if (mass <= 0)
@@ -259,6 +271,7 @@ class Physics =
         state.linearVelocity <- linearVelocity
         state.angularVelocity <- angularVelocity
         state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
+        state.layer <- layer
 
         let bodyId = egJoltAddBodyDynamicSphere(this.Instance, radius, 1, mass, userData, &&deterministicId, &&state)
         if (this.Bodies.TryAdd(bodyId, ()))
@@ -274,6 +287,7 @@ class Physics =
                  position: Vector3, 
                  rotation: Quaternion,
                  isSensor: bool, 
+                 layer: byte,
                  isActive: bool): StaticObjectId =
         if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
             fail("Invalid scale")
@@ -284,6 +298,7 @@ class Physics =
         state.position <- position
         state.rotation <- rotation
         state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
+        state.layer <- layer
 
         if (isSensor)
             state.flags <- state.flags | EgJolt_BodyFlags.IsSensor
@@ -296,11 +311,12 @@ class Physics =
         else
             fail("Body already exists.")
 
-    AddStaticMesh(mutable vertices: ReadOnlySpan<Vector3>, mutable indices: ReadOnlySpan<uint32>, userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, isActive: bool): StaticObjectId =
+    AddStaticMesh(mutable vertices: ReadOnlySpan<Vector3>, mutable indices: ReadOnlySpan<uint32>, userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, layer: byte, isActive: bool): StaticObjectId =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
         state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
+        state.layer <- layer
 
         let verticesRef = &vertices.GetPinnableReference()
         let indicesRef = &indices.GetPinnableReference()
@@ -312,11 +328,12 @@ class Physics =
         else
             fail("Body already exists.")
 
-    AddStaticCompoundMesh(meshes: PhysicsMesh[], userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, isActive: bool): StaticObjectId =
+    AddStaticCompoundMesh(meshes: PhysicsMesh[], userData: uint64, mutable deterministicId: uint32, position: Vector3, rotation: Quaternion, layer: byte, isActive: bool): StaticObjectId =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
         state.flags <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
+        state.layer <- layer
 
         let pinnedHandles = List()
 
@@ -481,7 +498,7 @@ class Physics =
 
     // Begin Character
 
-    AddCharacter(position: Vector3, userData: uint64): CharacterId =
+    AddCharacter(position: Vector3, layer: byte, userData: uint64): CharacterId =
         let mutable settings = default: EgJoltCharacterSettings
         settings.standingHeight <- 1.8
         settings.standingRadius <- 0.3
@@ -493,6 +510,7 @@ class Physics =
         settings.predictiveContactDistance <- 0.1
         settings.mass <- 1
         settings.maxSlopeAngle <- radians(45)
+        settings.layer <- layer
 
         let joltCharacter = egJoltCreateCharacter(this.Instance, &&settings, position, userData)
         let characterId = CharacterId(this.GetNextCharacterIdValue())
@@ -541,7 +559,7 @@ class Physics =
 
     // Begin Virtual Character
 
-    AddVirtualCharacter(position: Vector3, userData: uint64): VirtualCharacterId =
+    AddVirtualCharacter(position: Vector3, layer: byte, userData: uint64): VirtualCharacterId =
         let mutable settings = default: EgJoltCharacterSettings
         settings.standingHeight <- 1.8
         settings.standingRadius <- 0.3
@@ -553,6 +571,7 @@ class Physics =
         settings.predictiveContactDistance <- 0.1
         settings.mass <- 70
         settings.maxSlopeAngle <- radians(45)
+        settings.layer <- layer
         let joltCharacterVirtual = egJoltCreateCharacterVirtual(this.Instance, &&settings, position)
 
         let virtualCharacterId = VirtualCharacterId(this.GetNextVirtualCharacterIdValue())
@@ -569,9 +588,10 @@ class Physics =
         else
             fail("Character does not exist.")
 
-    Update(virtualCharacterId: VirtualCharacterId, deltaTime: float32): () =
+    Update(virtualCharacterId: VirtualCharacterId, layer: byte, deltaTime: float32): () =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
         let mutable settings = CreateDefaultEgJoltCharacterVirtualUpdateSettings()
+        settings.layer <- layer
         egJoltUpdateCharacterVirtual(this.Instance, instance.Jolt, deltaTime, &&settings)
 
     GetPosition(virtualCharacterId: VirtualCharacterId): Vector3 =
@@ -582,17 +602,17 @@ class Physics =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
         egJolt_CharacterVirtual_SetPosition(this.Instance, instance.Jolt, position)
 
-    Refresh(virtualCharacterId: VirtualCharacterId): () =
+    Refresh(virtualCharacterId: VirtualCharacterId, layer: byte): () =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
-        egJolt_CharacterVirtual_RefreshContacts(this.Instance, instance.Jolt)
+        egJolt_CharacterVirtual_RefreshContacts(this.Instance, instance.Jolt, layer)
 
     GetGroundVelocity(virtualCharacterId: VirtualCharacterId): Vector3 =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
         egJoltGetCharacterVirtualGroundVelocity(this.Instance, instance.Jolt)
 
-    UpdateGroundVelocity(virtualCharacterId: VirtualCharacterId): () =
+    UpdateGroundVelocity(virtualCharacterId: VirtualCharacterId, layer: byte): () =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
-        egJolt_CharacterVirtual_RefreshContacts(this.Instance, instance.Jolt)
+        egJolt_CharacterVirtual_RefreshContacts(this.Instance, instance.Jolt, layer)
         egJoltUpdateCharacterVirtualGroundVelocity(this.Instance, instance.Jolt)
 
     GetLinearVelocity(virtualCharacterId: VirtualCharacterId): Vector3 =
@@ -663,14 +683,17 @@ class Physics =
         )
 
     static Create(
+            maxNumberOfLayers: byte,
             contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> (), 
-            contactPersisted: (bodyId1: uint32, userData1:uint64, bodyId2: uint32, userData2: uint64) -> ()
+            contactPersisted: (bodyId1: uint32, userData1:uint64, bodyId2: uint32, userData2: uint64) -> (),
+            shouldCollide: (layer1: byte, layer2: byte) -> bool
         ): Physics =
         let characterIdLookup = ConcurrentDictionary()
         let virtualCharacterIdLookup = ConcurrentDictionary()
-        let callbacks = Callbacks(contactAdded, contactPersisted)
+        let callbacks = Callbacks(contactAdded, contactPersisted, shouldCollide)
         let callbackContactAddedPtr = Marshal.GetFunctionPointerForDelegate(callbacks.ContactAddedDelegate)
         let callbackContactPersistedPtr = Marshal.GetFunctionPointerForDelegate(callbacks.ContactPersistedDelegate)
+        let callbackShouldCollidePtr = Marshal.GetFunctionPointerForDelegate(callbacks.ShouldCollideDelegate)
 
         lock(InitCountLockObj,
             () ->
@@ -679,4 +702,10 @@ class Physics =
                 InitCount <- InitCount + 1
         )
 
-        Physics(callbacks, egJoltCreateInstance(Unsafe.Cast(callbackContactAddedPtr), Unsafe.Cast(callbackContactPersistedPtr)), characterIdLookup, virtualCharacterIdLookup)
+        Physics(callbacks, 
+            egJoltCreateInstance(
+                maxNumberOfLayers,
+                Unsafe.Cast(callbackContactAddedPtr), 
+                Unsafe.Cast(callbackContactPersistedPtr),
+                Unsafe.Cast(callbackShouldCollidePtr)
+            ), characterIdLookup, virtualCharacterIdLookup)

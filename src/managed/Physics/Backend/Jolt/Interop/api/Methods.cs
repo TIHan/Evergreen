@@ -23,7 +23,7 @@ public static unsafe partial class Methods
     public static extern uint egJoltGetMaxContactConstraints();
 
     [DllImport("Evergreen.Physics.Backend.Jolt.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-    public static extern EgJoltInstance egJoltCreateInstance([NativeTypeName("void (*)(EgJoltContactArgs)")] delegate* unmanaged[Cdecl]<EgJoltContactArgs, void> callbackContactAdded, [NativeTypeName("void (*)(EgJoltContactArgs)")] delegate* unmanaged[Cdecl]<EgJoltContactArgs, void> callbackContactPersisted);
+    public static extern EgJoltInstance egJoltCreateInstance([NativeTypeName("unsigned char")] byte maxNumberOfLayers, [NativeTypeName("void (*)(EgJoltContactArgs)")] delegate* unmanaged[Cdecl]<EgJoltContactArgs, void> callbackContactAdded, [NativeTypeName("void (*)(EgJoltContactArgs)")] delegate* unmanaged[Cdecl]<EgJoltContactArgs, void> callbackContactPersisted, [NativeTypeName("bool (*)(unsigned char, unsigned char)")] delegate* unmanaged[Cdecl]<byte, byte, byte> callbackShouldCollide);
 
     [DllImport("Evergreen.Physics.Backend.Jolt.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern void egJoltDestroyInstance(EgJoltInstance instance);
@@ -152,7 +152,7 @@ public static unsafe partial class Methods
     public static extern void egJolt_CharacterVirtual_SetPosition(EgJoltInstance instance, EgJoltCharacterVirtual character, [NativeTypeName("EgJoltVector3")] System.Numerics.Vector3 position);
 
     [DllImport("Evergreen.Physics.Backend.Jolt.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-    public static extern void egJolt_CharacterVirtual_RefreshContacts(EgJoltInstance instance, EgJoltCharacterVirtual character);
+    public static extern void egJolt_CharacterVirtual_RefreshContacts(EgJoltInstance instance, EgJoltCharacterVirtual character, [NativeTypeName("unsigned char")] byte layer);
 
     [DllImport("Evergreen.Physics.Backend.Jolt.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("EgJoltVector3")]

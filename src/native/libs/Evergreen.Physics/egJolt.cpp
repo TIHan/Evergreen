@@ -123,54 +123,16 @@ static bool AssertFailedImpl(const char* inExpression, const char* inMessage, co
 
 #endif // JPH_ENABLE_ASSERTS
 
-// Layer that objects can be in, determines which other objects it can collide with
-// Typically you at least want to have 1 layer for moving bodies and 1 layer for static bodies, but you can have more
-// layers if you want. E.g. you could have a layer for high detail collision (which is not used by the physics simulation
-// but only if you do collision testing).
-namespace Layers
-{
-	static constexpr ObjectLayer NON_MOVING = 0;
-	static constexpr ObjectLayer MOVING = 1;
-	static constexpr ObjectLayer CHARACTER = 2;
-	static constexpr ObjectLayer CHARACTER_VIRTUAL = 3;
-	static constexpr ObjectLayer NUM_LAYERS = 4;
-};
-
 /// Class that determines if two object layers can collide
 class ObjectLayerPairFilterImpl : public ObjectLayerPairFilter
 {
 public:
-	virtual bool					ShouldCollide(ObjectLayer inObject1, ObjectLayer inObject2) const override
-	{
-		switch (inObject1)
-		{
-		case Layers::CHARACTER:
-			return inObject2 != Layers::CHARACTER_VIRTUAL;
-		case Layers::CHARACTER_VIRTUAL:
-			return inObject2 != Layers::CHARACTER;
-		case Layers::NON_MOVING:
-			return inObject2 != Layers::NON_MOVING; // Non moving only collides with moving
-		case Layers::MOVING:
-			return true; // Moving collides with everything
-		default:
-			JPH_ASSERT(false);
-			return false;
-		}
-	}
-};
+	bool(*callbackShouldCollide)(unsigned char layer1, unsigned char layer2);
 
-// Each broadphase layer results in a separate bounding volume tree in the broad phase. You at least want to have
-// a layer for non-moving and moving objects to avoid having to update a tree full of static objects every frame.
-// You can have a 1-on-1 mapping between object layers and broadphase layers (like in this case) but if you have
-// many object layers you'll be creating many broad phase trees, which is not efficient. If you want to fine tune
-// your broadphase layers define JPH_TRACK_BROADPHASE_STATS and look at the stats reported on the TTY.
-namespace BroadPhaseLayers
-{
-	static constexpr BroadPhaseLayer NON_MOVING(0);
-	static constexpr BroadPhaseLayer MOVING(1);
-	static constexpr BroadPhaseLayer CHARACTER(2);
-	static constexpr BroadPhaseLayer CHARACTER_VIRTUAL(3);
-	static constexpr uint NUM_LAYERS(4);
+	virtual bool ShouldCollide(ObjectLayer inObject1, ObjectLayer inObject2) const override
+	{
+		return callbackShouldCollide(inObject1, inObject2);
+	}
 };
 
 // BroadPhaseLayerInterface implementation
@@ -178,64 +140,36 @@ namespace BroadPhaseLayers
 class BPLayerInterfaceImpl final : public BroadPhaseLayerInterface
 {
 public:
-	BPLayerInterfaceImpl()
+	unsigned char maxNumberOfLayers;
+
+	virtual uint GetNumBroadPhaseLayers() const override
 	{
-		// Create a mapping table from object to broad phase layer
-		mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
-		mObjectToBroadPhase[Layers::MOVING] = BroadPhaseLayers::MOVING;
-		mObjectToBroadPhase[Layers::CHARACTER] = BroadPhaseLayers::CHARACTER;
-		mObjectToBroadPhase[Layers::CHARACTER_VIRTUAL] = BroadPhaseLayers::CHARACTER_VIRTUAL;
+		return maxNumberOfLayers;
 	}
 
-	virtual uint					GetNumBroadPhaseLayers() const override
+	virtual BroadPhaseLayer	GetBroadPhaseLayer(ObjectLayer inLayer) const override
 	{
-		return BroadPhaseLayers::NUM_LAYERS;
-	}
-
-	virtual BroadPhaseLayer			GetBroadPhaseLayer(ObjectLayer inLayer) const override
-	{
-		JPH_ASSERT(inLayer < Layers::NUM_LAYERS);
-		return mObjectToBroadPhase[inLayer];
+		JPH_ASSERT(inLayer < maxNumberOfLayers);
+		return (BroadPhaseLayer)inLayer;
 	}
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
 	virtual const char* GetBroadPhaseLayerName(BroadPhaseLayer inLayer) const override
 	{
-		switch ((BroadPhaseLayer::Type)inLayer)
-		{
-		case (BroadPhaseLayer::Type)BroadPhaseLayers::NON_MOVING:	return "NON_MOVING";
-		case (BroadPhaseLayer::Type)BroadPhaseLayers::MOVING:		return "MOVING";
-		case (BroadPhaseLayer::Type)BroadPhaseLayers::CHARACTER:	return "CHARACTER";
-		case (BroadPhaseLayer::Type)BroadPhaseLayers::CHARACTER_VIRTUAL:		return "CHARACTER_VIRTUAL";
-		default:													JPH_ASSERT(false); return "INVALID";
-		}
+		return "TODO: BroadPhaseLayerName";
 	}
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
-
-private:
-	BroadPhaseLayer					mObjectToBroadPhase[Layers::NUM_LAYERS];
 };
 
 /// Class that determines if an object layer can collide with a broadphase layer
 class ObjectVsBroadPhaseLayerFilterImpl : public ObjectVsBroadPhaseLayerFilter
 {
 public:
-	virtual bool				ShouldCollide(ObjectLayer inLayer1, BroadPhaseLayer inLayer2) const override
+	bool(*callbackShouldCollide)(unsigned char layer1, unsigned char layer2);
+
+	virtual bool ShouldCollide(ObjectLayer inLayer1, BroadPhaseLayer inLayer2) const override
 	{
-		switch (inLayer1)
-		{
-		case Layers::CHARACTER:
-			return inLayer2 != BroadPhaseLayers::CHARACTER_VIRTUAL;
-		case Layers::CHARACTER_VIRTUAL:
-			return inLayer2 != BroadPhaseLayers::CHARACTER;
-		case Layers::NON_MOVING:
-			return inLayer2 != BroadPhaseLayers::NON_MOVING;
-		case Layers::MOVING:
-			return true;
-		default:
-			JPH_ASSERT(false);
-			return false;
-		}
+		return callbackShouldCollide(inLayer1, (unsigned char)inLayer2);
 	}
 };
 
@@ -561,6 +495,7 @@ inline EgJoltCharacterVirtual _egJoltCreateCharacterVirtual(EgJoltInstance insta
 	virtualSettings->mSupportingVolume = Plane(Vec3::sAxisZ(), -settings.standingRadius); // Accept contacts that touch the lower sphere of the capsule
 	virtualSettings->mUp = Vec3::sAxisZ();
 	virtualSettings->mMass = settings.mass;
+	virtualSettings->mInnerBodyLayer = settings.layer;
 
 	auto jCharacterVirtual = new CharacterVirtual(virtualSettings, ConvertVector3(position), Quat::sIdentity(), physics);
 	jCharacterVirtual->SetListener(internal->characterContactListener);
@@ -647,8 +582,10 @@ extern "C" {
 	}
 
 	EG_EXPORT EgJoltInstance egJoltCreateInstance(
+		unsigned char maxNumberOfLayers,
 		void(*callbackContactAdded)(EgJoltContactArgs), 
-		void(*callbackContactPersisted)(EgJoltContactArgs)
+		void(*callbackContactPersisted)(EgJoltContactArgs),
+		bool(*callbackShouldCollide)(unsigned char layer1, unsigned char layer2)
 	)
 	{
 		// We need a temp allocator for temporary allocations during the physics update. We're
@@ -672,14 +609,17 @@ extern "C" {
 		// Create mapping table from object layer to broadphase layer
 		// Note: As this is an interface, PhysicsSystem will take a reference to this so this instance needs to stay alive!
 		BPLayerInterfaceImpl* broad_phase_layer_interface = new BPLayerInterfaceImpl();
+		broad_phase_layer_interface->maxNumberOfLayers = maxNumberOfLayers;
 
 		// Create class that filters object vs broadphase layers
 		// Note: As this is an interface, PhysicsSystem will take a reference to this so this instance needs to stay alive!
 		ObjectVsBroadPhaseLayerFilterImpl* object_vs_broadphase_layer_filter = new ObjectVsBroadPhaseLayerFilterImpl();
+		object_vs_broadphase_layer_filter->callbackShouldCollide = callbackShouldCollide;
 
 		// Create class that filters object vs object layers
 		// Note: As this is an interface, PhysicsSystem will take a reference to this so this instance needs to stay alive!
 		ObjectLayerPairFilterImpl* object_vs_object_layer_filter = new ObjectLayerPairFilterImpl();
+		object_vs_object_layer_filter->callbackShouldCollide = callbackShouldCollide;
 
 		// Now we can create the actual physics system.
 		PhysicsSystem* physics_system = new PhysicsSystem();
@@ -714,74 +654,6 @@ extern "C" {
 		contact_listener->callbackContactPersisted = callbackContactPersisted;
 		contact_listener->physics = physics_system;
 		physics_system->SetContactListener(contact_listener);
-
-		//// The main way to interact with the bodies in the physics system is through the body interface. There is a locking and a non-locking
-		//// variant of this. We're going to use the locking version (even though we're not planning to access bodies from multiple threads)
-		//BodyInterface& body_interface = physics_system.GetBodyInterfaceNoLock();
-
-		//// Next we can create a rigid body to serve as the floor, we make a large box
-		//// Create the settings for the collision volume (the shape).
-		//// Note that for simple shapes (like boxes) you can also directly construct a BoxShape.
-		//BoxShapeSettings floor_shape_settings(Vec3(100.0f, 1.0f, 100.0f));
-
-		//// Create the shape
-		//ShapeSettings::ShapeResult floor_shape_result = floor_shape_settings.Create();
-		//ShapeRefC floor_shape = floor_shape_result.Get(); // We don't expect an error here, but you can check floor_shape_result for HasError() / GetError()
-
-		//// Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
-		//BodyCreationSettings floor_settings(floor_shape, RVec3(0.0_r, -1.0_r, 0.0_r), Quat::sIdentity(), EMotionType::Static, Layers::NON_MOVING);
-
-		//// Create the actual rigid body
-		//Body* floor = body_interface.CreateBody(floor_settings); // Note that if we run out of bodies this can return nullptr
-
-		//// Add it to the world
-		//body_interface.AddBody(floor->GetID(), EActivation::DontActivate);
-
-		//// Now create a dynamic body to bounce on the floor
-		//// Note that this uses the shorthand version of creating and adding a body to the world
-		//BodyCreationSettings sphere_settings(new SphereShape(0.5f), RVec3(0.0_r, 2.0_r, 0.0_r), Quat::sIdentity(), EMotionType::Dynamic, Layers::MOVING);
-		//BodyID sphere_id = body_interface.CreateAndAddBody(sphere_settings, EActivation::Activate);
-
-		//// Now you can interact with the dynamic body, in this case we're going to give it a velocity.
-		//// (note that if we had used CreateBody then we could have set the velocity straight on the body before adding it to the physics system)
-		//body_interface.SetLinearVelocity(sphere_id, Vec3(0.0f, -5.0f, 0.0f));
-
-		//// We simulate the physics world in discrete time steps. 60 Hz is a good rate to update the physics system.
-		//const float cDeltaTime = 1.0f / 60.0f;
-
-		//// Optional step: Before starting the physics simulation you can optimize the broad phase. This improves collision detection performance (it's pointless here because we only have 2 bodies).
-		//// You should definitely not call this every frame or when e.g. streaming in a new level section as it is an expensive operation.
-		//// Instead insert all new objects in batches instead of 1 at a time to keep the broad phase efficient.
-		//physics_system.OptimizeBroadPhase();
-
-		//// Now we're ready to simulate the body, keep simulating until it goes to sleep
-		//uint step = 0;
-		//while (body_interface.IsActive(sphere_id))
-		//{
-		//	// Next step
-		//	++step;
-
-		//	// Output current position and velocity of the sphere
-		//	RVec3 position = body_interface.GetCenterOfMassPosition(sphere_id);
-		//	Vec3 velocity = body_interface.GetLinearVelocity(sphere_id);
-		//	cout << "Step " << step << ": Position = (" << position.GetX() << ", " << position.GetY() << ", " << position.GetZ() << "), Velocity = (" << velocity.GetX() << ", " << velocity.GetY() << ", " << velocity.GetZ() << ")" << endl;
-
-		//	// If you take larger steps than 1 / 60th of a second you need to do multiple collision steps in order to keep the simulation stable. Do 1 collision step per 1 / 60th of a second (round up).
-		//	const int cCollisionSteps = 1;
-
-		//	// Step the world
-		//	physics_system.Update(cDeltaTime, cCollisionSteps, &temp_allocator, &job_system);
-		//}
-
-		//// Remove the sphere from the physics system. Note that the sphere itself keeps all of its state and can be re-added at any time.
-		//body_interface.RemoveBody(sphere_id);
-
-		//// Destroy the sphere. After this the sphere ID is no longer valid.
-		//body_interface.DestroyBody(sphere_id);
-
-		//// Remove and destroy the floor
-		//body_interface.RemoveBody(floor->GetID());
-		//body_interface.DestroyBody(floor->GetID());
 
 		auto characterContactListener = new MyCharacterVirtualContactListener();
 
@@ -895,27 +767,27 @@ extern "C" {
 
 	EG_EXPORT unsigned int egJoltAddBodyDynamicBox(EgJoltInstance instance, EgJoltVector3 scale, float density, float mass, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
 	{
-		return _egJoltAddBodyBox(instance, scale, EMotionType::Dynamic, Layers::MOVING, density, mass, userData, (BodyID*)bodyId, state);
+		return _egJoltAddBodyBox(instance, scale, EMotionType::Dynamic, state->layer, density, mass, userData, (BodyID*)bodyId, state);
 	}
 
 	EG_EXPORT unsigned int egJoltAddBodyDynamicSphere(EgJoltInstance instance, float radius, float density, float mass, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
 	{
-		return _egJoltAddBodySphere(instance, radius, EMotionType::Dynamic, Layers::MOVING, density, mass, userData, (BodyID*)bodyId, state);
+		return _egJoltAddBodySphere(instance, radius, EMotionType::Dynamic, state->layer, density, mass, userData, (BodyID*)bodyId, state);
 	}
 
 	EG_EXPORT unsigned int egJoltAddBodyStaticBox(EgJoltInstance instance, EgJoltVector3 scale, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
 	{
-		return _egJoltAddBodyBox(instance,  scale, EMotionType::Static, Layers::NON_MOVING, 0, 0, userData, (BodyID*)bodyId, state);
+		return _egJoltAddBodyBox(instance,  scale, EMotionType::Static, state->layer, 0, 0, userData, (BodyID*)bodyId, state);
 	}
 
 	EG_EXPORT unsigned int egJoltAddBodyStaticMesh(EgJoltInstance instance, EgJoltVector3* vertices, int vertexCount, unsigned int* indices, int indexCount, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
 	{
-		return _egJoltAddBodyMesh(instance, vertices, vertexCount, indices, indexCount, EMotionType::Static, Layers::NON_MOVING, 0, userData, (BodyID*)bodyId, state);
+		return _egJoltAddBodyMesh(instance, vertices, vertexCount, indices, indexCount, EMotionType::Static, state->layer, 0, userData, (BodyID*)bodyId, state);
 	}
 
 	EG_EXPORT unsigned int egJoltAddBodyStaticCompoundMesh(EgJoltInstance instance, EgJoltCompoundMesh compoundMesh, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
 	{
-		return _egJoltAddStaticBodyCompoundMesh(instance, compoundMesh, EMotionType::Static, Layers::NON_MOVING, 0, userData, (BodyID*)bodyId, state);
+		return _egJoltAddStaticBodyCompoundMesh(instance, compoundMesh, EMotionType::Static, state->layer, 0, userData, (BodyID*)bodyId, state);
 	}
 
 	EG_EXPORT unsigned long long egJoltGetBodyUserData(EgJoltInstance instance, unsigned int bodyId)
@@ -1136,7 +1008,7 @@ extern "C" {
 		characterVirtual->SetPosition(ConvertVector3(position));
 	}
 
-	EG_EXPORT void egJolt_CharacterVirtual_RefreshContacts(EgJoltInstance instance, EgJoltCharacterVirtual character)
+	EG_EXPORT void egJolt_CharacterVirtual_RefreshContacts(EgJoltInstance instance, EgJoltCharacterVirtual character, unsigned char layer)
 	{
 		auto internalInstance = GetInternalInstance(instance);
 		auto physics = internalInstance->physics_system;
@@ -1144,8 +1016,8 @@ extern "C" {
 		auto characterVirtual = GetInternalCharacterVirtual(character);
 
 		characterVirtual->RefreshContacts(
-			physics->GetDefaultBroadPhaseLayerFilter(Layers::CHARACTER_VIRTUAL),
-			physics->GetDefaultLayerFilter(Layers::CHARACTER_VIRTUAL),
+			physics->GetDefaultBroadPhaseLayerFilter(layer),
+			physics->GetDefaultLayerFilter(layer),
 			(*internalInstance->bodyFilter),
 			{ },
 			*internalInstance->temp_allocator
@@ -1229,8 +1101,8 @@ extern "C" {
 			deltaTime,
 			-characterVirtual->GetUp() * physics->GetGravity().Length(),
 			settings,
-			physics->GetDefaultBroadPhaseLayerFilter(Layers::CHARACTER_VIRTUAL),
-			physics->GetDefaultLayerFilter(Layers::CHARACTER_VIRTUAL),
+			physics->GetDefaultBroadPhaseLayerFilter(updateSettings.layer),
+			physics->GetDefaultLayerFilter(updateSettings.layer),
 			(*internalInstance->bodyFilter),
 			{ },
 			*internalInstance->temp_allocator
@@ -1260,7 +1132,7 @@ extern "C" {
 
 	EG_EXPORT EgJoltCharacter egJoltCreateCharacter(EgJoltInstance instance, EgJoltCharacterSettings& settings, EgJoltVector3 position, unsigned long long userData)
 	{
-		return _egJoltCreateCharacter(instance, settings, position, Layers::CHARACTER, userData);
+		return _egJoltCreateCharacter(instance, settings, position, settings.layer, userData);
 	}
 
 	EG_EXPORT void egJoltDestroyCharacter(EgJoltInstance instance, EgJoltCharacter character)
@@ -1343,6 +1215,7 @@ extern "C" {
 		}
 
 		outState->flags = flags;
+		outState->layer = body->GetObjectLayer();
 	}
 
 	EG_EXPORT void egJolt_Body_SetState(const EgJoltInstance instance, unsigned int bodyId, const EgJoltBodyState* state)
@@ -1363,6 +1236,12 @@ extern "C" {
 		if (body->IsActive() != isActive)
 		{
 			_egJolt_Body_SetIsActive(instance, bodyId, isActive);
+		}
+
+		unsigned char layer = body->GetObjectLayer();
+		if (layer != state->layer)
+		{
+			_egJolt_GetBodyInterfaceNoLock(instance).SetObjectLayer(ConvertBodyId(bodyId), state->layer);
 		}
 	}
 

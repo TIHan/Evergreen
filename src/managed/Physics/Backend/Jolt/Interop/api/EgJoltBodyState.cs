@@ -17,4 +17,7 @@ public partial struct EgJoltBodyState
     public float gravityFactor;
 
     public EgJolt_BodyFlags flags;
+
+    [NativeTypeName("unsigned char")]
+    public byte layer;
 }

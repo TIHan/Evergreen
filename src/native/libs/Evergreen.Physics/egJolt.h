@@ -56,6 +56,7 @@ typedef struct {
 	float crouchingHeight;
 	float crouchingRadius;
 	float mass;
+	unsigned char layer;
 } EgJoltCharacterSettings;
 
 typedef struct {
@@ -97,6 +98,7 @@ typedef struct {
 	EgJoltVector3 angularVelocity;
 	float gravityFactor;
 	EgJolt_BodyFlags flags;
+	unsigned char layer;
 } EgJoltBodyState;
 
 typedef struct
@@ -107,6 +109,8 @@ typedef struct
 	float					walkStairsStepForwardTest;
 	float					walkStairsCosAngleForwardContact;
 	EgJoltVector3			walkStairsStepDownExtra;
+	unsigned char           layer;
+
 } EgJoltCharacterVirtualUpdateSettings;
 
 enum class EgJolt_GroundState
@@ -126,7 +130,12 @@ extern "C" {
 	EG_EXPORT unsigned int egJoltGetMaxBodyPairs();
 	EG_EXPORT unsigned int egJoltGetMaxContactConstraints();
 
-	EG_EXPORT EgJoltInstance egJoltCreateInstance(void(*callbackContactAdded)(EgJoltContactArgs), void(*callbackContactPersisted)(EgJoltContactArgs));
+	EG_EXPORT EgJoltInstance egJoltCreateInstance(
+		unsigned char maxNumberOfLayers,
+		void(*callbackContactAdded)(EgJoltContactArgs),
+		void(*callbackContactPersisted)(EgJoltContactArgs),
+		bool(*callbackShouldCollide)(unsigned char layer1, unsigned char layer2)
+	);
 	EG_EXPORT void egJoltDestroyInstance(EgJoltInstance instance);
 	EG_EXPORT void egJoltUpdate(EgJoltInstance instance, float deltaTime, int collisionSteps);
 	EG_EXPORT void egJoltSetGravity(EgJoltInstance instance, EgJoltVector3 gravity);
@@ -167,7 +176,7 @@ extern "C" {
 	EG_EXPORT EgJoltVector3 egJoltGetCharacterVirtualCenterOfMassPosition(EgJoltInstance instance, EgJoltCharacterVirtual character);
 	EG_EXPORT EgJoltVector3 egJoltGetCharacterVirtualPosition(EgJoltInstance instance, EgJoltCharacterVirtual character);
 	EG_EXPORT void egJolt_CharacterVirtual_SetPosition(EgJoltInstance instance, EgJoltCharacterVirtual character, EgJoltVector3 position);
-	EG_EXPORT void egJolt_CharacterVirtual_RefreshContacts(EgJoltInstance instance, EgJoltCharacterVirtual character);
+	EG_EXPORT void egJolt_CharacterVirtual_RefreshContacts(EgJoltInstance instance, EgJoltCharacterVirtual character, unsigned char layer);
 	EG_EXPORT EgJoltVector3 egJoltGetCharacterVirtualLinearVelocity(EgJoltInstance instance, EgJoltCharacterVirtual character);
 	EG_EXPORT void egJoltSetCharacterVirtualLinearVelocity(EgJoltInstance instance, EgJoltCharacterVirtual character, EgJoltVector3 linearVelocity);
 	EG_EXPORT EgJoltVector3 egJoltGetCharacterVirtualGroundVelocity(EgJoltInstance instance, EgJoltCharacterVirtual character);

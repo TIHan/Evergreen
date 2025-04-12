@@ -21,4 +21,7 @@ public partial struct EgJoltCharacterSettings
     public float crouchingRadius;
 
     public float mass;
+
+    [NativeTypeName("unsigned char")]
+    public byte layer;
 }
