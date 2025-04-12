@@ -29,7 +29,7 @@ class ServerStagingWorld =
 
 class ServerWorld =
     inherits World
-    implements IDisposable
+    implements IDisposable, IUnlockedWorld
 
     static CreateRegistry(genv: GameEnv): ComponentRegistry =
         let registry = ComponentRegistry()
@@ -89,7 +89,7 @@ class ServerWorld =
     private Flush(): () =
         let mutable entId = default
         while (this.DestroyEntityQueue.TryDequeue(&entId))
-            let _ = this.Database.TryDelete(entId)
+            let _ = this.UnlockedDatabase.TryDelete(entId)
 
     Save(filePath: string): () =       
         let fs = System.IO.File.Create(filePath)
@@ -209,7 +209,7 @@ class ServerWorld =
         this.DestroyEntityQueue.Enqueue(entId)
 
     AddOrUpdatePlayerInput(entId: EntityId, playerInput: CharacterInput): () =
-        this.Database.TryAddOrUpdate(entId, playerInput)
+        this.UnlockedDatabase.TryAddOrUpdate(entId, playerInput)
 
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =
         let db = this.UnlockedDatabase

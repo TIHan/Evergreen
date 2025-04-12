@@ -89,7 +89,7 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
     serverWorld.SpawnStaticBox(Vector3.Zero, Quaternion.Identity, Vector3.One, Material())
     let entId = serverWorld.SpawnPlayer(1)
 
-    serverWorld.Database.TryAddOrUpdate(entId, Health())
+    serverWorld.UnlockedDatabase.TryAddOrUpdate(entId, Health())
 
     serverWorld.CopyTo(serverStagingWorld)
 
@@ -144,7 +144,7 @@ SerializeDeserializePlayer3(genv: GameEnv): () =
         clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)
 
     let entId = serverWorld.SpawnPlayer(1)
-    serverWorld.Database.TryAddOrUpdate(entId, Health())
+    serverWorld.UnlockedDatabase.TryAddOrUpdate(entId, Health())
 
     serverWorld.CopyTo(serverStagingWorld)
 
@@ -203,7 +203,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
         clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)
 
     let entId = serverWorld.SpawnPlayer(1)
-    serverWorld.Database.TryAddOrUpdate(entId, Health())
+    serverWorld.UnlockedDatabase.TryAddOrUpdate(entId, Health())
 
     serverWorld.CopyTo(serverStagingWorld)
 

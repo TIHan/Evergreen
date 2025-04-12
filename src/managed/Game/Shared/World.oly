@@ -48,6 +48,10 @@ class RenderMeshGroup =
     Meshes: RenderMesh[] get
     new(meshes: RenderMesh[]) = { Meshes = meshes }
 
+interface IUnlockedWorld =
+
+    UnlockedDatabase: UnlockedEntityDatabase get
+
 abstract default class World =
 
     new(db: EntityDatabase) =
@@ -70,8 +74,8 @@ abstract default class World =
 
     CanSpawnEntity: bool get() = this.Database.CanSpawnEntity
 
-    Replicate(dstWorldCopy: World, dstWorld: World, events: EntityDatabase.ReplicatingEvents, nonLocalOnly: bool): () =
-        this.Database.Replicate(dstWorldCopy.Database, dstWorld.Database, events, nonLocalOnly)
+    Replicate(dstWorldCopy: World, dstWorld: IUnlockedWorld, events: EntityDatabase.ReplicatingEvents, nonLocalOnly: bool): () =
+        this.Database.Replicate(dstWorldCopy.Database, dstWorld.UnlockedDatabase, events, nonLocalOnly)
 
     CopyTo(dstWorld: World): () =
         this.Database.CopyTo(dstWorld.Database)
@@ -94,8 +98,8 @@ abstract default class World =
     SerializeReplication(prevWorld: World, nonLocalOnly: bool, dstStream: ByteStream): () =
         this.Database.SerializeReplication(prevWorld.Database, nonLocalOnly, dstStream)
 
-    DeserializeReplication(srcStream: ByteStream, dstWorldCopy: World, dstWorld: World, nonLocalOnly: bool): () =
-        this.Database.DeserializeReplication(srcStream, dstWorldCopy.Database, dstWorld.Database, nonLocalOnly)
+    DeserializeReplication(srcStream: ByteStream, dstWorldCopy: World, dstWorld: IUnlockedWorld, nonLocalOnly: bool): () =
+        this.Database.DeserializeReplication(srcStream, dstWorldCopy.Database, dstWorld.UnlockedDatabase, nonLocalOnly)
 
     static RegisterComponents(registry: ComponentRegistry): () =
         registry.Register<Camera>()

@@ -49,7 +49,7 @@ class ClientStagingWorld =
 
 class ClientWorld =
     inherits World
-    implements IDisposable
+    implements IDisposable, IUnlockedWorld
 
     static CreateRegistry(genv: GameEnv): ComponentRegistry =
         let registry = ComponentRegistry()

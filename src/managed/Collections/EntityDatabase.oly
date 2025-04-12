@@ -173,7 +173,7 @@ abstract default class EntityDatabase =
     internal GetArchetype(index: int32): Archetype =
         this.Archetypes[index]
 
-    protected GetArchetypeCount(): int32 =
+    internal GetArchetypeCount(): int32 =
         this.Archetypes.Count
 
     field lockObj: object
@@ -276,7 +276,8 @@ abstract default class EntityDatabase =
 
         Unsafe.AsImmutable(indices.ToArray())
 
-    private AddCore(entId: EntityId, typeId: ComponentId, diff: byref<ArchetypeId>): Archetype =
+    /* TODO-language-bug: cannot make this 'protected' as 'Archetype' is internal, but this should be allowed */
+    internal AddCore(entId: EntityId, typeId: ComponentId, diff: byref<ArchetypeId>): Archetype =
         this.Check(entId)
 
         let srcArchetypedIndex = this.entityArchetypeIndices[entId.Index]
@@ -316,58 +317,7 @@ abstract default class EntityDatabase =
 
             dstArchetype
 
-    TryAddOrUpdate<T>(entId: EntityId, value: T): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.TryAddOrUpdate(entId, &value)
-    TryAddOrUpdate<T>(mutable entId: EntityId, value: inref<T>): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.ThrowIfDepth()
-        this.ThrowIfParallelDepth()
-        if (this.IsValid(entId))
-            let lookup = this.entityIndexLookup
-            let tyId: ComponentId = T.GetId()
-
-            let mutable diff = default
-            let archetype = this.AddCore(entId, tyId, &diff)
-            if (archetype !== unchecked default)
-                let index = lookup[entId.Index]
-                archetype.Set(archetype.BufferLookup[tyId], index, value)
-
-                if (!diff.IsZero)
-                    archetype.TriggerComponentAdded(diff, index)
-            else
-                let currentArchetype = this.GetArchetype(this.entityArchetypeIndices[entId.Index])
-#if DEBUG
-                fail("Cannot add component '" + T.GetName() + "' to entity '" + entId.ToString() + "'. The resulting archetype is not registered:\n\t" + currentArchetype.ComponentListNoAttachmentsText + T.GetName() + ",")
-#end
-                LogError("Cannot add component '" + T.GetName() + "' to entity '" + entId.ToString() + "'. The resulting archetype is not registered:\n\t" + currentArchetype.ComponentListNoAttachmentsText + T.GetName() + ",")
-
-    TryRemove<T>(entId: EntityId): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.ThrowIfDepth()
-        this.ThrowIfParallelDepth()
-        if (this.IsValid(entId))
-            let archetypeIndex = this.entityArchetypeIndices[entId.Index]
-            if (archetypeIndex != -1)
-                let archetype = this.GetArchetype(archetypeIndex)
-                if (archetype.Id.IsSet(T.GetIndex()))
-                    let compId: ComponentId = T.GetId()
-                    let lookupIndex = this.entityIndexLookup[entId.Index]
-
-                    archetype.TriggerComponentRemoving(compId, lookupIndex)
-
-                    let newArchetypeId = archetype.Id & compId.BitwiseNot()
-                    let newArchetypeIndex = this.GetArchetypedIndex(newArchetypeId)
-                    let newArchetype = this.GetArchetype(newArchetypeIndex)
-                    let newLookupIndex = newArchetype.Count
-                    newArchetype.Count <- newArchetype.Count + 1
-                    newArchetype.EntityIds.SetAs(newLookupIndex, entId)
-
-                    archetype.CopyOneTo(lookupIndex, newArchetype, newLookupIndex)
-                    this.entityArchetypeIndices[entId.Index] <- newArchetypeIndex
-                    this.entityIndexLookup[entId.Index] <- newLookupIndex
-                    this.SwapRemoveEntityByLookupIndex(archetype, lookupIndex)
-                    
-                    this.DebugCheckIntegrity()
-
-    private DeleteCore(entId: EntityId): () =
+    protected DeleteCore(entId: EntityId): () =
         this.ThrowIfDepth()
         this.ThrowIfParallelDepth()
         
@@ -389,18 +339,7 @@ abstract default class EntityDatabase =
 
         this.DeleteEntityId(entId)
 
-    Delete(entId: EntityId): () =
-        this.Check(entId)
-        this.DeleteCore(entId)
-
-    TryDelete(entId: EntityId): bool =
-        if (this.IsValid(entId))
-            this.DeleteCore(entId)
-            true
-        else
-            false
-
-    private SwapRemoveEntityByLookupIndex(archetype: Archetype, index: int32): () =
+    internal SwapRemoveEntityByLookupIndex(archetype: Archetype, index: int32): () =
         let lastIndex = archetype.Count - 1
         let lastEntId = archetype.EntityIds.GetAs<EntityId>(lastIndex)
 
@@ -518,7 +457,7 @@ abstract default class EntityDatabase =
 
     LocalEntityCount: int32 get() = this.localEntityCount
 
-    private DebugCheckIntegrity(): () =
+    protected DebugCheckIntegrity(): () =
 #if DEBUG
         let lookup = Dictionary<EntityId, Archetype>()
         let mutable i = 0
@@ -1049,121 +988,6 @@ abstract default class EntityDatabase =
         // --
         events
 
-    Replicate(dstCopy: EntityDatabase, dst: EntityDatabase, events: ReplicatingEvents, nonLocalOnly: bool): () =
-        let mutable i = 0
-        while (i < events.DeletingEntities.Count)
-            let info = events.DeletingEntities[i]
-
-#if DEBUG
-            if (nonLocalOnly && info.EntityId.Index >= (MaxNumberOfEntities / 2))
-                fail("Cannot delete local entity in a non-local context")
-#end
-
-            dst.Delete(info.EntityId)
-            i <- i + 1
-
-        dst.IncrementDepth()
-
-        // TODO: Make this non-allocating if it makes sense to.
-        let queue = Queue()
-
-        let mutable i = 0
-        while (i < events.ArchetypeChangedEntities.Count)
-            let result = events.ArchetypeChangedEntities[i]
-            let entIndex = result.EntityIndex
-
-#if DEBUG
-            if (nonLocalOnly && entIndex >= (MaxNumberOfEntities / 2))
-                fail("Cannot change local entity in a non-local context")
-#end
-
-            let prevArchetypeCopy = dstCopy.GetArchetype(dstCopy.GetArchetypedIndex(result.PreviousArchetypeId))
-            let prevArchetype = dst.GetArchetype(dst.GetArchetypedIndex(result.PreviousArchetypeId))
-            let archetypedIndex = dst.GetArchetypedIndex(result.ArchetypeId)
-            let dstArchetype = dst.GetArchetype(archetypedIndex)
-
-#if DEBUG
-            if (prevArchetypeCopy.Id != prevArchetype.Id)
-                fail("Archetype integrity failed in replication")
-#end
-
-            let diff = prevArchetype.FullId & dstArchetype.FullId.BitwiseNot()
-            if (!diff.IsZero)
-                prevArchetype.TriggerComponentRemoving(diff, result.PreviousIndex)
-
-            dstArchetype.EnsureCapacity(dstArchetype.Count + 1)
-
-            prevArchetypeCopy.CopyOneTo(result.PreviousIndex, dstArchetype, result.Index)
-            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
-
-            let diff = dstArchetype.FullId & prevArchetype.FullId.BitwiseNot()
-            if (!diff.IsZero)
-                queue.Enqueue(
-                    () ->
-                        dstArchetype.TriggerComponentAdded(diff, result.Index)
-                )
-
-            i <- i + 1
-
-        if (nonLocalOnly)
-            Span(this.entityVersions, 0, this.entityVersions.Length / 2).CopyTo(Span(dst.entityVersions))
-            Span(this.entityIndexLookup, 0, this.entityIndexLookup.Length / 2).CopyTo(Span(dst.entityIndexLookup))
-        else
-            Span(this.entityVersions).CopyTo(Span(dst.entityVersions))
-            Span(this.entityIndexLookup).CopyTo(Span(dst.entityIndexLookup))
-
-        dst.lastCreatedEntity <- this.lastCreatedEntity
-        dst.entityCount <- this.entityCount
-
-        if (!nonLocalOnly)
-            dst.lastCreatedLocalEntity <- this.lastCreatedLocalEntity
-            dst.localEntityCount <- this.localEntityCount
-
-        // Archetype counts should also be zero.
-        let mutable i = 0
-        while (i < dst.GetArchetypeCount())
-            let archetype = dst.GetArchetype(i)
-            if (nonLocalOnly)
-                if (!archetype.IsLocal)
-                    archetype.Count <- 0
-            else
-                archetype.Count <- 0
-            i <- i + 1
-
-        let mutable i = 0
-        while (i < this.GetArchetypeCount())     
-            let archetype = this.GetArchetype(i)
-            if (nonLocalOnly)
-                if (!archetype.IsLocal)
-                    archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
-            else
-                archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
-            i <- i + 1
-
-        let mutable f = unchecked default
-        while (queue.TryDequeue(&f))
-            f()
-
-        let mutable i = 0
-        while (i < events.CreatedEntities.Count)
-            let result = events.CreatedEntities[i]
-            let entId = result.EntityId
-            let entIndex = entId.Index
-#if DEBUG
-            if (nonLocalOnly && entIndex >= (MaxNumberOfEntities / 2))
-                fail("Cannot create local entity in a non-local context")
-#end
-            let archetypedIndex = dst.GetArchetypedIndex(result.ArchetypeId)
-            dst.entityVersions[entIndex] <- entId.Version
-            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
-
-            let archetype = dst.GetArchetype(archetypedIndex)
-            archetype.TriggerComponentAdded(archetype.FullId, dst.entityIndexLookup[entIndex])
-
-            i <- i + 1
-
-        dst.DecrementDepth()
-
     SerializeReplication(prevDb: EntityDatabase, nonLocalOnly: bool, dstStream: ByteStream): () =
         let prevLookup = prevDb.entityIndexLookup
         let lookup = this.entityIndexLookup
@@ -1242,131 +1066,6 @@ abstract default class EntityDatabase =
             let (entId, archetypeId) = result
             dstStream.Write(entId)
             dstStream.Write(archetypeId)
-
-    DeserializeReplication(srcStream: ByteStream, dstCopy: EntityDatabase, dst: EntityDatabase, nonLocalOnly: bool): () =
-        let deletingEntityCount = srcStream.ReadInt32()
-
-        let mutable i = 0
-        while (i < deletingEntityCount)
-            let entId = srcStream.Read<EntityId>()
-
-#if DEBUG
-            if (nonLocalOnly && entId.Index >= (MaxNumberOfEntities / 2))
-                fail("Cannot delete local entity in a non-local context")
-#end
-
-            dst.Delete(entId)
-            i <- i + 1
-
-        dst.IncrementDepth()
-
-        // TODO: Make this non-allocating if it makes sense to.
-        let queue = Queue()
-
-        let archetypeChangedEntityCount = srcStream.ReadInt32()
-
-        let mutable i = 0
-        while (i < archetypeChangedEntityCount)
-            let entIndex = srcStream.ReadInt32()
-            let prevIndex = srcStream.ReadInt32()
-            let index = srcStream.ReadInt32()
-            let prevArchetypeId = srcStream.Read<ArchetypeId>()
-            let archetypeId = srcStream.Read<ArchetypeId>()
-
-#if DEBUG
-            if (nonLocalOnly && entIndex >= (MaxNumberOfEntities / 2))
-                fail("Cannot change local entity in a non-local context")
-#end
-
-            let prevArchetypeCopy = dstCopy.GetArchetype(dstCopy.GetArchetypedIndex(prevArchetypeId))
-            let prevArchetype = dst.GetArchetype(dst.GetArchetypedIndex(prevArchetypeId))
-            let archetypedIndex = dst.GetArchetypedIndex(archetypeId)
-            let dstArchetype = dst.GetArchetype(archetypedIndex)
-
-#if DEBUG
-            if (prevArchetypeCopy.Id != prevArchetype.Id)
-                fail("Archetype integrity failed in replication")
-#end
-
-            let diff = prevArchetype.FullId & dstArchetype.FullId.BitwiseNot()
-            if (!diff.IsZero)
-                prevArchetype.TriggerComponentRemoving(diff, prevIndex)
-
-            dstArchetype.EnsureCapacity(dstArchetype.Count + 1)
-
-            prevArchetypeCopy.CopyOneTo(prevIndex, dstArchetype, index)
-            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
-
-            let diff = dstArchetype.FullId & prevArchetype.FullId.BitwiseNot()
-            if (!diff.IsZero)
-                queue.Enqueue(
-                    () ->
-                        dstArchetype.TriggerComponentAdded(diff, index)
-                )
-
-            i <- i + 1
-
-        if (nonLocalOnly)
-            Span(this.entityVersions, 0, this.entityVersions.Length / 2).CopyTo(Span(dst.entityVersions))
-            Span(this.entityIndexLookup, 0, this.entityIndexLookup.Length / 2).CopyTo(Span(dst.entityIndexLookup))
-        else
-            Span(this.entityVersions).CopyTo(Span(dst.entityVersions))
-            Span(this.entityIndexLookup).CopyTo(Span(dst.entityIndexLookup))
-
-        dst.lastCreatedEntity <- this.lastCreatedEntity
-        dst.entityCount <- this.entityCount
-
-        if (!nonLocalOnly)
-            dst.lastCreatedLocalEntity <- this.lastCreatedLocalEntity
-            dst.localEntityCount <- this.localEntityCount
-
-        // Archetype counts should also be zero.
-        let mutable i = 0
-        while (i < dst.GetArchetypeCount())
-            let archetype = dst.GetArchetype(i)
-            if (nonLocalOnly)
-                if (!archetype.IsLocal)
-                    archetype.Count <- 0
-            else
-                archetype.Count <- 0
-            i <- i + 1
-
-        let mutable i = 0
-        while (i < this.GetArchetypeCount())     
-            let archetype = this.GetArchetype(i)
-            if (nonLocalOnly)
-                if (!archetype.IsLocal)
-                    archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
-            else
-                archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
-            i <- i + 1
-
-        let mutable f = unchecked default
-        while (queue.TryDequeue(&f))
-            f()
-
-        let createdEntityCount = srcStream.ReadInt32()
-
-        let mutable i = 0
-        while (i < createdEntityCount)
-            let entId = srcStream.Read<EntityId>()
-            let archetypeId = srcStream.Read<ArchetypeId>()
-
-            let entIndex = entId.Index
-#if DEBUG
-            if (nonLocalOnly && entIndex >= (MaxNumberOfEntities / 2))
-                fail("Cannot create local entity in a non-local context")
-#end
-            let archetypedIndex = dst.GetArchetypedIndex(archetypeId)
-            dst.entityVersions[entIndex] <- entId.Version
-            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
-
-            let archetype = dst.GetArchetype(archetypedIndex)
-            archetype.TriggerComponentAdded(archetype.FullId, dst.entityIndexLookup[entIndex])
-
-            i <- i + 1
-
-        dst.DecrementDepth()
 
     static SerializeJsonForEntity(db: EntityDatabase, entId: EntityId, utf8Stream: Stream): () =
         if (!db.IsValid(entId))
@@ -2075,6 +1774,68 @@ class UnlockedEntityDatabase =
         this.HandleComponentAdded(added)
         this.HandleComponentRemoving(removing)
 
+    TryAddOrUpdate<T>(entId: EntityId, value: T): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.TryAddOrUpdate(entId, &value)
+    TryAddOrUpdate<T>(mutable entId: EntityId, value: inref<T>): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.ThrowIfDepth()
+        this.ThrowIfParallelDepth()
+        if (this.IsValid(entId))
+            let lookup = this.entityIndexLookup
+            let tyId: ComponentId = T.GetId()
+
+            let mutable diff = default
+            let archetype = this.AddCore(entId, tyId, &diff)
+            if (archetype !== unchecked default)
+                let index = lookup[entId.Index]
+                archetype.Set(archetype.BufferLookup[tyId], index, value)
+
+                if (!diff.IsZero)
+                    archetype.TriggerComponentAdded(diff, index)
+            else
+                let currentArchetype = this.GetArchetype(this.entityArchetypeIndices[entId.Index])
+#if DEBUG
+                fail("Cannot add component '" + T.GetName() + "' to entity '" + entId.ToString() + "'. The resulting archetype is not registered:\n\t" + currentArchetype.ComponentListNoAttachmentsText + T.GetName() + ",")
+#end
+                LogError("Cannot add component '" + T.GetName() + "' to entity '" + entId.ToString() + "'. The resulting archetype is not registered:\n\t" + currentArchetype.ComponentListNoAttachmentsText + T.GetName() + ",")
+
+    TryRemove<T>(entId: EntityId): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.ThrowIfDepth()
+        this.ThrowIfParallelDepth()
+        if (this.IsValid(entId))
+            let archetypeIndex = this.entityArchetypeIndices[entId.Index]
+            if (archetypeIndex != -1)
+                let archetype = this.GetArchetype(archetypeIndex)
+                if (archetype.Id.IsSet(T.GetIndex()))
+                    let compId: ComponentId = T.GetId()
+                    let lookupIndex = this.entityIndexLookup[entId.Index]
+
+                    archetype.TriggerComponentRemoving(compId, lookupIndex)
+
+                    let newArchetypeId = archetype.Id & compId.BitwiseNot()
+                    let newArchetypeIndex = this.GetArchetypedIndex(newArchetypeId)
+                    let newArchetype = this.GetArchetype(newArchetypeIndex)
+                    let newLookupIndex = newArchetype.Count
+                    newArchetype.Count <- newArchetype.Count + 1
+                    newArchetype.EntityIds.SetAs(newLookupIndex, entId)
+
+                    archetype.CopyOneTo(lookupIndex, newArchetype, newLookupIndex)
+                    this.entityArchetypeIndices[entId.Index] <- newArchetypeIndex
+                    this.entityIndexLookup[entId.Index] <- newLookupIndex
+                    this.SwapRemoveEntityByLookupIndex(archetype, lookupIndex)
+                    
+                    this.DebugCheckIntegrity()
+
+    Delete(entId: EntityId): () =
+        this.Check(entId)
+        this.DeleteCore(entId)
+
+    TryDelete(entId: EntityId): bool =
+        if (this.IsValid(entId))
+            this.DeleteCore(entId)
+            true
+        else
+            false
+
     DeleteAll(): () =
         let queue = Queue<EntityId>()
 
@@ -2098,3 +1859,247 @@ class UnlockedEntityDatabase =
 
         if (this.localEntityCount != 0)
             fail("Integrity has failed")
+
+#[open]
+extension EntityDatabaseExtensions =
+    inherits EntityDatabase
+
+    Replicate(dstCopy: EntityDatabase, dst: UnlockedEntityDatabase, events: EntityDatabase.ReplicatingEvents, nonLocalOnly: bool): () =
+        let mutable i = 0
+        while (i < events.DeletingEntities.Count)
+            let info = events.DeletingEntities[i]
+
+#if DEBUG
+            if (nonLocalOnly && info.EntityId.Index >= (EntityDatabase.MaxNumberOfEntities / 2))
+                fail("Cannot delete local entity in a non-local context")
+#end
+
+            dst.Delete(info.EntityId)
+            i <- i + 1
+
+        dst.IncrementDepth()
+
+        // TODO: Make this non-allocating if it makes sense to.
+        let queue = Queue()
+
+        let mutable i = 0
+        while (i < events.ArchetypeChangedEntities.Count)
+            let result = events.ArchetypeChangedEntities[i]
+            let entIndex = result.EntityIndex
+
+#if DEBUG
+            if (nonLocalOnly && entIndex >= (EntityDatabase.MaxNumberOfEntities / 2))
+                fail("Cannot change local entity in a non-local context")
+#end
+
+            let prevArchetypeCopy = dstCopy.GetArchetype(dstCopy.GetArchetypedIndex(result.PreviousArchetypeId))
+            let prevArchetype = dst.GetArchetype(dst.GetArchetypedIndex(result.PreviousArchetypeId))
+            let archetypedIndex = dst.GetArchetypedIndex(result.ArchetypeId)
+            let dstArchetype = dst.GetArchetype(archetypedIndex)
+
+#if DEBUG
+            if (prevArchetypeCopy.Id != prevArchetype.Id)
+                fail("Archetype integrity failed in replication")
+#end
+
+            let diff = prevArchetype.FullId & dstArchetype.FullId.BitwiseNot()
+            if (!diff.IsZero)
+                prevArchetype.TriggerComponentRemoving(diff, result.PreviousIndex)
+
+            dstArchetype.EnsureCapacity(dstArchetype.Count + 1)
+
+            prevArchetypeCopy.CopyOneTo(result.PreviousIndex, dstArchetype, result.Index)
+            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
+
+            let diff = dstArchetype.FullId & prevArchetype.FullId.BitwiseNot()
+            if (!diff.IsZero)
+                queue.Enqueue(
+                    () ->
+                        dstArchetype.TriggerComponentAdded(diff, result.Index)
+                )
+
+            i <- i + 1
+
+        if (nonLocalOnly)
+            Span(this.entityVersions, 0, this.entityVersions.Length / 2).CopyTo(Span(dst.entityVersions))
+            Span(this.entityIndexLookup, 0, this.entityIndexLookup.Length / 2).CopyTo(Span(dst.entityIndexLookup))
+        else
+            Span(this.entityVersions).CopyTo(Span(dst.entityVersions))
+            Span(this.entityIndexLookup).CopyTo(Span(dst.entityIndexLookup))
+
+        dst.lastCreatedEntity <- this.lastCreatedEntity
+        dst.entityCount <- this.entityCount
+
+        if (!nonLocalOnly)
+            dst.lastCreatedLocalEntity <- this.lastCreatedLocalEntity
+            dst.localEntityCount <- this.localEntityCount
+
+        // Archetype counts should also be zero.
+        let mutable i = 0
+        while (i < dst.GetArchetypeCount())
+            let archetype = dst.GetArchetype(i)
+            if (nonLocalOnly)
+                if (!archetype.IsLocal)
+                    archetype.Count <- 0
+            else
+                archetype.Count <- 0
+            i <- i + 1
+
+        let mutable i = 0
+        while (i < this.GetArchetypeCount())     
+            let archetype = this.GetArchetype(i)
+            if (nonLocalOnly)
+                if (!archetype.IsLocal)
+                    archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
+            else
+                archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
+            i <- i + 1
+
+        let mutable f = unchecked default
+        while (queue.TryDequeue(&f))
+            f()
+
+        let mutable i = 0
+        while (i < events.CreatedEntities.Count)
+            let result = events.CreatedEntities[i]
+            let entId = result.EntityId
+            let entIndex = entId.Index
+#if DEBUG
+            if (nonLocalOnly && entIndex >= (EntityDatabase.MaxNumberOfEntities / 2))
+                fail("Cannot create local entity in a non-local context")
+#end
+            let archetypedIndex = dst.GetArchetypedIndex(result.ArchetypeId)
+            dst.entityVersions[entIndex] <- entId.Version
+            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
+
+            let archetype = dst.GetArchetype(archetypedIndex)
+            archetype.TriggerComponentAdded(archetype.FullId, dst.entityIndexLookup[entIndex])
+
+            i <- i + 1
+
+        dst.DecrementDepth()
+
+    DeserializeReplication(srcStream: ByteStream, dstCopy: EntityDatabase, dst: UnlockedEntityDatabase, nonLocalOnly: bool): () =
+        let deletingEntityCount = srcStream.ReadInt32()
+
+        let mutable i = 0
+        while (i < deletingEntityCount)
+            let entId = srcStream.Read<EntityId>()
+
+#if DEBUG
+            if (nonLocalOnly && entId.Index >= (EntityDatabase.MaxNumberOfEntities / 2))
+                fail("Cannot delete local entity in a non-local context")
+#end
+
+            dst.Delete(entId)
+            i <- i + 1
+
+        dst.IncrementDepth()
+
+        // TODO: Make this non-allocating if it makes sense to.
+        let queue = Queue()
+
+        let archetypeChangedEntityCount = srcStream.ReadInt32()
+
+        let mutable i = 0
+        while (i < archetypeChangedEntityCount)
+            let entIndex = srcStream.ReadInt32()
+            let prevIndex = srcStream.ReadInt32()
+            let index = srcStream.ReadInt32()
+            let prevArchetypeId = srcStream.Read<ArchetypeId>()
+            let archetypeId = srcStream.Read<ArchetypeId>()
+
+#if DEBUG
+            if (nonLocalOnly && entIndex >= (EntityDatabase.MaxNumberOfEntities / 2))
+                fail("Cannot change local entity in a non-local context")
+#end
+
+            let prevArchetypeCopy = dstCopy.GetArchetype(dstCopy.GetArchetypedIndex(prevArchetypeId))
+            let prevArchetype = dst.GetArchetype(dst.GetArchetypedIndex(prevArchetypeId))
+            let archetypedIndex = dst.GetArchetypedIndex(archetypeId)
+            let dstArchetype = dst.GetArchetype(archetypedIndex)
+
+#if DEBUG
+            if (prevArchetypeCopy.Id != prevArchetype.Id)
+                fail("Archetype integrity failed in replication")
+#end
+
+            let diff = prevArchetype.FullId & dstArchetype.FullId.BitwiseNot()
+            if (!diff.IsZero)
+                prevArchetype.TriggerComponentRemoving(diff, prevIndex)
+
+            dstArchetype.EnsureCapacity(dstArchetype.Count + 1)
+
+            prevArchetypeCopy.CopyOneTo(prevIndex, dstArchetype, index)
+            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
+
+            let diff = dstArchetype.FullId & prevArchetype.FullId.BitwiseNot()
+            if (!diff.IsZero)
+                queue.Enqueue(
+                    () ->
+                        dstArchetype.TriggerComponentAdded(diff, index)
+                )
+
+            i <- i + 1
+
+        if (nonLocalOnly)
+            Span(this.entityVersions, 0, this.entityVersions.Length / 2).CopyTo(Span(dst.entityVersions))
+            Span(this.entityIndexLookup, 0, this.entityIndexLookup.Length / 2).CopyTo(Span(dst.entityIndexLookup))
+        else
+            Span(this.entityVersions).CopyTo(Span(dst.entityVersions))
+            Span(this.entityIndexLookup).CopyTo(Span(dst.entityIndexLookup))
+
+        dst.lastCreatedEntity <- this.lastCreatedEntity
+        dst.entityCount <- this.entityCount
+
+        if (!nonLocalOnly)
+            dst.lastCreatedLocalEntity <- this.lastCreatedLocalEntity
+            dst.localEntityCount <- this.localEntityCount
+
+        // Archetype counts should also be zero.
+        let mutable i = 0
+        while (i < dst.GetArchetypeCount())
+            let archetype = dst.GetArchetype(i)
+            if (nonLocalOnly)
+                if (!archetype.IsLocal)
+                    archetype.Count <- 0
+            else
+                archetype.Count <- 0
+            i <- i + 1
+
+        let mutable i = 0
+        while (i < this.GetArchetypeCount())     
+            let archetype = this.GetArchetype(i)
+            if (nonLocalOnly)
+                if (!archetype.IsLocal)
+                    archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
+            else
+                archetype.CopyTo(dst.GetArchetype(dst.GetArchetypedIndex(archetype.Id)))
+            i <- i + 1
+
+        let mutable f = unchecked default
+        while (queue.TryDequeue(&f))
+            f()
+
+        let createdEntityCount = srcStream.ReadInt32()
+
+        let mutable i = 0
+        while (i < createdEntityCount)
+            let entId = srcStream.Read<EntityId>()
+            let archetypeId = srcStream.Read<ArchetypeId>()
+
+            let entIndex = entId.Index
+#if DEBUG
+            if (nonLocalOnly && entIndex >= (EntityDatabase.MaxNumberOfEntities / 2))
+                fail("Cannot create local entity in a non-local context")
+#end
+            let archetypedIndex = dst.GetArchetypedIndex(archetypeId)
+            dst.entityVersions[entIndex] <- entId.Version
+            dst.entityArchetypeIndices[entIndex] <- archetypedIndex
+
+            let archetype = dst.GetArchetype(archetypedIndex)
+            archetype.TriggerComponentAdded(archetype.FullId, dst.entityIndexLookup[entIndex])
+
+            i <- i + 1
+
+        dst.DecrementDepth()
