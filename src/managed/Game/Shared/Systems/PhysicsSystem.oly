@@ -26,8 +26,9 @@ enum PhysicsLayer =
     | Moving = 1
     | Character = 2
     | CharacterVirtual = 3
+    | Noclip = 4
 
-    | MaxNumberOfLayers = 4
+    | MaxNumberOfLayers = 5
 
 module Logic =
 
@@ -75,20 +76,37 @@ module Logic =
 
         let motion = playerInputToMotion(&playerInput, &camera, physCharacter.Speed, CharacterMotionKind.None)
     
-        physics.UpdateGroundVelocity(characterId, Unsafe.Cast(PhysicsLayer.CharacterVirtual)) // virtual only       
-        let mutable newVelocity = physics.GetLinearVelocity(characterId)
-        if (physics.IsOnGround(characterId))
-            newVelocity <- (physics.GetGroundVelocity(characterId) + motion)
-            newVelocity.Z <- 0
-            if (playerInput.Actions & CharacterActions.Jump == CharacterActions.Jump)
-                newVelocity <- newVelocity + Vector3(0, 0, 5)
-        else if (Vector3.Dot(newVelocity, motion) < motion.Length())
-            newVelocity <- (newVelocity + motion * 0.2)
-    
-        let newVelocity = newVelocity + (physics.Gravity * deltaTime) // virtual only
+        let layer =
+            if (physCharacter.IsNoclip != 0)
+                PhysicsLayer.Noclip
+            else
+                PhysicsLayer.CharacterVirtual
 
-        physics.SetLinearVelocity(characterId, newVelocity)      
-        physics.Update(characterId, Unsafe.Cast(PhysicsLayer.CharacterVirtual), deltaTime) // virtual only
+        physics.UpdateGroundVelocity(characterId, Unsafe.Cast(layer)) // virtual only
+        
+        let mutable newVelocity = physics.GetLinearVelocity(characterId)
+        if (layer == PhysicsLayer.CharacterVirtual)
+            if (physics.IsOnGround(characterId))
+                newVelocity <- (physics.GetGroundVelocity(characterId) + motion)
+                newVelocity.Z <- 0
+                if (playerInput.Actions & CharacterActions.Jump == CharacterActions.Jump)
+                    newVelocity <- newVelocity + Vector3(0, 0, 5)
+            else if (Vector3.Dot(newVelocity, motion) < motion.Length())
+                newVelocity <- (newVelocity + motion * 0.2)
+        
+            let newVelocity = newVelocity + (physics.Gravity * deltaTime) // virtual only
+
+            physics.SetLinearVelocity(characterId, newVelocity)
+        else
+            ()
+            if (Vector3.Dot(newVelocity, motion) < motion.Length())
+                newVelocity <- (newVelocity + motion * 0.2)
+
+            let newVelocity = newVelocity // virtual only
+
+            physics.SetLinearVelocity(characterId, newVelocity)
+
+        physics.Update(characterId, Unsafe.Cast(layer), deltaTime) // virtual only
         SyncPhysicsInfo(physics, characterId, &transform, &physCharacter)
 
     SyncPhysicsInfo(physics: Physics, physId: StaticObjectId, transform: byref<Transform>, physInfo: byref<StaticRigidBody>): () =
@@ -193,6 +211,8 @@ abstract class PhysicsSystem =
                     layer2 != PhysicsLayer.NonMoving // Non moving only collides with moving
                 | PhysicsLayer.Moving =>
                     true // Moving collides with everything
+                | PhysicsLayer.Noclip =>
+                    false
                 | _ =>
                     fail("invalid layer")
 
@@ -259,6 +279,8 @@ abstract class PhysicsSystem =
             (mutable entId, physId, phys, transform) ->
                 physId <- physics.AddVirtualCharacter(transform.Position, Unsafe.Cast(PhysicsLayer.CharacterVirtual), entId.Encode())
                 physics.SetLinearVelocity(physId, phys.LinearVelocity)
+
+                //phys.IsNoclip <- 1
 
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &phys)
 

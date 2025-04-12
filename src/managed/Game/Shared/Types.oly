@@ -446,6 +446,7 @@ struct Character =
 struct VirtualCharacter =
     public field mutable LinearVelocity: Vector3 = Vector3.Zero
     public field mutable Speed: float32 = 1
+    public field mutable IsNoclip: byte = 0
 
     // TODO: Remove this field. It should belong elsewhere to handle an action a single time.
     public field mutable SpecialCount: int32 = 0
