@@ -82,7 +82,6 @@ class ClientWorld =
 
         registry
 
-    EditorCameraId: EntityId get
     UnlockedDatabase: UnlockedEntityDatabase get
 
     new(genv: GameEnv) =
@@ -120,8 +119,6 @@ class ClientWorld =
                 )
 
                 physicsSystem
-            EditorCameraId =
-                db.Create(Transform.FromMatrix(mat4.CreateTranslation(Vector3.Zero)), Camera(120, 20, 20, 0.1, 1000, CameraProjectionKind.Orthographic), BuiltInComponents.ClientSide())
             UnlockedDatabase = db
         }
     
