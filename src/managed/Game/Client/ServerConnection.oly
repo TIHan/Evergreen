@@ -201,7 +201,7 @@ internal class ServerConnection =
         let curr = worldPool[frame % worldPool.Length]
 
         next.CopyTo(curr)
-        curr.Database.ForEach<Transform, RigidBody>(
+        curr.Database.CreateQuery<Transform, RigidBody>().ForEach(
             (entId, transform, body) ->
                 prev.Database.IfHas<Transform, RigidBody>(entId,
                     (prevTransform, prevBody) ->
@@ -211,7 +211,7 @@ internal class ServerConnection =
                         body.AngularVelocity <- Vector3.Lerp(prevBody.AngularVelocity, body.AngularVelocity, alpha)
                 )
         )
-        curr.Database.ForEach<Transform, Character>(
+        curr.Database.CreateQuery<Transform, Character>().ForEach(
             (entId, transform, body) ->
                 prev.Database.IfHas<Transform, Character>(entId,
                     (prevTransform, prevBody) ->
@@ -220,7 +220,7 @@ internal class ServerConnection =
                         body.LinearVelocity <- Vector3.Lerp(prevBody.LinearVelocity, body.LinearVelocity, alpha)
                 )
         )
-        curr.Database.ForEach<Transform, VirtualCharacter>(
+        curr.Database.CreateQuery<Transform, VirtualCharacter>().ForEach(
             (entId, transform, body) ->
                 if (!curr.Database.Exists<Player>(entId, player -> player.ClientIndex == this.ClientIndex))
                     prev.Database.IfHas<Transform, VirtualCharacter>(entId,

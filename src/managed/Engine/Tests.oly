@@ -36,7 +36,6 @@ SerializeDeserializePlayer(genv: GameEnv): () =
         replicationStream.ResetPosition()
         clientWorld.CopyTo(clientWorldCopy)
         clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)//Replicate(clientWorldCopy, clientWorld, serverToClientEvents, false)
-        clientWorld.CopyTo(clientSnapshotWorld)
 
     let entId = serverWorld.SpawnPlayer(1)
 
@@ -241,7 +240,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     bstream.ResetPosition()
     clientSnapshotWorld.DeserializeDeltaForNetwork(bstream)
 
-    clientWorld.Database.ForEach<VirtualCharacter, VirtualCharacterId>(
+    clientWorld.Database.CreateQuery<VirtualCharacter, VirtualCharacterId>().ForEach(
         (entId, _, physId) ->
             let result = clientWorld.Physics.IsValidPhysicsId(physId)
             if (!result)
@@ -249,7 +248,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     )
     clientWorldUpdateSnapshot(clientSnapshotWorld)
     ASSERT(clientWorld.Database.IsValid(entId2))
-    clientWorld.Database.ForEach<VirtualCharacter, VirtualCharacterId>(
+    clientWorld.Database.CreateQuery<VirtualCharacter, VirtualCharacterId>().ForEach(
         (entId, _, physId) ->
             let result = clientWorld.Physics.IsValidPhysicsId(physId)
             if (!result)
@@ -266,8 +265,8 @@ DatabaseCopyInDifferenSync(): () =
     let registry = ComponentRegistry()
     registry.Register<Transform>()
     registry.Register<Health>()
-    let db1 = EntityDatabase(EntityDatabaseKind.Server, registry)
-    let db2 = EntityDatabase(EntityDatabaseKind.Server, registry)
+    let db1 = UnlockedEntityDatabase(EntityDatabaseKind.Server, registry)
+    let db2 = UnlockedEntityDatabase(EntityDatabaseKind.Server, registry)
 
     let _ = db1.Create(Transform())
 

@@ -149,7 +149,7 @@ class Resources =
     Images: AssetManager<IGpuImage[]> get
     Pipelines: AssetManager<GpuPipeline> get
     RenderMeshes: AssetManager<RenderMeshGroup> get
-    ShaderGlobals: AssetManager<GpuBuffer<ShaderGlobals>> get
+    ShaderGlobals: AssetManager<GpuBuffer<GlobalShaderData>> get
 
     new(r: Rendering) =        
         // Asset Management
@@ -371,13 +371,13 @@ class Resources =
                 RenderMeshGroup(renderMeshes)
         )
 
-        let globalsManager = AssetManager<GpuBuffer<ShaderGlobals>>((_, x) -> ()) // TODO: add Free(arr: IGpuArray) to Rendering //r.Free(x))
+        let globalsManager = AssetManager<GpuBuffer<GlobalShaderData>>((_, x) -> ()) // TODO: add Free(arr: IGpuArray) to Rendering //r.Free(x))
 
         globalsManager.Register("console_background", 
                 (_) ->
                     return
                         GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1,
-                            i -> ShaderGlobals()
+                            i -> GlobalShaderData()
                         )
             )
         

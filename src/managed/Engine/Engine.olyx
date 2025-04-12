@@ -37,10 +37,11 @@ open System.Numerics
 open Evergreen.Collections
 open static Game.Shared.Types
 open static Game.Shared.Components
+open Game.Server
 
-BenchmarkMap(resx: Resources): Stream =
-    let world = World(EntityDatabaseKind.Server)
-    let db = world.Database
+BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
+    let world = ServerWorld(genv)
+    let db = world.UnlockedDatabase
 
     let mutable x = 0: float32
     let mutable y = 0: float32
@@ -115,10 +116,6 @@ main(args: string[]): () =
         // TODO: What do we do for server-only?
         let resx = Resources(r) // TODO-language-bug: crashes when doing 'Resources.Initialize(r)'. note: 'Initialize' doesn't exist.
 
-        resx.Maps.Register("benchmark.test",
-            (_) -> return BenchmarkMap(resx)
-        )
-
         let connectionKey = "oly" + engineHash
         let genv = GameEnv(connectionKey, engineHash, resx.Maps, resx.RenderMeshes, resx.Sounds, resx.Pipelines, resx.Images)
         let renv = RenderEnv(r, resx.ShaderGlobals, resx.Frames, resx.Pipelines, resx.RenderMeshes, resx.Images)
@@ -129,6 +126,10 @@ main(args: string[]): () =
         Tests.SerializeDeserializePlayer4(genv)
         Tests.DatabaseCopyInDifferenSync()
         Tests.NetworkCompressionShouldSucceed()
+
+        resx.Maps.Register("benchmark.test",
+            (_) -> return BenchmarkMap(resx, genv)
+        )
 
         Console.SetOut(genv.ConsoleWriter)
         Game.Orchestration.Run(genv, renv)

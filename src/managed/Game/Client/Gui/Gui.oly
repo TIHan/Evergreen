@@ -270,7 +270,7 @@ module Gui =
             let view = Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
             let viewProj = view * projection
             uiOverlayPool.Reset()
-            db.ForEach<RigidBody, Transform, TransformLerp>(
+            db.CreateQuery<RigidBody, Transform, TransformLerp>().ForEach(
                 (entId, physInfo, transform, transformLerp) ->
                     let mutable result = unchecked default
                     let pos = WorldToClip(viewProj, Vector3.Lerp(transformLerp.Value.Position, transform.Position, alpha))

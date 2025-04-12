@@ -37,12 +37,21 @@ class ClientReceivedWorld =
 
         World.RegisterFieldMappings(genv, registry)
 
-        base(EntityDatabaseKind.Client, registry)
+        base(EntityDatabase(EntityDatabaseKind.Client, registry))
 
-abstract default class ClientStagingWorld =
+class ClientStagingWorld =
     inherits World
     
     new(genv: GameEnv) =
+        base(EntityDatabase(EntityDatabaseKind.Client, ClientWorld.CreateRegistry(genv)))
+
+    protected new(db: EntityDatabase) = base(db)
+
+class ClientWorld =
+    inherits World
+    implements IDisposable
+
+    static CreateRegistry(genv: GameEnv): ComponentRegistry =
         let registry = ComponentRegistry()
 
         World.RegisterComponents(registry)
@@ -71,16 +80,15 @@ abstract default class ClientStagingWorld =
 
         World.RegisterFieldMappings(genv, registry)
 
-        base(EntityDatabaseKind.Client, registry)
+        registry
 
-class ClientWorld =
-    inherits ClientStagingWorld
-    implements IDisposable
+    EditorCameraId: EntityId get
+    UnlockedDatabase: UnlockedEntityDatabase get
 
     new(genv: GameEnv) =
-        base(genv) with {
+        let db = UnlockedEntityDatabase(EntityDatabaseKind.Client, ClientWorld.CreateRegistry(genv))
+        base(db) with {
             Physics = 
-                let db = this.Database
                 // This registers the events in the physics system first.
                 let physicsSystem = ClientPhysicsSystem.Create(db, genv)
 
@@ -112,6 +120,9 @@ class ClientWorld =
                 )
 
                 physicsSystem
+            EditorCameraId =
+                db.Create(Transform.FromMatrix(mat4.CreateTranslation(Vector3.Zero)), Camera(120, 20, 20, 0.1, 1000, CameraProjectionKind.Orthographic), BuiltInComponents.ClientSide())
+            UnlockedDatabase = db
         }
     
     public field Physics: ClientPhysicsSystem
@@ -141,11 +152,11 @@ class ClientWorld =
         this.Physics.RollbackCorrections(time, entId)
 
     SetInterpolationState(): () =
-        this.Database.ForEach<TransformLerp, Transform>(
+        this.Database.CreateQuery<TransformLerp, Transform>().ForEach(
             (entId, transformLerp, transform) ->
                 transformLerp <- TransformLerp(transform)
         )
-        this.Database.ForEach<CameraLerp, Camera>(
+        this.Database.CreateQuery<CameraLerp, Camera>().ForEach(
             (entId, cameraLerp, camera) ->
                 cameraLerp <- CameraLerp(camera)
         )

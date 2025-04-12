@@ -62,7 +62,7 @@ generateQuery(text: string, mutable n: int32): string =
         let gen(i: int32) =
             (defStr.Replace("/*def(n):", "").Replace("*/", "").Replace("{n}", (i + 2).ToString()))
 
-        text.Remove(defIndex, defLength).Insert(defIndex, string.Join("\r\n" + spaces, initMutableArray(n - 1, i -> gen(i))))
+        text.Remove(defIndex, defLength).Insert(defIndex, string.Join("\n" + spaces, initMutableArray(n - 1, i -> gen(i))))
 
     let mutable text = text
     let regex = System.Text.RegularExpressions.Regex("[\\/][*]def\\(n\\):.+[*][\\/]")
@@ -70,7 +70,7 @@ generateQuery(text: string, mutable n: int32): string =
     while (m.Success)
         text <- executeDef(text, m.Index, m.Length)
         m <- regex.Match(text)
-    "// Generated. Do not modify.\r\n" + text
+    "// Generated. Do not modify.\n" + text
 
 main(): () =
     let text = File.ReadAllText("Collections/EntityQuery1.oly")

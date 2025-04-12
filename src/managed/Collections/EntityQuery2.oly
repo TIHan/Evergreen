@@ -9,7 +9,7 @@ open Evergreen.Utilities
 internal module Helpers2 =
 
     GetArchetypeId<T1
-                  , T2>(): ArchetypeId 
+                     , T2>(): ArchetypeId 
             where T1: trait IComponent 
             where T2: trait IComponent
             = 
@@ -17,122 +17,95 @@ internal module Helpers2 =
                 | T2.GetId()
 
 class EntityQuery<T1
-                 , T2> 
-        where T1: blittable, struct, ValueType 
-        where T2: blittable, struct, ValueType
+                    , T2> 
+        where T1: blittable, struct, ValueType, { new() }
+        where T2: blittable, struct, ValueType, { new() }
         =
 
-    internal Database      : EntityDatabase    get
-    internal ArchetypeGroup: Archetype[]       get
-    internal EntIdGroup    : EntityIdStore[]   get
-    internal BufferGroup1  : ComponentBuffer[] get
-    internal BufferGroup2  : ComponentBuffer[] get
+    private ArchetypeCount: int32 get, set
+    private GetArchetypeIndices: () -> int32[] get
+    private ComponentIds: ComponentId[] get
+    private ContainsArchetypeId: ArchetypeId get
+    private NotContainsArchetypeId: ComponentId get
+
+    internal Database      : EntityDatabase get
+    internal ArchetypeGroup: Archetype[]       get, set
+    internal EntIdGroup    : EntityIdStore[]   get, set
+    internal BufferGroup1  : ComponentBuffer[] get, set
+    internal BufferGroup2  : ComponentBuffer[] get, set
 
     internal new(
         database: EntityDatabase, 
-        archetypeGroup: Archetype[],
-        entIdGroup: EntityIdStore[],
-        bufferGroup1: ComponentBuffer[]
-        , bufferGroup2: ComponentBuffer[] 
+        getArchetypeIndices: () -> int32[],
+        componentIds: ComponentId[],
+        containsArchetypeId: ArchetypeId,
+        notContainsArchetypeId: ArchetypeId
     ) =
         {
+            ArchetypeCount = -1
+            GetArchetypeIndices = getArchetypeIndices
+            ComponentIds = componentIds
+            ContainsArchetypeId = containsArchetypeId
+            NotContainsArchetypeId = notContainsArchetypeId
             Database = database
-            ArchetypeGroup = archetypeGroup
-            EntIdGroup = entIdGroup
-            BufferGroup1 = bufferGroup1
-            BufferGroup2 = bufferGroup2
+            ArchetypeGroup = unchecked default
+            EntIdGroup = unchecked default
+            BufferGroup1 = unchecked default
+            BufferGroup2 = unchecked default
         }
 
-    private Filter<T>(predicate: scoped (fullId: ArchetypeId, filterId: ArchetypeId) -> bool): EntityQuery<T1
-                                                                                                          , T2>
-            where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        let archetypeGroup = List()
-        let entIdGroup = List()
-        let bufferGroup1 = List()
-        let bufferGroup2 = List()
+    private RefreshIfNeeded(): () =
+        if (this.Database.Archetypes.Count != this.ArchetypeCount)
+            this.ArchetypeCount <- this.Database.Archetypes.Count
+            let indices = this.GetArchetypeIndices()
 
-        let filterId = GetArchetypeId<T>()
+            let archetypeGroup =  List()
+            let entIdGroup = List()
+            let bufferGroup1 = List()
+            let bufferGroup2 = List()
 
-        For(this.ArchetypeGroup.Length,
-            i ->
-                let archetype = this.ArchetypeGroup[i]
-                if (predicate(archetype.FullId, filterId))
+            let mutable i = 0
+            while (i < indices.Length)
+                let index = indices[i]
+                let archetype = this.Database.GetArchetype(index)
+
+                let fullId = archetype.FullId
+
+                if (fullId.IsSupersetOf(this.ContainsArchetypeId) && !this.NotContainsArchetypeId.IsSupersetOf(fullId))
                     archetypeGroup.Add(archetype)
-                    entIdGroup.Add(this.EntIdGroup[i])
-                    bufferGroup1.Add(this.BufferGroup1[i])
-                    bufferGroup2.Add(this.BufferGroup2[i])
-        )
+                    entIdGroup.Add(archetype.EntityIds)
+                    bufferGroup1.Add(archetype.GetComponentBuffer(archetype.BufferLookup[this.ComponentIds[0]]))
+                    bufferGroup2.Add(archetype.GetComponentBuffer(archetype.BufferLookup[this.ComponentIds[2 - 1]]))
 
-        EntityQuery(
-            this.Database,
-            Unsafe.AsImmutable(archetypeGroup.ToArray()),
-            Unsafe.AsImmutable(entIdGroup.ToArray()),
-            Unsafe.AsImmutable(bufferGroup1.ToArray())
-            , Unsafe.AsImmutable(bufferGroup2.ToArray())
-        )
+                i <- i + 1
+
+            this.ArchetypeGroup <- Unsafe.AsImmutable(archetypeGroup.ToArray())
+            this.EntIdGroup <- Unsafe.AsImmutable(entIdGroup.ToArray())
+            this.BufferGroup1 <- Unsafe.AsImmutable(bufferGroup1.ToArray())
+            this.BufferGroup2 <- Unsafe.AsImmutable(bufferGroup2.ToArray())
 
     public WhereContains<T>(): EntityQuery<T1
-                                          , T2>
+                                             , T2>
             where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.Filter<T>((fullId, filterId) -> fullId.IsSupersetOf(filterId))
+        EntityQuery(this.Database, this.GetArchetypeIndices, this.ComponentIds, this.ContainsArchetypeId | GetArchetypeId<T>(), this.NotContainsArchetypeId)
 
     public WhereNotContains<T>(): EntityQuery<T1
-                                             , T2>
+                                                , T2>
         where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.Filter<T>((fullId, filterId) -> !fullId.IsSupersetOf(filterId))
-
-#[open]
-extension EntityDatabaseQuery1Extension2 =
-    inherits EntityDatabase
-
-    CreateQuery<T1
-               , T2>(): EntityQuery<T1
-                                                , T2> 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent
-            =
-        let indices = this.GetArchetypedIndices(GetArchetypeId<T1
-                                                              , T2>())
-
-        let archetypeGroup = zeroArray<Archetype>(indices.Length)
-        let entIdGroup = zeroArray<EntityIdStore>(indices.Length)
-        let bufferGroup1 = zeroArray<ComponentBuffer>(indices.Length)
-        let bufferGroup2 = zeroArray<ComponentBuffer>(indices.Length)
-
-        let mutable i = 0
-        while (i < indices.Length)
-            let index = indices[i]
-            let archetype = this.GetArchetype(index)
-            
-            archetypeGroup[i] <- archetype
-            entIdGroup[i] <- archetype.EntityIds
-            bufferGroup1[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T1.GetId()])
-            bufferGroup2[i] <- archetype.GetComponentBuffer(archetype.BufferLookup[T2.GetId()])
-
-            i <- i + 1
-
-        EntityQuery(
-            this,
-            Unsafe.AsImmutable(archetypeGroup), 
-            Unsafe.AsImmutable(entIdGroup),
-            Unsafe.AsImmutable(bufferGroup1)
-            , Unsafe.AsImmutable(bufferGroup2)
-        )
+            EntityQuery(this.Database, this.GetArchetypeIndices, this.ComponentIds, this.ContainsArchetypeId, this.NotContainsArchetypeId | GetArchetypeId<T>())
 
     #[inline]
-    ForEachSpan<T1
-               , T2>(query: EntityQuery<T1
-                                      , T2>, #[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>
-                                                                                                              , Span<T2>) -> ()): () 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent
-            =
-        this.IncrementDepth()
+    ForEachSpan(#[inline] f: scoped (ReadOnlySpan<EntityId>, Span<T1>
+                                                                     , Span<T2>) -> ()): () =
+        this.RefreshIfNeeded()
 
-        let archetypeGroup   = query.ArchetypeGroup
-        let entIdGroup       = query.EntIdGroup
-        let bufferGroup1     = query.BufferGroup1
-        let bufferGroup2     = query.BufferGroup2
+        let db = this.Database
+        db.IncrementDepth()
+
+        let archetypeGroup   = this.ArchetypeGroup
+        let entIdGroup       = this.EntIdGroup
+        let bufferGroup1     = this.BufferGroup1
+        let bufferGroup2     = this.BufferGroup2
 
         let mutable i = 0
         while (i < archetypeGroup.Length)
@@ -164,17 +137,13 @@ extension EntityDatabaseQuery1Extension2 =
                 j <- j + 1
 
             i <- i + 1
-        this.DecrementDepth()
+        db.DecrementDepth()
 
     #[inline]
-    ForEach<T1
-           , T2>(query: EntityQuery<T1
-                                                , T2>, #[inline] f: scoped (EntityId, byref<T1>
-                                                                                                           ,  byref<T2>) -> ()): () 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+    ForEach(#[inline] f: scoped (EntityId, byref<T1>
+                                                    ,  byref<T2>) -> ()): ()
             =
-        this.ForEachSpan(query,
+        this.ForEachSpan(
             (mutable entIds, 
                 mutable buffer1
                 , mutable buffer2
@@ -189,65 +158,41 @@ extension EntityDatabaseQuery1Extension2 =
                     )
                     i <- i + 1
         )
+    
 
-    #[inline]
-    ForEach<T1
-           , T2>(#[inline] f: scoped (EntityId, byref<T1>
-                                                                     , byref<T2>) -> ()): () 
+#[open]
+extension EntityDatabaseQuery1Extension2 =
+    inherits EntityDatabase
+
+    CreateQuery<T1
+                  , T2>(): EntityQuery<T1
+                                                      , T2> 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
-        this.ForEach<T1
-                    , T2>(this.CreateQuery<T1
-                                                       , T2>(), f)
+        let archetypeId =
+            GetArchetypeId<T1
+                             , T2>()
+        let getArchetypeIndices = () -> this.GetArchetypedIndices(archetypeId)
 
-    Create<T1
-          , T2>(component1: T1
-            , component2: T2): EntityId 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent
-            =
-        this.Create(&component1
-                    , &component2)
-    Create<T1
-          , T2>(component1: inref<T1>
-            , component2: inref<T2>): EntityId 
-            where T1: blittable, struct, ValueType, { new() }, trait IComponent
-            where T2: blittable, struct, ValueType, { new() }, trait IComponent
-            =
-        this.ThrowIfParallelDepth()
+        let componentIds =
+            [
+                T1.GetId()
+                T2.GetId()
+            ]
 
-        let lookup = this.entityIndexLookup
-
-        let archetypeId = GetArchetypeId<T1
-                                        , T2>()
-        let archetypedIndex = this.GetArchetypedIndex(archetypeId)
-        let typedIndex1 = this.GetTypedIndex<T1>(archetypedIndex)
-        let typedIndex2 = this.GetTypedIndex<T2>(archetypedIndex)
-
-        let entId = this.NewEntityId(archetypedIndex)
-
-        let archetype = this.GetArchetype(archetypedIndex)
-        let index = archetype.Count
-        archetype.Count <- index + 1
-        lookup[entId.Index] <- index
-        archetype.EntityIds.SetAs(index, entId)
-
-        archetype.ClearComponentAttachmentsAt(index)
-
-        archetype.Set(typedIndex1, index, component1)
-        archetype.Set(typedIndex2, index, component2)
-
-        this.IncrementDepth()
-        archetype.TriggerComponentAdded(archetype.FullId, index)
-        this.DecrementDepth()
-
-        entId
+        EntityQuery(
+            this,
+            getArchetypeIndices,
+            componentIds,
+            default,
+            default
+        )
 
     #[inline]
     TryGet<T1
-          , T2>(entId: EntityId, #[inline] callback: scoped (byref<T1>
-                                                                                  , byref<T2>) -> ()): bool 
+             , T2>(entId: EntityId, #[inline] callback: scoped (byref<T1>
+                                                                                   , byref<T2>) -> ()): bool 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent 
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
@@ -274,15 +219,15 @@ extension EntityDatabaseQuery1Extension2 =
 
     #[inline]
     IfHas<T1
-         , T2>(entId: EntityId, #[inline] callback: scoped (byref<T1>
-                                                                                 , byref<T2>) -> ()): () 
+            , T2>(entId: EntityId, #[inline] callback: scoped (byref<T1>
+                                                                                     , byref<T2>) -> ()): () 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent 
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
         let _ = this.TryGet(entId, callback)
 
     Has<T1
-       , T2>(entId: EntityId): bool 
+          , T2>(entId: EntityId): bool 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent 
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
@@ -296,8 +241,8 @@ extension EntityDatabaseQuery1Extension2 =
                 && fullId.IsSet(T2.GetIndex())
 
     Exists<T1
-          , T2>(entId: EntityId, condition: scoped (inref<T1>
-                                                                         , inref<T2>) -> bool): bool 
+             , T2>(entId: EntityId, condition: scoped (inref<T1>
+                                                                             , inref<T2>) -> bool): bool 
             where T1: blittable, struct, ValueType, { new() }, trait IComponent 
             where T2: blittable, struct, ValueType, { new() }, trait IComponent
             =
@@ -310,3 +255,50 @@ extension EntityDatabaseQuery1Extension2 =
                                                                            , &component2)
                                              )
         result
+
+#[open]
+extension UnlockedEntityDatabaseQuery1Extension2 =
+    inherits UnlockedEntityDatabase
+
+    Create<T1
+             , T2>(component1: T1
+            , component2: T2): EntityId 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        this.Create(&component1
+                    , &component2)
+    Create<T1
+             , T2>(component1: inref<T1>
+            , component2: inref<T2>): EntityId 
+            where T1: blittable, struct, ValueType, { new() }, trait IComponent
+            where T2: blittable, struct, ValueType, { new() }, trait IComponent
+            =
+        this.ThrowIfParallelDepth()
+
+        let lookup = this.entityIndexLookup
+
+        let archetypeId = GetArchetypeId<T1
+                                           , T2>()
+        let archetypedIndex = this.GetArchetypedIndex(archetypeId)
+        let typedIndex1 = this.GetTypedIndex<T1>(archetypedIndex)
+        let typedIndex2 = this.GetTypedIndex<T2>(archetypedIndex)
+
+        let entId = this.NewEntityId(archetypedIndex)
+
+        let archetype = this.GetArchetype(archetypedIndex)
+        let index = archetype.Count
+        archetype.Count <- index + 1
+        lookup[entId.Index] <- index
+        archetype.EntityIds.SetAs(index, entId)
+
+        archetype.ClearComponentAttachmentsAt(index)
+
+        archetype.Set(typedIndex1, index, component1)
+        archetype.Set(typedIndex2, index, component2)
+
+        this.IncrementDepth()
+        archetype.TriggerComponentAdded(archetype.FullId, index)
+        this.DecrementDepth()
+
+        entId

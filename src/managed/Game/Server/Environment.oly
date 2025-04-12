@@ -57,7 +57,7 @@ internal module Server =
         | Some(world) =>
             let mutable entId = EntityId.Nil
 
-            world.Database.ForEach<Player>(world.Database.CreateQuery<Player>(),
+            world.Database.CreateQuery<Player>().ForEach(
                 (playerId, player) ->
                     if (player.ClientIndex == clientIndex)
                         entId <- playerId

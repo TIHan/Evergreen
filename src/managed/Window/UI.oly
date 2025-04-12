@@ -825,6 +825,7 @@ class UIContext =
     internal ClipperDepth: int32 get, set
     internal ParentStack: Stack<View> get
     internal Fonts: List<Font> get() = this.GpuPipelineUI.Fonts
+    internal FontLookup: Dictionary<(filePath: string, filePath2: string, size: float32, size2: float32), ImFont> get
 
     internal TryGetParent(): Option<View> =
         let mutable result = unchecked default
@@ -846,6 +847,7 @@ class UIContext =
             GpuPipelineUI = gpuPipelineUI
             ClipperDepth = 0
             ParentStack = Stack()
+            FontLookup = Dictionary()
         }
 
 module UI =
@@ -1519,23 +1521,46 @@ module UI =
     private PreloadFont(context: UIContext, font: Font): () =
         if (!font.IsInitialized)
             font.IsInitialized <- true
+
+            let mutable willAdd = false
+
             match (font.FilePath2)
             | Some(filePath2) =>
-                font.ImFont <-
-                    let fontSize = font.Size * ImGui.GetScaleFactor(context.ImGuiContext)
-                    let fontSize2 = font.Size2 * ImGui.GetScaleFactor(context.ImGuiContext)
-                    ImGui.MergeFonts(
-                        context.ImGuiContext,
-                        [font.FilePath;filePath2],
-                        [fontSize;fontSize2],
-                        [
-                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
-                            ImGui.GetGlyphRangesAll(context.ImGuiContext)
-                        ]
-                    )
+                let fontSize = font.Size * ImGui.GetScaleFactor(context.ImGuiContext)
+                let fontSize2 = font.Size2 * ImGui.GetScaleFactor(context.ImGuiContext)
+                let key = (font.FilePath, filePath2, fontSize, fontSize2)
+
+                let mutable result = default
+                if (context.FontLookup.TryGetValue(key, &result))
+                    font.ImFont <- result
+                else
+                    willAdd <- true
+                    font.ImFont <-
+                        ImGui.MergeFonts(
+                            context.ImGuiContext,
+                            [font.FilePath;filePath2],
+                            [fontSize;fontSize2],
+                            [
+                                ImGui.GetGlyphRangesAll(context.ImGuiContext)
+                                ImGui.GetGlyphRangesAll(context.ImGuiContext)
+                            ]
+                        )
+                    let key = (font.FilePath, filePath2, fontSize, fontSize2)
+                    context.FontLookup[key] <- font.ImFont
             | _ =>
-                font.ImFont <- ImGui.AddFont(context.ImGuiContext, font.FilePath, font.Size * ImGui.GetScaleFactor(context.ImGuiContext))
-            context.Fonts.Add(font)
+                let fontSize = font.Size * ImGui.GetScaleFactor(context.ImGuiContext)
+                let key = (font.FilePath, unchecked default, fontSize, 0: float32)
+
+                let mutable result = default
+                if (context.FontLookup.TryGetValue(key, &result))
+                    font.ImFont <- result
+                else
+                    willAdd <- true
+                    font.ImFont <- ImGui.AddFont(context.ImGuiContext, font.FilePath, fontSize)
+                    context.FontLookup[key] <- font.ImFont
+
+            if (willAdd)
+                context.Fonts.Add(font)
 
     private PreloadFontsByNode(context: UIContext, view: View): () =
         let hasParent = context.TryGetParent().IsSome

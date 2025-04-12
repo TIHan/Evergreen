@@ -110,7 +110,7 @@ internal class ClientScene =
             // Which entity is the player?
             let prevClientId = this.clientEntityId
             this.clientEntityId <- EntityId.Nil
-            clientWorld.Database.ForEach<Player>(clientWorld.Database.CreateQuery(),
+            clientWorld.Database.CreateQuery<Player>().ForEach(
                 (entId, player) ->
                     if (player.ClientIndex == currentClientIndex)
                         this.clientEntityId <- entId
@@ -146,7 +146,7 @@ internal class ClientScene =
         this.ping <- 0
         this.timeStamp <- 0
         this.speedOffset <- 0
-        this.World.Database.DeleteAll()
+        this.World.UnlockedDatabase.DeleteAll()
         this.World.Dispose()
 
     static Load(sceneName: string, genv: GameEnv): ClientScene =

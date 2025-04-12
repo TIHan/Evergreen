@@ -19,12 +19,12 @@ class ServerPhysicsSystem =
 
     field inputQueue: System.Collections.Generic.Queue<LogicInput> // TODO: Do this at the EntityDatabase level.
 
-    new(db: EntityDatabase, genv: GameEnv) =
+    new(db: UnlockedEntityDatabase, genv: GameEnv) =
         base(PhysicsSystemKind.Server, db, genv) with {
             inputQueue = System.Collections.Generic.Queue<LogicInput>()
         }
 
-    static Create(db: EntityDatabase, genv: GameEnv): ServerPhysicsSystem =
+    static Create(db: UnlockedEntityDatabase, genv: GameEnv): ServerPhysicsSystem =
         let physicsSystem = ServerPhysicsSystem(db, genv)
 
         physicsSystem.ContactAdded.Add(
@@ -60,7 +60,7 @@ class ServerPhysicsSystem =
         let db = this.db
         let physics = this.physics
 
-        db.ForEach<Player, CharacterInput>(
+        db.CreateQuery<Player, CharacterInput>().ForEach(
             (entId, player, playerInput) ->
                 player.ClientInputFrame <- playerInput.Frame
                 this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
@@ -73,7 +73,7 @@ class ServerPhysicsSystem =
             let _ = db.Create(BuiltInComponents.ServerSide(), input)
 
         let destroyQueue = System.Collections.Generic.Queue<EntityId>() // TODO: Do this in EntityDatabase.
-        db.ForEach<LogicInput>(db.CreateQuery<LogicInput>(),
+        db.CreateQuery<LogicInput>().ForEach(
             (mutable entId, input) ->
                 if (!input.This.IsNil)
                     match (input.Function)

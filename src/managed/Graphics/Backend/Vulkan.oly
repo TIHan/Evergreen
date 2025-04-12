@@ -1001,7 +1001,7 @@ module Vk =
             vmaGetAllocationMemoryProperties(app.Allocator, allocation, &&memPropFlags)
             VulkanBuffer(buffer, allocation, allocInfo, size, memPropFlags)
 
-    UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, mutable bufferData: ReadOnlySpan<T>): () where T: unmanaged =
+    UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, startIndex: int32, mutable bufferData: ReadOnlySpan<T>): () where T: unmanaged =
         let memPropFlags = buffer.Flags
         
         if ((memPropFlags & VkMemoryPropertyFlags.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == VkMemoryPropertyFlags.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
@@ -1012,7 +1012,7 @@ module Vk =
                 if (vmaMapMemory(app.Allocator, buffer.Allocation, &&pData) != VkResult.VK_SUCCESS)
                     fail("Failed to map memory.")
 
-            bufferData.CopyTo(Span(pData, bufferData.Length))
+            bufferData.CopyTo(Span(pData, int32(buffer.Size)).Slice(startIndex))
         
             if (notMapped)
                 vmaUnmapMemory(app.Allocator, buffer.Allocation)
@@ -1028,14 +1028,14 @@ module Vk =
                 )
             match (stagingBuffer)
             | (stagingBuffer, stagingAllocation) =>
-                let bufferSpan = Span<T>(allocationInfo.pMappedData, bufferData.Length)
+                let bufferSpan = Span<T>(allocationInfo.pMappedData, int32(buffer.Size))
                 bufferData.CopyTo(bufferSpan)
                 if (vmaFlushAllocation(app.Allocator, stagingAllocation, 0, VK_WHOLE_SIZE) != VkResult.VK_SUCCESS)
                     fail("Failed to flush allocation.")
                 
                 let mutable bufferCopy = default: VkBufferCopy
                 bufferCopy.srcOffset <- 0
-                bufferCopy.dstOffset <- 0
+                bufferCopy.dstOffset <- uint64(startIndex)
                 bufferCopy.size <- uint64(DotNet.SizeOf<T> * bufferData.Length)
 
                 let mutable commandBuffer = createCommandBuffer(app.Device, app.GraphicsCommandPools[app.CurrentFrame])
@@ -1058,10 +1058,10 @@ module Vk =
                 //app.DestroyStagingBufferQueues[app.CurrentFrame].Enqueue((app.Allocator, stagingBuffer, stagingAllocation))
 
     UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, bufferData: mutable T[]): () where T: unmanaged =
-        UpdateBuffer<T>(app, buffer, ReadOnlySpan(bufferData))
+        UpdateBuffer<T>(app, buffer, 0, ReadOnlySpan(bufferData))
 
     UpdateBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, bufferData: T[]): () where T: unmanaged =
-        UpdateBuffer<T>(app, buffer, ReadOnlySpan<T>(Unsafe.AsMutable(bufferData)))
+        UpdateBuffer<T>(app, buffer, 0, ReadOnlySpan<T>(Unsafe.AsMutable(bufferData)))
 
     CopyBuffer<T>(app: VulkanApplication, buffer: VulkanBuffer, dst: mutable T[]): () where T: unmanaged =
         if (dst.Length != 0)
@@ -1324,8 +1324,8 @@ module Vk =
     DestroyDescriptorSetLayout(app: VulkanApplication, descriptorSetLayout: VkDescriptorSetLayout): () =
         vkDestroyDescriptorSetLayout(app.Device, descriptorSetLayout, nullptr)
 
-    CreateDescriptorPool(app: VulkanApplication, descriptorTypes: ReadOnlySpan<VkDescriptorType>, descriptorCount: uint32): VkDescriptorPool =
-        createDescriptorPool(app.Device, descriptorTypes, descriptorCount)
+    CreateDescriptorPool(app: VulkanApplication, descriptorTypes: ReadOnlySpan<VkDescriptorType>, descriptorCounts: ReadOnlySpan<uint32>): VkDescriptorPool =
+        createDescriptorPool(app.Device, uint32(app.MaxFramesInFlight), descriptorTypes, descriptorCounts)
 
     DestroyDescriptorPool(app: VulkanApplication, descriptorPool: VkDescriptorPool): () =
         vkDestroyDescriptorPool(app.Device, descriptorPool, nullptr)
@@ -2483,17 +2483,18 @@ module Vk =
 
         descriptorSetLayout
 
-    private createDescriptorPool(device: VkDevice, mutable descriptorTypes: ReadOnlySpan<VkDescriptorType>, descriptorCount: uint32): VkDescriptorPool =
+    private createDescriptorPool(device: VkDevice, maxFramesInFlight: uint32, mutable descriptorTypes: ReadOnlySpan<VkDescriptorType>, mutable descriptorCounts: ReadOnlySpan<uint32>): VkDescriptorPool =
 
         let poolSizes = zeroArray(descriptorTypes.Length)
 
         let mutable i = 0
         while (i < poolSizes.Length)
             let descriptorType = descriptorTypes[i]
+            let descriptorCount = descriptorCounts[i]
 
             let mutable poolSize = default: VkDescriptorPoolSize
-            poolSize.`type` <- descriptorType
-            poolSize.descriptorCount <- descriptorCount
+            poolSize.`type` <- descriptorType // TODO-language-bug: Should be able to use 'descriptorTypes[i]'
+            poolSize.descriptorCount <- maxFramesInFlight * descriptorCount
 
             poolSizes[i] <- poolSize
             i <- i + 1
@@ -2504,7 +2505,7 @@ module Vk =
         poolInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
         poolInfo.poolSizeCount <- uint32(poolSizes.Length)
         poolInfo.pPoolSizes <- Unsafe.AsPointer(poolSizesHandle.AddrOfPinnedObject())
-        poolInfo.maxSets <- descriptorCount
+        poolInfo.maxSets <- maxFramesInFlight
 
         let mutable descriptorPool = default: VkDescriptorPool
         if (vkCreateDescriptorPool(device, &&poolInfo, nullptr, &&descriptorPool) != VkResult.VK_SUCCESS)

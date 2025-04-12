@@ -137,7 +137,7 @@ abstract class PhysicsSystem =
     implements IDisposable
 
     protected field kind: PhysicsSystemKind
-    protected field db: EntityDatabase
+    protected field db: UnlockedEntityDatabase
     public field physics: Physics
     field portalContacts: Dictionary<EntityId, EntityId>
     
@@ -150,7 +150,7 @@ abstract class PhysicsSystem =
     IsValidPhysicsId(physId: VirtualCharacterId): bool =
         this.physics.IsValid(physId)
 
-    protected new(kind: PhysicsSystemKind, db: EntityDatabase, genv: GameEnv) = 
+    protected new(kind: PhysicsSystemKind, db: UnlockedEntityDatabase, genv: GameEnv) = 
         let contactAdded = 
             (bodyId1: uint32, userData1, point1: Vector3, bodyId2: uint32, userData2, point2: Vector3) ->
                 if (this.ContactListeningEnabled)
@@ -308,17 +308,17 @@ abstract class PhysicsSystem =
         let db = this.db
         let physics = this.physics
 
-        db.ForEach<Transform, RigidBody, DynamicObjectId>(
+        db.CreateQuery<Transform, RigidBody, DynamicObjectId>().ForEach(
             (entId, transform, physInfo, physId) ->
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &physInfo)
         )
 
-        db.ForEach<Transform, Character, CharacterId>(
+        db.CreateQuery<Transform, Character, CharacterId>().ForEach(
             (entId, transform, physInfo, physId) ->
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &physInfo)
         )
 
-        db.ForEach<Transform, VirtualCharacter, VirtualCharacterId>(
+        db.CreateQuery<Transform, VirtualCharacter, VirtualCharacterId>().ForEach(
             (entId, transform, physInfo, physId) ->
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &physInfo)
         )
@@ -355,7 +355,7 @@ abstract class PhysicsSystem =
         let physics = this.physics
         let db = this.db
 
-        db.ForEach<Orbit, EntityList8, Ownership>(
+        db.CreateQuery<Orbit, EntityList8, Ownership>().ForEach(
             (entId, orbit, entList, ownership) ->
                 entList.RemoveAllInvalid(db)
                 let _ =

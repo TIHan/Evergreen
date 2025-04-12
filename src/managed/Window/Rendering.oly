@@ -420,7 +420,7 @@ class GpuBuffer<T> where T: unmanaged =
                 if (start != 0)
                     throw NotSupportedException("Start doesn't support non-zero (yet)")
                 if (length > 0)
-                    Vk.UpdateBuffer(gpu.vk, buffers[frameIndex], ReadOnlySpan(array, start, length))
+                    Vk.UpdateBuffer(gpu.vk, buffers[frameIndex], start, ReadOnlySpan(array, start, length))
         )
 
     protected overrides FreeCore(gpu: Gpu): () =
@@ -1991,8 +1991,13 @@ class Gpu =
                 )
 
             let setLayout = this.setLayoutManager.Create(setLayoutBindings)
+
+            let descriptorCounts =
+                map(gpuDescriptorSetLayoutBindings,
+                    x -> uint32(x.Count)
+                )
     
-            let descriptorPool = Vk.CreateDescriptorPool(this.vk, descriptorTypes.AsSpan(), uint32(this.vk.MaxFramesInFlight))
+            let descriptorPool = Vk.CreateDescriptorPool(this.vk, descriptorTypes.AsSpan(), descriptorCounts.AsSpan())
 
             let counts = 
                 let lastBinding = gpuDescriptorSetLayoutBindings[gpuDescriptorSetLayoutBindings.Length - 1]

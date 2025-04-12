@@ -50,20 +50,18 @@ class RenderMeshGroup =
 
 abstract default class World =
 
-    new(kind: EntityDatabaseKind, registry: ComponentRegistry) =
-        let db = EntityDatabase(kind, registry)
-
+    new(db: EntityDatabase) =
         {
             Database = db
         }
 
     new(kind: EntityDatabaseKind) =
-        World(
-            kind,
-            let registry = ComponentRegistry()
-            RegisterComponents(registry)
-            registry
-        )
+        {
+            Database =
+                let registry = ComponentRegistry()
+                World.RegisterComponents(registry)
+                EntityDatabase(kind, registry)
+        }
 
     Database: EntityDatabase get
 

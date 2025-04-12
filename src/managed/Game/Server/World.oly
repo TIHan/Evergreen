@@ -19,10 +19,19 @@ open static Game.Shared.World
 
 open Game.Server.Systems
 
-abstract default class ServerStagingWorld =
+class ServerStagingWorld =
     inherits World
 
     new(genv: GameEnv) =
+        base(EntityDatabase(EntityDatabaseKind.Server, ServerWorld.CreateRegistry(genv)))
+
+    protected new(db: UnlockedEntityDatabase) = base(db)
+
+class ServerWorld =
+    inherits World
+    implements IDisposable
+
+    static CreateRegistry(genv: GameEnv): ComponentRegistry =
         let registry = ComponentRegistry()
 
         World.RegisterComponents(registry)
@@ -43,19 +52,15 @@ abstract default class ServerStagingWorld =
 
         World.RegisterFieldMappings(genv, registry)
 
-        base(EntityDatabaseKind.Server, registry)
-
-class ServerWorld =
-    inherits ServerStagingWorld
-    implements IDisposable
+        registry
 
     new(genv: GameEnv) =
-        base(genv) with {
+        let db = UnlockedEntityDatabase(EntityDatabaseKind.Server, ServerWorld.CreateRegistry(genv))
+        base(db) with {
             DestroyEntityQueue = ConcurrentQueue()
             EventStream = ByteStream()
             PhysicsSystem = 
-                let physicsSystem = ServerPhysicsSystem.Create(this.Database, genv)
-                let db = this.Database
+                let physicsSystem = ServerPhysicsSystem.Create(db, genv)
 
                 db.HandleComponentAdded<CharacterInput, /**/ Camera>(
                     (entId, input, camera) ->
@@ -66,6 +71,8 @@ class ServerWorld =
             genv = genv
             
             entityDestroyingEvent = Event()
+
+            UnlockedDatabase = db
         }
 
     field DestroyEntityQueue: ConcurrentQueue<EntityId>
@@ -73,6 +80,8 @@ class ServerWorld =
     field PhysicsSystem: ServerPhysicsSystem
     field genv: GameEnv
     field entityDestroyingEvent: Event<EntityId>
+
+    UnlockedDatabase: UnlockedEntityDatabase get
 
     EntityDestroying: IEvent<EntityId> get() = this.entityDestroyingEvent.Publish
 
@@ -112,7 +121,7 @@ class ServerWorld =
         let db = this.Database
         let physicsSystem = this.PhysicsSystem
 
-        db.ForEach<Orbit, EntityList8, Ownership>(
+        db.CreateQuery<Orbit, EntityList8, Ownership>().ForEach(
             (entId, orbit, entList, ownership) ->
                 db.IfHas<Transform, VirtualCharacter, CharacterInput>(ownership.Owner,
                     (transform, virtc, input) ->
@@ -140,7 +149,7 @@ class ServerWorld =
         this.Flush()        
 
     SpawnProjectileWithOwner(position: vec3, rotation: quat, scale: vec3, mass: float32, mutable material: Material, owner: EntityId): EntityId =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity)
@@ -183,16 +192,16 @@ class ServerWorld =
 
         camera.Offset <- Vector3(0, 0, 1.7)
 
-        this.Database.ForEach<Transform, PlayerSpawnPoint>(
+        this.Database.CreateQuery<Transform, PlayerSpawnPoint>().ForEach(
             (spawnPointId, spawnPointTransform, _) ->
                 transform.Position <- spawnPointTransform.Position
         )
 
-        let playerId = this.Database.Create(transform, CharacterInput(), camera, player, Sprite(), material, phys)
+        let playerId = this.UnlockedDatabase.Create(transform, CharacterInput(), camera, player, Sprite(), material, phys)
 
         let mutable ownership = Ownership()
         ownership.Owner <- playerId
-        let _ = this.Database.Create(Orbit(), EntityList8(), ownership)
+        let _ = this.UnlockedDatabase.Create(Orbit(), EntityList8(), ownership)
 
         playerId
         
@@ -203,7 +212,7 @@ class ServerWorld =
         this.Database.TryAddOrUpdate(entId, playerInput)
 
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity)
@@ -223,7 +232,7 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material, Outline())
 
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material, linearVelocity: Vector3, angularVelocity: Vector3): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity)
@@ -245,7 +254,7 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material, Outline())
 
     SpawnStaticBox(position: vec3, rotation: quat, scale: vec3, material: Material): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity)
@@ -263,7 +272,7 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material)
 
     SpawnStaticBox(position: vec3, rotation: quat, scale: vec3, material: Material, outline: Outline): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity)
@@ -281,7 +290,7 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material, outline)
 
     SpawnStaticPlane(position: vec3, rotation: quat, scale: vec3, material: Material): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity)
@@ -299,7 +308,7 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material)
 
     SpawnStaticMesh(position: vec3, material: Material, meshId: Int32Id): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity && meshId.IsValid)
@@ -317,7 +326,7 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material)
 
     SpawnStaticMesh(position: vec3, material: Material, meshId: Int32Id, outline: Outline): () =
-        let db = this.Database
+        let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics
 
         if (db.CanSpawnEntity && meshId.IsValid)
@@ -335,6 +344,6 @@ class ServerWorld =
             let _ = db.Create(transform, phys, meshRef, collider, material, outline)
 
     Dispose(): () =
-        this.Database.DeleteAll()
+        this.UnlockedDatabase.DeleteAll()
         this.PhysicsSystem.Dispose()
 

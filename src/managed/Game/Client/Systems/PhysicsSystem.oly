@@ -79,7 +79,7 @@ class ClientPhysicsSystem =
 
     PredictionEnabled: bool get, set
 
-    new(db: EntityDatabase, genv: GameEnv) =
+    new(db: UnlockedEntityDatabase, genv: GameEnv) =
         let frameBufferMaxCount = 30
         base(PhysicsSystemKind.Client, db, genv) with {
             frameBufferMaxCount = frameBufferMaxCount
@@ -91,7 +91,7 @@ class ClientPhysicsSystem =
             lastPredictedFrame = FrameNumber.Zero
         }
 
-    static Create(db: EntityDatabase, genv: GameEnv): ClientPhysicsSystem =
+    static Create(db: UnlockedEntityDatabase, genv: GameEnv): ClientPhysicsSystem =
         let sys = ClientPhysicsSystem(db, genv)
         sys.ContactAdded.Add(
             args ->
@@ -183,7 +183,7 @@ class ClientPhysicsSystem =
         let db = this.db
         let physics = this.physics
 
-        db.ForEach<RigidBody, Transform, DynamicObjectId>(
+        db.CreateQuery<RigidBody, Transform, DynamicObjectId>().ForEach(
             (entId, physInfo, transform, physId) ->
                 physics.SetState(physId,
                                  transform.Position,
@@ -193,13 +193,13 @@ class ClientPhysicsSystem =
                                  physInfo.IsActive)
         )
 
-        db.ForEach<Character, Transform, CharacterId>(
+        db.CreateQuery<Character, Transform, CharacterId>().ForEach(
             (entId, physInfo, transform, physId) ->               
                 physics.SetPosition(physId, transform.Position)
                 physics.SetLinearVelocity(physId, physInfo.LinearVelocity)
         )
 
-        db.ForEach<VirtualCharacter, Transform, VirtualCharacterId>(
+        db.CreateQuery<VirtualCharacter, Transform, VirtualCharacterId>().ForEach(
             (entId, physInfo, transform, physId) ->               
                 physics.SetPosition(physId, transform.Position)
                 physics.SetLinearVelocity(physId, physInfo.LinearVelocity)
@@ -209,27 +209,27 @@ class ClientPhysicsSystem =
         let db = this.db
         let physics = this.physics
 
-        db.ForEach<RigidBody, Transform, DynamicObjectId>(
+        db.CreateQuery<RigidBody, Transform, DynamicObjectId>().ForEach(
             (entId, physInfo, transform, physId) ->
                 transform <- Transform(physics.GetCenterOfMassPosition(physId), transform.Rotation, transform.Scale)
         )
 
-        db.ForEach<Character, Transform, CharacterId>(
+        db.CreateQuery<Character, Transform, CharacterId>().ForEach(
             (entId, physInfo, transform, physId) ->               
                 transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)
         )
 
-        db.ForEach<VirtualCharacter, Transform, VirtualCharacterId>(
+        db.CreateQuery<VirtualCharacter, Transform, VirtualCharacterId>().ForEach(
             (entId, physInfo, transform, physId) ->               
                 transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)
         )
 
-        db.ForEach<VirtualCharacter, Transform, Camera>(
+        db.CreateQuery<VirtualCharacter, Transform, Camera>().ForEach(
             (entId, char, transform, camera) ->
                 transform.Rotation <- camera.Rotation
         )
 
-        db.ForEach<StaticRigidBody, Transform, StaticObjectId>(
+        db.CreateQuery<StaticRigidBody, Transform, StaticObjectId>().ForEach(
             (entId, physInfo, transform, physId) ->               
                 transform <- Transform(physics.GetCenterOfMassPosition(physId), transform.Rotation, transform.Scale)
         )
@@ -280,7 +280,7 @@ class ClientPhysicsSystem =
                             // Determine which objects we should do prediction for.
                             // We do not need to predict objects if our frame-update-count is zero.
                             if (frameUpdateCount > 0)
-                                db.ForEach<RigidBody, Transform, DynamicObjectId, PredictiveInfo>(
+                                db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
                                     (entId, physInfo, transform, physId, predictiveInfo) ->
                                         predictiveInfo.ServerPosition <- transform.Position
                                         predictiveInfo.ServerRotation <- transform.Rotation
@@ -373,7 +373,7 @@ class ClientPhysicsSystem =
                                     let playerInput = this.frameInputBuffer[frameIndex]
                                     this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
                                     this.BaseUpdate(time)
-                                    db.ForEach<RigidBody, Transform, DynamicObjectId, PredictiveInfo>(
+                                    db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
                                         (entId, physInfo, transform, physId, predictiveInfo) ->
                                             if (predictiveInfo.IsPredicting || predictiveInfo.PredictToLerpTransitionTime > 0)
                                                 predictiveInfo.Position <- transform.Position
@@ -398,7 +398,7 @@ class ClientPhysicsSystem =
                             // LogClient("\tposition: " + physCharacter.Position.ToString())
                             // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
                                 
-                        db.ForEach<RigidBody, Transform, DynamicObjectId, PredictiveInfo>(
+                        db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
                             (entId, physInfo, transform, physId, predictiveInfo) ->
 #if DEBUG
                                 if (predictiveInfo.EntityId.Index != entId.Index || predictiveInfo.EntityId.Version != entId.Version)
