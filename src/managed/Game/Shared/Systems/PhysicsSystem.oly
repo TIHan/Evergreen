@@ -22,11 +22,12 @@ enum CharacterMotionKind =
 enum PhysicsLayer =
     inherits byte
 
-    | NonMoving = 0
-    | Moving = 1
-    | Character = 2
-    | CharacterVirtual = 3
-    | Noclip = 4
+    | Unknown = 0
+    | NonMoving = 1
+    | Moving = 2
+    | Character = 3
+    | CharacterVirtual = 4
+    | Noclip = 5
 
     | MaxNumberOfLayers = 5
 
@@ -112,20 +113,24 @@ module Logic =
     SyncPhysicsInfo(physics: Physics, physId: StaticObjectId, transform: byref<Transform>, physInfo: byref<StaticRigidBody>): () =
         let mutable _isActive = false
 
+        let mutable layer = default
         physics.GetState(physId,
                          &transform.Position,
                          &transform.Rotation,
+                         &layer,
                          &_isActive
         )
 
     SyncPhysicsInfo(physics: Physics, physId: DynamicObjectId, transform: byref<Transform>, physInfo: byref<RigidBody>): () =
         let mutable isActive = false
 
+        let mutable layer = default
         physics.GetState(physId,
                          &transform.Position,
                          &transform.Rotation,
                          &physInfo.LinearVelocity,
                          &physInfo.AngularVelocity,
+                         &layer,
                          &isActive
         )
 
@@ -430,6 +435,7 @@ abstract class PhysicsSystem =
                                                 transform.Rotation,
                                                 body.LinearVelocity,
                                                 body.AngularVelocity,
+                                                Unsafe.Cast(PhysicsLayer.Moving),
                                                 body.IsActive
                                             )                                           
                                     )

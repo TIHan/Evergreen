@@ -190,6 +190,7 @@ class ClientPhysicsSystem =
                                  transform.Rotation,
                                  physInfo.LinearVelocity,
                                  physInfo.AngularVelocity,
+                                 Unsafe.Cast(PhysicsLayer.Moving),
                                  physInfo.IsActive)
         )
 

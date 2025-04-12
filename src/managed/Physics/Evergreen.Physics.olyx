@@ -426,6 +426,7 @@ class Physics =
              rotation       : byref<Quaternion>,
              linearVelocity : byref<Vector3>,
              angularVelocity: byref<Vector3>,
+             layer          : byref<byte>,
              isActive       : byref<bool>): () =
         let mutable state = default: EgJoltBodyState
         egJolt_Body_GetState(this.Instance, objId.Value, &&state)
@@ -433,6 +434,7 @@ class Physics =
         rotation        <- state.rotation
         linearVelocity  <- state.linearVelocity
         angularVelocity <- state.angularVelocity
+        layer           <- state.layer
         isActive        <- state.flags.HasFlag(EgJolt_BodyFlags.IsActive)  
 
     SetState(objId          : DynamicObjectId,
@@ -440,32 +442,38 @@ class Physics =
              rotation       : Quaternion,
              linearVelocity : Vector3,
              angularVelocity: Vector3,
+             layer          : byte,
              isActive       : bool): () =
         let mutable state = default: EgJoltBodyState
         state.position        <- position
         state.rotation        <- rotation
         state.linearVelocity  <- linearVelocity
         state.angularVelocity <- angularVelocity
+        state.layer           <- layer
         state.flags           <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
         egJolt_Body_SetState(this.Instance, objId.Value, &&state)
 
     GetState(objId          : StaticObjectId,
              position       : byref<Vector3>,
              rotation       : byref<Quaternion>,
+             layer          : byref<byte>,
              isActive       : byref<bool>): () =
         let mutable state = default: EgJoltBodyState
         egJolt_Body_GetState(this.Instance, objId.Value, &&state)
         position <- state.position
         rotation <- state.rotation
+        layer <- state.layer
         isActive <- state.flags.HasFlag(EgJolt_BodyFlags.IsActive) 
 
     SetState(objId          : StaticObjectId,
              position       : Vector3,
              rotation       : Quaternion,
+             layer          : byte,
              isActive       : bool): () =
         let mutable state = default: EgJoltBodyState
         state.position <- position
         state.rotation <- rotation
+        state.layer <- layer
         state.flags    <- if (isActive) EgJolt_BodyFlags.IsActive else EgJolt_BodyFlags.None
         egJolt_Body_SetState(this.Instance, objId.Value, &&state)
 
