@@ -590,4 +590,7 @@ struct Sprite
 struct Health =
     public field mutable Value: uint32 = 100
 
+struct Editor =
+    public field mutable Camera: Camera = Camera(70, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
+
         

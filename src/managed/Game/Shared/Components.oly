@@ -233,3 +233,8 @@ extension PickupableComponent =
 extension PlayerSpawnPointComponent =
     inherits PlayerSpawnPoint
     implements IComponent<44, PlayerSpawnPoint>
+
+#[open]
+extension EditorComponent =
+    inherits Editor
+    implements IComponent<45, Editor>

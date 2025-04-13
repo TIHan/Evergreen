@@ -225,15 +225,25 @@ class ServerWorld =
         )
 
     ToggleEditor(mutable entId: EntityId): () =
-        this.UnlockedDatabase.IfHas<VirtualCharacter>(entId,
-            x ->
-                if (x.Flags.HasFlag(VirtualCharacterFlags.Editor))
-                    x.Flags <- x.Flags & ~VirtualCharacterFlags.Editor
-                    LogServer("'" + entId.ToString() + "' disabled 'editor'")
-                else
-                    x.Flags <- x.Flags | VirtualCharacterFlags.Editor
-                    LogServer("'" + entId.ToString() + "' enabled 'editor'")
-        )
+        let mutable hasEditor = false
+        let isVirtualCharacter =
+            this.UnlockedDatabase.TryGet<VirtualCharacter>(entId,
+                x ->
+                    if (x.Flags.HasFlag(VirtualCharacterFlags.Editor))
+                        x.Flags <- x.Flags & ~VirtualCharacterFlags.Editor
+                        LogServer("'" + entId.ToString() + "' disabled 'editor'")
+                        hasEditor <- false
+                    else
+                        x.Flags <- x.Flags | VirtualCharacterFlags.Editor
+                        LogServer("'" + entId.ToString() + "' enabled 'editor'")
+                        hasEditor <- true
+            )
+        if (isVirtualCharacter)
+            ()
+            if (hasEditor)
+                this.UnlockedDatabase.TryAddOrUpdate(entId, Editor())
+            else
+                this.UnlockedDatabase.TryRemove<Editor>(entId)
 
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =
         let db = this.UnlockedDatabase

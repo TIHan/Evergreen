@@ -124,6 +124,7 @@ abstract default class World =
         registry.Register<Transform>()
         registry.Register<Health>()
         registry.Register<PlayerSpawnPoint>()
+        registry.Register<Editor>()
 
     static RegisterFieldMappings(genv: GameEnv, registry: ComponentRegistry): () =
         let registerJsonFieldMapping<T>(
