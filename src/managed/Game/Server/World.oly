@@ -214,12 +214,25 @@ class ServerWorld =
     ToggleNoclip(mutable entId: EntityId): () =
         this.UnlockedDatabase.IfHas<VirtualCharacter>(entId,
             x ->
-                if (x.IsNoclip != 0)
-                    x.IsNoclip <- 0
-                    LogServer("'" + entId.ToString() + "' disabled 'noclip'")
+                if (x.Flags.HasFlag(VirtualCharacterFlags.Noclip))
+                    ()
+                    if (!x.Flags.HasFlag(VirtualCharacterFlags.Editor))
+                        x.Flags <- x.Flags & ~VirtualCharacterFlags.Noclip
+                        LogServer("'" + entId.ToString() + "' disabled 'noclip'")
                 else
-                    x.IsNoclip <- 1
+                    x.Flags <- x.Flags | VirtualCharacterFlags.Noclip
                     LogServer("'" + entId.ToString() + "' enabled 'noclip'")
+        )
+
+    ToggleEditor(mutable entId: EntityId): () =
+        this.UnlockedDatabase.IfHas<VirtualCharacter>(entId,
+            x ->
+                if (x.Flags.HasFlag(VirtualCharacterFlags.Editor))
+                    x.Flags <- x.Flags & ~VirtualCharacterFlags.Editor
+                    LogServer("'" + entId.ToString() + "' disabled 'editor'")
+                else
+                    x.Flags <- x.Flags | VirtualCharacterFlags.Editor
+                    LogServer("'" + entId.ToString() + "' enabled 'editor'")
         )
 
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =

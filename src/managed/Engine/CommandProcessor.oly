@@ -124,6 +124,7 @@ class CommandProcessor =
             )
 
             this.AddDef(ActionCommand("noclip", () -> game.SendUserCommand(UserCommand.ToggleNoclip)))
+            this.AddDef(ActionCommand("editor", () -> game.SendUserCommand(UserCommand.ToggleEditor)))
         | _ =>
             ()
 

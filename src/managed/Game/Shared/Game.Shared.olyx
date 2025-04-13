@@ -12,3 +12,4 @@ namespace Game.Shared
 
 enum UserCommand =
     | ToggleNoclip
+    | ToggleEditor

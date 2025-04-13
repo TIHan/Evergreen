@@ -444,10 +444,15 @@ struct StaticRigidBody =
 struct Character =
     public field mutable LinearVelocity: Vector3 = Vector3.Zero
 
+enum VirtualCharacterFlags =
+    | None   = 0b000
+    | Noclip = 0b001
+    | Editor = 0b011
+
 struct VirtualCharacter =
     public field mutable LinearVelocity: Vector3 = Vector3.Zero
     public field mutable Speed: float32 = 1
-    public field mutable IsNoclip: byte = 0
+    public field mutable Flags: VirtualCharacterFlags = VirtualCharacterFlags.None
 
     // TODO: Remove this field. It should belong elsewhere to handle an action a single time.
     public field mutable SpecialCount: int32 = 0

@@ -245,6 +245,8 @@ internal module Server =
             match (userCmd)
             | UserCommand.ToggleNoclip =>
                 world.ToggleNoclip(entId)
+            | UserCommand.ToggleEditor =>
+                world.ToggleEditor(entId)
             | _ =>
                 ()
         | _ =>

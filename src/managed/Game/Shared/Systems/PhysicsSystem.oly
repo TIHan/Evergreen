@@ -76,7 +76,7 @@ module Logic =
         camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
 
         let layer =
-            if (physCharacter.IsNoclip != 0)
+            if (physCharacter.Flags.HasFlag(VirtualCharacterFlags.Noclip))
                 PhysicsLayer.Noclip
             else
                 PhysicsLayer.CharacterVirtual
