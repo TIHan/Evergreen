@@ -237,6 +237,13 @@ internal class ServerHost =
                             if (connectedClient.SceneSequence == snapshotSequence)
                                 connectedClient.SceneLoadingTime <- TimeSpan.Zero
                                 connectedClient.SceneState <- ClientSceneState.Loaded
+
+                    else if (channel == NetworkChannels.UserCommandChannel)
+                        let mutable clientIndex = default
+                        if (connectedClients.TryGetValue(endPoint, &clientIndex))
+                            let connectedClient = connectedClientIndices[int32(clientIndex)]
+                            let userCmd: UserCommand = bstream.Read()
+                            publisher.UserCommandRequested(clientIndex, userCmd)
                             
                     else
                         netServer.Disconnect(endPoint, ClientDisconnectReason.Other)

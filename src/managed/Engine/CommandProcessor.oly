@@ -122,6 +122,8 @@ class CommandProcessor =
                                 game.SetClientPassword(value.Substring(0, Math.Min(64, value.Length)))
                 )
             )
+
+            this.AddDef(ActionCommand("noclip", () -> game.SendUserCommand(UserCommand.ToggleNoclip)))
         | _ =>
             ()
 

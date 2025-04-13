@@ -2,6 +2,7 @@ module Game.Server.Events
 
 open Evergreen.Utilities
 open Evergreen.Collections
+open Game.Shared
 open static Game.Shared.Types
 
 internal enum Tag =
@@ -12,6 +13,7 @@ internal enum Tag =
     | ClientInputUpdated
     | SceneLoaded
     | SceneClosed
+    | UserCommandRequested
 
 newtype ServerEventPublisher =
     field stream: ByteStream
@@ -40,6 +42,12 @@ newtype ServerEventPublisher =
     SceneClosed(): () =
         let stream = this.stream
         stream.Write(Tag.SceneClosed)
+
+    UserCommandRequested(clientIndex: byte, userCmd: UserCommand): () =
+        let stream = this.stream
+        stream.Write(Tag.UserCommandRequested)
+        stream.WriteByte(clientIndex)
+        stream.Write(userCmd)
 
 struct ServerEventReader =
     internal Tag: Tag get
@@ -78,3 +86,8 @@ module ServerEvent =
     pattern SceneClosed(reader: ServerEventReader): () when (reader.Tag == Tag.SceneClosed) =>
         let stream = reader.Stream
         ConsumeTag(stream)
+
+    pattern UserCommandRequested(reader: ServerEventReader): (clientIndex: byte, UserCommand) when (reader.Tag == Tag.UserCommandRequested) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        (stream.ReadByte(), stream.Read())

@@ -211,6 +211,17 @@ class ServerWorld =
     AddOrUpdatePlayerInput(entId: EntityId, playerInput: CharacterInput): () =
         this.UnlockedDatabase.TryAddOrUpdate(entId, playerInput)
 
+    ToggleNoclip(mutable entId: EntityId): () =
+        this.UnlockedDatabase.IfHas<VirtualCharacter>(entId,
+            x ->
+                if (x.IsNoclip != 0)
+                    x.IsNoclip <- 0
+                    LogServer("'" + entId.ToString() + "' disabled 'noclip'")
+                else
+                    x.IsNoclip <- 1
+                    LogServer("'" + entId.ToString() + "' enabled 'noclip'")
+        )
+
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =
         let db = this.UnlockedDatabase
         let physics = this.PhysicsSystem.physics

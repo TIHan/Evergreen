@@ -23,6 +23,7 @@ module NetworkChannels =
     public field SnapshotAckChannel: byte = 4
     public field LoadSceneChannel: byte = 5
     public field SceneLoadedChannel: byte = 6
+    public field UserCommandChannel: byte = 7
     public field ClientInputChannel: byte = 100
 
 struct ClientInput =

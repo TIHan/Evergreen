@@ -214,6 +214,9 @@ internal module Server =
         | ServerEvent.SceneClosed =>
             onSceneClosed(env)
 
+        | ServerEvent.UserCommandRequested(clientIndex, userCmd) =>
+            onClientUserCommandRequested(env, clientIndex, userCmd)
+
         | _ =>
             throw InvalidOperationException("Invalid or unhandled event.")
 
@@ -235,3 +238,14 @@ internal module Server =
 
     onSceneClosed(env: ServerEnv): () =
         DotNet.GC.Collect()
+
+    onClientUserCommandRequested(env: ServerEnv, clientIndex: byte, userCmd: UserCommand): () =
+        match (tryGetClientEntityId(env, clientIndex), tryGetWorld(env))
+        | SomeStruct(entId), Some(world) =>
+            match (userCmd)
+            | UserCommand.ToggleNoclip =>
+                world.ToggleNoclip(entId)
+            | _ =>
+                ()
+        | _ =>
+            ()

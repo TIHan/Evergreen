@@ -75,13 +75,19 @@ module Logic =
     playerVirtualTick(physics: Physics, deltaTime: float32, playerInput: inref<CharacterInput>, characterId: inref<VirtualCharacterId>, transform: byref<Transform>, physCharacter: byref<VirtualCharacter>, camera: byref<Camera>): () =
         camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
 
-        let motion = playerInputToMotion(&playerInput, &camera, physCharacter.Speed, CharacterMotionKind.None)
-    
         let layer =
             if (physCharacter.IsNoclip != 0)
                 PhysicsLayer.Noclip
             else
                 PhysicsLayer.CharacterVirtual
+
+        let motionKind =
+            if (layer == PhysicsLayer.Noclip)
+                CharacterMotionKind.Fly
+            else
+                CharacterMotionKind.None
+
+        let motion = playerInputToMotion(&playerInput, &camera, physCharacter.Speed, motionKind)
 
         physics.UpdateGroundVelocity(characterId, Unsafe.Cast(layer)) // virtual only
         
@@ -99,12 +105,7 @@ module Logic =
 
             physics.SetLinearVelocity(characterId, newVelocity)
         else
-            ()
-            if (Vector3.Dot(newVelocity, motion) < motion.Length())
-                newVelocity <- (newVelocity + motion * 0.2)
-
-            let newVelocity = newVelocity // virtual only
-
+            newVelocity <- motion
             physics.SetLinearVelocity(characterId, newVelocity)
 
         physics.Update(characterId, Unsafe.Cast(layer), deltaTime) // virtual only
@@ -284,8 +285,6 @@ abstract class PhysicsSystem =
             (mutable entId, physId, phys, transform) ->
                 physId <- physics.AddVirtualCharacter(transform.Position, Unsafe.Cast(PhysicsLayer.CharacterVirtual), entId.Encode())
                 physics.SetLinearVelocity(physId, phys.LinearVelocity)
-
-                //phys.IsNoclip <- 1
 
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &phys)
 

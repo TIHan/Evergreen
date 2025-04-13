@@ -7,3 +7,8 @@
 #reference "../../Collections/Evergreen.Collections.olyx"
 #reference "../../AssetManager/AssetManager.olyx"
 #reference "../../Audio/Evergreen.Audio.olyx"
+
+namespace Game.Shared
+
+enum UserCommand =
+    | ToggleNoclip

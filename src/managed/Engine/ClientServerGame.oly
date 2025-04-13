@@ -533,6 +533,10 @@ class ClientServerGame =
         this.CL.SetPassword(password)
 
     /// Main-thread only
+    SendUserCommand(userCmd: UserCommand): () =
+        this.CL.SendUserCommand(userCmd)
+
+    /// Main-thread only
     PrintClientEntity(index: int32): () =
         this.CL.PrintEntity(index)
 

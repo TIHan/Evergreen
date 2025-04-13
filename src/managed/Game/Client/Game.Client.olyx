@@ -244,6 +244,10 @@ class ClientGame =
         this.Executing <- false
         result
 
+    SendUserCommand(userCmd: UserCommand): () =
+        if (this.ConnectionStatus == ConnectionStatus.Connected && this.HasScene && this.HasBegun)
+            this.Env.Connection.SendUserCommand(userCmd)
+
     Dispose(): () =
         this.CheckExecuting()
         this.Executing <- true
@@ -261,6 +265,7 @@ enum ClientCommandTag =
     | LoadScene
     | DisposeScene
     | SetPassword
+    | SendUserCommand
 
 newtype ClientCommandBuffer =
     public field Stream: ByteStream
@@ -299,6 +304,11 @@ newtype ClientCommandBuffer =
         let stream = this.Stream
         stream.Write(ClientCommandTag.SetPassword)
         stream.WriteSmallString(password)
+
+    SendUserCommand(userCmd: UserCommand): () =
+        let stream = this.Stream
+        stream.Write(ClientCommandTag.SendUserCommand)
+        stream.Write(userCmd)
 
 struct ClientCommandReader =
     internal Tag: ClientCommandTag get
@@ -345,6 +355,11 @@ module ClientCommand =
         let stream = reader.Stream
         ConsumeTag(stream)
         stream.ReadSmallString()
+
+    pattern SendUserCommand(reader: ClientCommandReader): UserCommand when (reader.Tag == ClientCommandTag.SendUserCommand) =>
+        let stream = reader.Stream
+        ConsumeTag(stream)
+        stream.Read()
 
 internal struct ClientState =
     ConnectionStatus: ConnectionStatus get
@@ -536,6 +551,9 @@ class ClientGameProxy =
             | ClientCommand.SetPassword(password) =>
                 this.State <- this.State.WithPassword(password)
 
+            | ClientCommand.SendUserCommand(userCmd) =>
+                cl.SendUserCommand(userCmd)
+
             | _ =>
                 fail("Unhandled or malformed client command.")
 
@@ -649,6 +667,11 @@ class ClientGameProxy =
     SetPassword(password: string): () =
         let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
         clCmds.SetPassword(password)
+
+    /// Main-thread only
+    SendUserCommand(userCmd: UserCommand): () =
+        let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
+        clCmds.SendUserCommand(userCmd)
 
     /// Main-thread only
     DisposeScene(): () =
