@@ -67,6 +67,11 @@ class ServerWorld =
                         camera.SetYawPitch(input.Yaw, input.Pitch)
                 )
 
+                db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
+                    (entId, editor, camera, transform, input) ->
+                        editor.Transform.Position <- transform.Position + Vector3(5)
+                )
+
                 physicsSystem
             genv = genv
             
@@ -241,7 +246,9 @@ class ServerWorld =
         if (isVirtualCharacter)
             ()
             if (hasEditor)
-                this.UnlockedDatabase.TryAddOrUpdate(entId, Editor())
+                let mutable editor = Editor()
+                editor.Camera.Yaw <- 2
+                this.UnlockedDatabase.TryAddOrUpdate(entId, editor)
             else
                 this.UnlockedDatabase.TryRemove<Editor>(entId)
 

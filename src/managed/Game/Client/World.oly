@@ -113,9 +113,18 @@ class ClientWorld =
                 )
 
                 db.HandleComponentAdded<CharacterInput, /**/ Camera>(
-                    (mutable entId, input, camera) ->
+                    (entId, input, camera) ->
+                        // TODO: This doesn't actually set the input. We need to solve this.
                         input.Yaw <- camera.Yaw
-                        input.Pitch <- camera.Pitch                            
+                        input.Pitch <- camera.Pitch                         
+                )
+
+                db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
+                    (entId, editor, camera, transform, input) ->
+                        // TODO: This doesn't actually set the input. We need to solve this.
+                        editor.Camera.LookAt(editor.Transform.Position, transform.Position)
+                        input.Yaw <- editor.Camera.Yaw
+                        input.Pitch <- editor.Camera.Pitch
                 )
 
                 physicsSystem

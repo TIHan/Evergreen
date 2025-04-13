@@ -111,6 +111,13 @@ module Logic =
         physics.Update(characterId, Unsafe.Cast(layer), deltaTime) // virtual only
         SyncPhysicsInfo(physics, characterId, &transform, &physCharacter)
 
+    playerEditorTick(deltaTime: float32, playerInput: inref<CharacterInput>, editor: byref<Editor>): () =
+        editor.Camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+
+        let motion = playerInputToMotion(&playerInput, &editor.Camera, 1, CharacterMotionKind.Fly)
+
+        editor.Transform.Position <- editor.Transform.Position + motion
+
     SyncPhysicsInfo(physics: Physics, physId: StaticObjectId, transform: byref<Transform>, physInfo: byref<StaticRigidBody>): () =
         let mutable _isActive = false
 
@@ -457,27 +464,35 @@ abstract class PhysicsSystem =
         let _ =
             db.TryGet<Player, Camera, Transform>(entId,
                 (_, camera, transform) ->
-                    let isVirtCharacter =
-                        db.TryGet<VirtualCharacter, VirtualCharacterId>(entId,
-                            (character, characterId) ->
-                                // let log(msg: string) =
-                                //     if (this.kind == PhysicsSystemKind.Client)
-                                //         LogClient(msg)
-                                //     else
-                                //         LogServer(msg)
-                                // log("before frame: " + playerInput.Frame.ToString())
-                                // log("\tposition: " + transform.Position.ToString())
-                                // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())             
-                                Logic.playerVirtualTick(physics, deltaTime, &characterInput, &characterId, &transform, &character, &camera)
-                                // log("Frame " + playerInput.Frame.ToString() + " - " + transform.Position.ToString())
-                                // log("frame: " + playerInput.Frame.ToString())
-                                // log("\tposition: " + transform.Position.ToString())
-                                // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
-                        )
 
-                    if (!isVirtCharacter)
-                        let motion = Logic.playerInputToMotion(&characterInput, &camera, 10 * deltaTime, CharacterMotionKind.Fly)
-                        transform.Position <- transform.Position + motion
+                    let oldCharacterInput = characterInput
+                    let characterInput =
+                        if (db.Has<Editor>(entId))
+                            default
+                        else
+                            characterInput
+                    db.IfHas<VirtualCharacter, VirtualCharacterId>(entId,
+                        (character, characterId) ->
+                            // let log(msg: string) =
+                            //     if (this.kind == PhysicsSystemKind.Client)
+                            //         LogClient(msg)
+                            //     else
+                            //         LogServer(msg)
+                            // log("before frame: " + playerInput.Frame.ToString())
+                            // log("\tposition: " + transform.Position.ToString())
+                            // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())             
+                            Logic.playerVirtualTick(physics, deltaTime, &characterInput, &characterId, &transform, &character, &camera)
+                            // log("Frame " + playerInput.Frame.ToString() + " - " + transform.Position.ToString())
+                            // log("frame: " + playerInput.Frame.ToString())
+                            // log("\tposition: " + transform.Position.ToString())
+                            // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+                    )
+
+                    db.IfHas<Editor>(entId,
+                        editor ->
+                            Logic.playerEditorTick(deltaTime, &oldCharacterInput, &editor)
+                    )
+                    
             )
 
     Dispose(): () =

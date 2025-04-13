@@ -251,15 +251,15 @@ private module Rendering =
                 transform <- editor.Transform
                 camera <- editor.Camera
 
-                camera.SetYawPitch(yaw, pitch)
-                camera.SetRoll(roll)
+                // camera.SetYawPitch(yaw, pitch)
+                // camera.SetRoll(roll)
 
                 // TODO-language-bug: 'transformLerp <- transform' should error
                 transformLerp.Value <- transform
                 cameraLerp.Value <- camera
 
-                cameraLerp.Value.SetYawPitch(prevYaw, prevPitch)
-                cameraLerp.Value.SetRoll(prevRoll)
+                // cameraLerp.Value.SetYawPitch(prevYaw, prevPitch)
+                // cameraLerp.Value.SetRoll(prevRoll)
         )
 
         db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(cameraEntId,

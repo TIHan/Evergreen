@@ -243,6 +243,14 @@ struct Camera =
     GetTransform(position: vec3): Transform =
         Transform(this.GetPosition(position), this.Rotation, vec3.One)
 
+    mutable LookAt(cameraPosition: vec3, targetPosition: vec3): () =
+        let m = mat4.CreateLookAt(cameraPosition, targetPosition, vec3.Down)
+        let q = quat.CreateFromRotationMatrix(m)
+        let angles = q.ToEulerAngles()
+        this.Yaw <- radians(90) + angles.X
+        this.Pitch <- angles.Y
+        this.Roll <- 0
+
     Direction: vec3
         get() =
             this.Rotation.Direction
