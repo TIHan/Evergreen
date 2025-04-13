@@ -126,7 +126,7 @@ class MeshRendererBehavior =
 
     GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.Lighting.MeshShadowMapFrames
 
-    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =        
         let mutable cameraPosition = vec3.Zero
         db.IfHas<Camera, Transform>(playerCameraId,
             (camera, transform) ->
@@ -135,9 +135,11 @@ class MeshRendererBehavior =
 
         let transparencyQueue = PriorityQueue<EntityId, float32>()
 
+        let alwaysDrawPlayer = db.Has<Editor>(playerCameraId)
+
         db.CreateQuery<TransformLerp, Transform, MeshReference, Material>().WhereNotContains<Outline>().ForEach(
             (entId, transformLerp, transform, meshRef, material) ->
-                if (entId != playerCameraId)
+                if (alwaysDrawPlayer || entId != playerCameraId)
                     if (material.IsTransparent)
                         transparencyQueue.Enqueue(entId, -(cameraPosition - transform.Position).Length())
                     else
@@ -147,7 +149,7 @@ class MeshRendererBehavior =
 
         db.CreateQuery<TransformLerp, Transform, MeshReference, Material, Outline>().ForEach(
             (entId, transformLerp, transform, meshRef, material, outline) ->
-                if (entId != playerCameraId)
+                if (alwaysDrawPlayer || entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Mesh, &material)
                     DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
@@ -196,17 +198,19 @@ class SpriteRendererBehavior =
     Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
         let meshRef = renv.GetPlaneRenderMeshReference()
 
+        let alwaysDrawPlayer = db.Has<Editor>(playerCameraId)
+
         let mutable transparencyOrder = 0: byte
         db.CreateQuery<TransformLerp, Transform, Sprite, Material>().WhereNotContains<Outline>().ForEach(
             (entId, transformLerp, transform, _, material) ->
-                if (entId != playerCameraId)
+                if (alwaysDrawPlayer || entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Sprite, &material)
                     DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
         )
 
         db.CreateQuery<TransformLerp, Transform, Sprite, Material, Outline>().ForEach(
             (entId, transformLerp, transform, _, material, outline) ->
-                if (entId != playerCameraId)
+                if (alwaysDrawPlayer || entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Sprite, &material)
                     DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
@@ -233,6 +237,30 @@ private module Rendering =
     UpdateCamera(renv: RenderEnv, db: EntityDatabase, cameraEntId: EntityId, lights: List<DrawLightInfo>, alpha: float32): () =
         let globalsBuffer = renv.GlobalsBuffer
         globalsBuffer.NeedsUpdate <- true
+
+        db.CreateQuery<VirtualCharacter, Transform, Camera, TransformLerp, CameraLerp, Editor>().ForEach(
+            (entId, char, transform, camera, transformLerp, cameraLerp, editor) ->
+                let yaw = camera.Yaw
+                let pitch = camera.Pitch
+                let roll = camera.Roll
+
+                let prevYaw = cameraLerp.Value.Yaw
+                let prevPitch = cameraLerp.Value.Pitch
+                let prevRoll = cameraLerp.Value.Roll
+
+                transform <- editor.Transform
+                camera <- editor.Camera
+
+                camera.SetYawPitch(yaw, pitch)
+                camera.SetRoll(roll)
+
+                // TODO-language-bug: 'transformLerp <- transform' should error
+                transformLerp.Value <- transform
+                cameraLerp.Value <- camera
+
+                cameraLerp.Value.SetYawPitch(prevYaw, prevPitch)
+                cameraLerp.Value.SetRoll(prevRoll)
+        )
 
         db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(cameraEntId,
             (prevTransform, transform, prevCamera, camera) ->
