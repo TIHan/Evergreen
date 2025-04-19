@@ -62,14 +62,19 @@ class ServerWorld =
             PhysicsSystem = 
                 let physicsSystem = ServerPhysicsSystem.Create(db, genv)
 
-                db.HandleComponentAdded<CharacterInput, /**/ Camera>(
-                    (entId, input, camera) ->
+                db.HandleComponentAdded<CharacterInput, /**/ Camera, Transform>(
+                    (entId, input, camera, transform) ->
                         camera.SetYawPitch(input.Yaw, input.Pitch)
+                        transform.Sequence <- transform.Sequence.Increment()
                 )
 
                 db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
                     (entId, editor, camera, transform, input) ->
                         editor.Transform.Position <- transform.Position + Vector3(5)
+                        editor.Camera.LookAt(editor.Transform.Position, transform.Position)
+                        input.Yaw <- editor.Camera.Yaw
+                        input.Pitch <- editor.Camera.Pitch
+                        transform.Sequence <- transform.Sequence.Increment()
                 )
 
                 physicsSystem
@@ -246,9 +251,7 @@ class ServerWorld =
         if (isVirtualCharacter)
             ()
             if (hasEditor)
-                let mutable editor = Editor()
-                editor.Camera.Yaw <- 2
-                this.UnlockedDatabase.TryAddOrUpdate(entId, editor)
+                this.UnlockedDatabase.TryAddOrUpdate(entId, Editor())
             else
                 this.UnlockedDatabase.TryRemove<Editor>(entId)
 

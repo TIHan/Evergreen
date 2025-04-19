@@ -132,7 +132,9 @@ class ClientPhysicsSystem =
 
         db.HandleComponentAdded<VirtualCharacterId, /**/ VirtualCharacter, Transform>(
             (entId, physId, physInfo, transform) ->
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)              
+                let s = transform.Sequence
+                transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)           
+                transform.Sequence <- s   
         )
 
         sys
@@ -160,7 +162,9 @@ class ClientPhysicsSystem =
         let _ =
             db.TryGet<Player, VirtualCharacterId, Transform>(entId,
                 (_, vcharacterId, transform) ->
+                    let s = transform.Sequence
                     transform <- Transform(physics.GetCenterOfMassPosition(vcharacterId), Quaternion.Identity, transform.Scale)
+                    transform.Sequence <- s
             )
 
     RecordPlayerPredictions(deltaTime: float32, entId: EntityId): () =
@@ -222,7 +226,9 @@ class ClientPhysicsSystem =
 
         db.CreateQuery<VirtualCharacter, Transform, VirtualCharacterId>().ForEach(
             (entId, physInfo, transform, physId) ->               
+                let s = transform.Sequence
                 transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)
+                transform.Sequence <- s
         )
 
         db.CreateQuery<VirtualCharacter, Transform, Camera>().ForEach(

@@ -267,7 +267,6 @@ struct Camera =
         get() =
             match (this.ProjectionKind)
             | CameraProjectionKind.Orthographic =>
-                //mat4.CreateOrthographic(float32(this.Width), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
                 mat4.CreateOrthographicOffCenter(-float32(this.Width), float32(this.Width), -float32(this.Height), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
             | _ =>
                 let fov = 
@@ -338,6 +337,10 @@ struct Transform =
     Direction: vec3
         get() = 
             this.Rotation.Direction
+
+struct Editor =
+    public field mutable Transform: Transform = Transform()
+    public field mutable Camera: Camera = Camera(70, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
 
 #[Flags]
 enum MaterialFlags =
@@ -597,9 +600,5 @@ struct Sprite
 
 struct Health =
     public field mutable Value: uint32 = 100
-
-struct Editor =
-    public field mutable Transform: Transform = Transform()
-    public field mutable Camera: Camera = Camera(70, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
 
         

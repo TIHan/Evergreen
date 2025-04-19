@@ -1145,12 +1145,6 @@ class Renderer =
     module Logic =
 
         Update(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, db: EntityDatabase, cameraEntId: EntityId, outLights: List<DrawLightInfo>): () =
-            db.CreateQuery<TransformLerp, Transform, CameraLerp, Camera>().ForEach(
-                (entId, transformLerp, transform, cameraLerp, camera) ->
-                    transform.Rotation <- camera.RealRotation
-                    transformLerp.Value.Rotation <- cameraLerp.Value.RealRotation
-            )
-            
             db.CreateQuery<TransformLerp, Transform>().ForEach(
                 (entId, transformLerp, transform) ->
                     let mutable seq = transform.Sequence
@@ -1158,6 +1152,11 @@ class Renderer =
                     if (seq.IsNewerThan(prevSeq))
                         Log("teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
                         transformLerp.Value <- transform
+
+                        db.IfHas<EditorLerp, Editor>(entId,
+                            (editorLerp, editor) ->
+                                editorLerp.Transform <- editor.Transform
+                        )
             )
 
             ForEach(renderers,

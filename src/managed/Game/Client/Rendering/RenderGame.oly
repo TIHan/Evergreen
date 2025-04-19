@@ -66,10 +66,10 @@ class RenderGame =
         | _ =>
             ()
 
-    SetCharacterInput(deltaTime: float32, characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+    SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
         match (this.Scene)
         | Some(scene) =>
-            scene.SetCharacterInput(deltaTime, characterEntId, &newInput) // TODO-language-bug: ", newInput)" will show error in the wrong range.
+            scene.SetCharacterInput(characterEntId, &newInput) // TODO-language-bug: ", newInput)" will show error in the wrong range.
         | _ =>
             ()
 

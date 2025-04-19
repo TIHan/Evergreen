@@ -47,6 +47,9 @@ class RenderingWorld =
         registry.Register<TransformLerp>()
         registry.RegisterAttachment<Transform, TransformLerp>()
 
+        registry.Register<EditorLerp>()
+        registry.RegisterAttachment<Editor, EditorLerp>()
+
         let maxLightCount = LightArrayShaderData.MaxCount
 
         base(EntityDatabase(EntityDatabaseKind.Client, registry)) with {
@@ -65,23 +68,20 @@ class RenderingWorld =
                 input -> input.Actions <- CharacterActions.None
             )
 
-    SetCharacterInput(deltaTime: float32, characterEntId: EntityId, newInput: inref<CharacterInput>): () =
-        let _ =
-            this.Database.TryGet<CharacterInput, TransformLerp, Transform, CameraLerp, Camera>(characterEntId,
-                (input, transformLerp, transform, cameraLerp, camera) ->
-                    input <- newInput
+    SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+        let db = this.Database
+        db.IfHas<CharacterInput, TransformLerp, Transform, CameraLerp, Camera>(characterEntId,
+            (input, transformLerp, transform, cameraLerp, camera) ->
+                input <- newInput
+
+                let hasEditor =
+                    db.TryGet<EditorLerp, Editor>(characterEntId,
+                        (editorLerp, editor) ->
+                            editorLerp.Camera.SetYawPitch(input.Yaw, input.Pitch)
+                    )
+                if (!hasEditor)
                     // Immediately update the previous camera rotation.
                     cameraLerp.Value.SetYawPitch(input.Yaw, input.Pitch)
-            )
-
-        this.Database.CreateQuery<CameraLerp, Camera>().ForEach(
-            (entId, cameraLerp, camera) ->
-                let yaw = cameraLerp.Value.Yaw
-                let pitch = cameraLerp.Value.Pitch
-
-                let mutable cameraCopy = camera
-                cameraCopy.SetYawPitch(yaw, pitch)
-                cameraLerp.Value <- cameraCopy
         )
 
     Update(renv: RenderEnv, cameraEntId: EntityId): () =
@@ -128,14 +128,20 @@ class MeshRendererBehavior =
 
     Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =        
         let mutable cameraPosition = vec3.Zero
-        db.IfHas<Camera, Transform>(playerCameraId,
-            (camera, transform) ->
-                cameraPosition <- camera.GetPosition(transform.Position)
-        )
+        let hasEditor =
+            db.TryGet<Editor>(playerCameraId,
+                editor ->
+                    cameraPosition <- editor.Camera.GetPosition(editor.Transform.Position)
+            )
+        if (!hasEditor)
+            db.IfHas<Camera, Transform>(playerCameraId,
+                (camera, transform) ->
+                    cameraPosition <- camera.GetPosition(transform.Position)
+            )
 
         let transparencyQueue = PriorityQueue<EntityId, float32>()
 
-        let alwaysDrawPlayer = db.Has<Editor>(playerCameraId)
+        let alwaysDrawPlayer = hasEditor
 
         db.CreateQuery<TransformLerp, Transform, MeshReference, Material>().WhereNotContains<Outline>().ForEach(
             (entId, transformLerp, transform, meshRef, material) ->
@@ -234,80 +240,67 @@ class SpriteRendererBehavior =
 
 private module Rendering =
 
-    UpdateCamera(renv: RenderEnv, db: EntityDatabase, cameraEntId: EntityId, lights: List<DrawLightInfo>, alpha: float32): () =
+    private UpdateGlobalsFromCamera(renv: RenderEnv, lights: List<DrawLightInfo>, prevTransform: inref<Transform>, transform: inref<Transform>, prevCamera: inref<Camera>, camera: inref<Camera>, alpha: float32): () =
+        let camera =
+            let mutable camera = camera
+            camera.SetYawPitch(prevCamera.Yaw, prevCamera.Pitch)
+            camera
+
+        let prevCameraTransform = prevCamera.GetTransform(prevTransform.Position)
+        let cameraTransform = camera.GetTransform(transform.Position)
+
+        let prev = Transform(prevCameraTransform.Position, cameraTransform.Rotation, prevCameraTransform.Scale)
+        let curr = Transform(cameraTransform.Position, cameraTransform.Rotation, cameraTransform.Scale)
+
         let globalsBuffer = renv.GlobalsBuffer
         globalsBuffer.NeedsUpdate <- true
+        let mutable sGlobals = &globalsBuffer.Array[0]
+        sGlobals.View <- Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
+        sGlobals.Projection <- camera.Projection
+        sGlobals.NearZ <- camera.NearPlaneDistance
+        sGlobals.FarZ <- camera.FarPlaneDistance
+        sGlobals.FrustumPlanes <- (sGlobals.View * sGlobals.Projection).GetFrustumPlanes()
+        if (!Matrix4x4.Invert(sGlobals.View, &sGlobals.ViewInverse))
+            sGlobals.ViewInverse <- Matrix4x4.Identity
+            LogClientWarning("View matrix was unable to be inverted")
+        if (!Matrix4x4.Invert(sGlobals.Projection, &sGlobals.ProjectionInverse))
+            sGlobals.ProjectionInverse <- Matrix4x4.Identity
+            LogClientWarning("Projection matrix was unable to be inverted")
 
-        db.CreateQuery<VirtualCharacter, Transform, Camera, TransformLerp, CameraLerp, Editor>().ForEach(
-            (entId, char, transform, camera, transformLerp, cameraLerp, editor) ->
-                let yaw = camera.Yaw
-                let pitch = camera.Pitch
-                let roll = camera.Roll
+        sGlobals.MainCameraView <- sGlobals.View
+        sGlobals.MainCameraViewInverse <- sGlobals.ViewInverse
+        sGlobals.MainCameraProjection <- sGlobals.Projection
+        sGlobals.MainCameraProjectionInverse <- sGlobals.ProjectionInverse
 
-                let prevYaw = cameraLerp.Value.Yaw
-                let prevPitch = cameraLerp.Value.Pitch
-                let prevRoll = cameraLerp.Value.Roll
+        For(lights.Count,
+            i ->
+                let mutable item = lights[i]
 
-                transform <- editor.Transform
-                camera <- editor.Camera
+                if (item.Light.Kind == LightKind.Directional)
+                    let prevPosition = prev.Position - item.PreviousCamera.Direction * (item.PreviousCamera.FarPlaneDistance / 2)
+                    let position = curr.Position - item.Camera.Direction * (item.Camera.FarPlaneDistance / 2)
 
-                // camera.SetYawPitch(yaw, pitch)
-                // camera.SetRoll(roll)
+                    // We round to stabilize the shadows when the target camera is moving.
+                    let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
+                    let roundedPosition = Vector3(MathF.Round(position.X), MathF.Round(position.Y), MathF.Round(position.Z))
 
-                // TODO-language-bug: 'transformLerp <- transform' should error
-                transformLerp.Value <- transform
-                cameraLerp.Value <- camera
+                    item.PreviousCameraTransform <- item.PreviousCamera.GetTransform(roundedPrevPosition)
+                    item.CameraTransform <- item.Camera.GetTransform(roundedPosition)
 
-                // cameraLerp.Value.SetYawPitch(prevYaw, prevPitch)
-                // cameraLerp.Value.SetRoll(prevRoll)
+                    lights[i] <- item
         )
 
-        db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(cameraEntId,
-            (prevTransform, transform, prevCamera, camera) ->
-                camera.SetYawPitch(prevCamera.Value.Yaw, prevCamera.Value.Pitch)
-
-                let prevCameraTransform = prevCamera.Value.GetTransform(prevTransform.Value.Position)
-                let cameraTransform = camera.GetTransform(transform.Position)
-
-                let prev = Transform(prevCameraTransform.Position, cameraTransform.Rotation, prevCameraTransform.Scale)
-                let curr = Transform(cameraTransform.Position, cameraTransform.Rotation, cameraTransform.Scale)
-
-                let mutable sGlobals = &globalsBuffer.Array[0]
-                sGlobals.View <- Matrix4x4.Lerp(prev.WorldToLocalMatrix, curr.WorldToLocalMatrix, alpha)
-                sGlobals.Projection <- camera.Projection
-                sGlobals.NearZ <- camera.NearPlaneDistance
-                sGlobals.FarZ <- camera.FarPlaneDistance
-                sGlobals.FrustumPlanes <- (sGlobals.View * sGlobals.Projection).GetFrustumPlanes()
-                if (!Matrix4x4.Invert(sGlobals.View, &sGlobals.ViewInverse))
-                    sGlobals.ViewInverse <- Matrix4x4.Identity
-                    LogClientWarning("View matrix was unable to be inverted")
-                if (!Matrix4x4.Invert(sGlobals.Projection, &sGlobals.ProjectionInverse))
-                    sGlobals.ProjectionInverse <- Matrix4x4.Identity
-                    LogClientWarning("Projection matrix was unable to be inverted")
-
-                sGlobals.MainCameraView <- sGlobals.View
-                sGlobals.MainCameraViewInverse <- sGlobals.ViewInverse
-                sGlobals.MainCameraProjection <- sGlobals.Projection
-                sGlobals.MainCameraProjectionInverse <- sGlobals.ProjectionInverse
-
-                For(lights.Count,
-                    i ->
-                        let mutable item = lights[i]
-
-                        if (item.Light.Kind == LightKind.Directional)
-                            let prevPosition = prev.Position - item.PreviousCamera.Direction * (item.PreviousCamera.FarPlaneDistance / 2)
-                            let position = curr.Position - item.Camera.Direction * (item.Camera.FarPlaneDistance / 2)
-
-                            // We round to stabilize the shadows when the target camera is moving.
-                            let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
-                            let roundedPosition = Vector3(MathF.Round(position.X), MathF.Round(position.Y), MathF.Round(position.Z))
-
-                            item.PreviousCameraTransform <- item.PreviousCamera.GetTransform(roundedPrevPosition)
-                            item.CameraTransform <- item.Camera.GetTransform(roundedPosition)
-
-                            lights[i] <- item
-                )
-        )
+    UpdateCamera(renv: RenderEnv, db: EntityDatabase, cameraEntId: EntityId, lights: List<DrawLightInfo>, alpha: float32): () =
+        let hasEditor =
+            db.TryGet<EditorLerp, Editor>(cameraEntId,
+                (prevEditor, editor) ->
+                    UpdateGlobalsFromCamera(renv, lights, &prevEditor.Transform, &editor.Transform, &prevEditor.Camera, &editor.Camera, alpha)
+            )
+        if (!hasEditor)
+            db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(cameraEntId,
+                (prevTransform, transform, prevCamera, camera) ->
+                    UpdateGlobalsFromCamera(renv, lights, &prevTransform.Value, &transform, &prevCamera.Value, &camera, alpha)
+            )
 
     UpdateLights(renv: RenderEnv, lights: IReadOnlyList<DrawLightInfo>, alpha: float32): () =
         let maxLights = renv.Lighting.MaxLightCount

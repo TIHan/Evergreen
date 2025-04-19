@@ -40,8 +40,8 @@ class RenderScene =
     ResetCharacterInputActions(characterEntId: EntityId): () =
         this.WorldFront.ResetCharacterInputActions(characterEntId)
 
-    SetCharacterInput(deltaTime: float32, characterEntId: EntityId, newInput: inref<CharacterInput>): () =
-        this.WorldFront.SetCharacterInput(deltaTime, characterEntId, &newInput)
+    SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+        this.WorldFront.SetCharacterInput(characterEntId, &newInput)
 
     TryGetCharacterInput(characterEntId: EntityId, outInput: byref<CharacterInput>): bool =
         let mutable input = default
@@ -93,23 +93,41 @@ class RenderScene =
         let mutable currentCameraLerp = default
         let mutable currentTransform = default
         let mutable currentTransformLerp = default
-        let result =
-            clientWorld.Database.TryGet<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
+        
+        let hasEditor =
+            clientWorld.Database.TryGet<CharacterInput, EditorLerp, Editor>(localClientEntId,
+                (playerInput, editorLerp, editor) ->
+                    currentPlayerInput <- playerInput
+                    currentCamera <- editor.Camera
+                    currentCameraLerp <- editorLerp.Camera
+                    currentTransform <- editor.Transform
+                    currentTransformLerp <- editorLerp.Transform
+            )
+        if (hasEditor)
+            this.WorldFront.Database.IfHas<CharacterInput, EditorLerp, Editor>(localClientEntId,
+                (playerInput, editorLerp, editor) ->
+                    editor.Transform <- currentTransform
+                    editorLerp.Transform <- currentTransformLerp
+                    playerInput <- currentPlayerInput
+                    editor.Camera <- currentCamera
+                    editorLerp.Camera <- currentCameraLerp
+            )
+        else
+            clientWorld.Database.IfHas<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
                 (playerInput, camera, cameraLerp, transform, transformLerp) ->
                     currentPlayerInput <- playerInput
                     currentCamera <- camera
-                    currentCameraLerp <- cameraLerp
+                    currentCameraLerp <- cameraLerp.Value
                     currentTransform <- transform
-                    currentTransformLerp <- transformLerp
+                    currentTransformLerp <- transformLerp.Value
             )
-        let result =
-            this.WorldFront.Database.TryGet<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
+            this.WorldFront.Database.IfHas<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
                 (playerInput, camera, cameraLerp, transform, transformLerp) ->
                     transform <- currentTransform
-                    transformLerp <- currentTransformLerp
+                    transformLerp.Value <- currentTransformLerp
                     playerInput <- currentPlayerInput
                     camera <- currentCamera
-                    cameraLerp <- currentCameraLerp
+                    cameraLerp.Value <- currentCameraLerp
 
                     // Update transform so that the mesh can render with a rotation that matches the camera.
                     transform.Rotation <- camera.Rotation
@@ -117,6 +135,24 @@ class RenderScene =
                     transformLerp.Value.Rotation <- cameraLerp.Value.Rotation
                     cameraLerp.Value <- camera
             )
+
+        this.WorldFront.Database.IfHas<Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
+            (camera, cameraLerp, transform, transformLerp) ->
+                // Update transform so that the mesh can render with a rotation that matches the camera.
+                transform.Rotation <- camera.Rotation
+
+                transformLerp.Value.Rotation <- cameraLerp.Value.Rotation
+                cameraLerp.Value <- camera
+        )
+
+        this.WorldFront.Database.IfHas<EditorLerp, Editor>(localClientEntId,
+            (editorLerp, editor) ->
+                // Update transform so that the mesh can render with a rotation that matches the camera.
+                editor.Transform.Rotation <- editor.Camera.Rotation
+
+                editorLerp.Transform.Rotation <- editorLerp.Camera.Rotation
+                editorLerp.Camera <- editor.Camera
+        )
 
     Dispose(): () =
         this.Gpu.Wait()

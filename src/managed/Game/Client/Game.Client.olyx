@@ -400,7 +400,7 @@ internal module ClientGameHelpers =
         let mutable input = default
         if (rGame.TryGetCharacterInput(playerId, &input))
             callback(deltaTime, &input)
-            rGame.SetCharacterInput(deltaTime, playerId, &input)
+            rGame.SetCharacterInput(playerId, &input)
 
 class LocalPlayer =
 
@@ -624,7 +624,7 @@ class ClientGameProxy =
         let mutable input = default
         if (this.R.TryGetCharacterInput(localPlayerId, &input))
             InputHandling.UpdateCharacterInput(time.DeltaTime, inputSnapshot, &input)
-            this.R.SetCharacterInput(time.DeltaTime, localPlayerId, &input)
+            this.R.SetCharacterInput(localPlayerId, &input)
 
     /// Main-thread only
     Render(time: GameTime, alpha: float32, screenSize: Vector2, cont: scoped GpuCommandList -> ()): () =

@@ -78,6 +78,9 @@ class ClientWorld =
         registry.Register<TransformLerp>()
         registry.RegisterAttachment<Transform, TransformLerp>()
 
+        registry.Register<EditorLerp>()
+        registry.RegisterAttachment<Editor, EditorLerp>()
+
         World.RegisterFieldMappings(genv, registry)
 
         registry
@@ -112,6 +115,12 @@ class ClientWorld =
                         cameraLerp.Value <- camera
                 )
 
+                db.HandleComponentAdded<EditorLerp, /**/ Editor>(
+                    (entId, editorLerp, editor) ->
+                        editorLerp.Transform <- editor.Transform
+                        editorLerp.Camera <- editor.Camera
+                )
+
                 db.HandleComponentAdded<CharacterInput, /**/ Camera>(
                     (entId, input, camera) ->
                         // TODO: This doesn't actually set the input. We need to solve this.
@@ -122,7 +131,6 @@ class ClientWorld =
                 db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
                     (entId, editor, camera, transform, input) ->
                         // TODO: This doesn't actually set the input. We need to solve this.
-                        editor.Camera.LookAt(editor.Transform.Position, transform.Position)
                         input.Yaw <- editor.Camera.Yaw
                         input.Pitch <- editor.Camera.Pitch
                 )
@@ -165,6 +173,11 @@ class ClientWorld =
         this.Database.CreateQuery<CameraLerp, Camera>().ForEach(
             (entId, cameraLerp, camera) ->
                 cameraLerp <- CameraLerp(camera)
+        )
+        this.Database.CreateQuery<EditorLerp, Editor>().ForEach(
+            (entId, editorLerp, editor) ->
+                editorLerp.Transform <- editor.Transform
+                editorLerp.Camera <- editor.Camera
         )
 
     OptimizeStaticEnvironment(): () =

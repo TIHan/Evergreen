@@ -214,8 +214,22 @@ module Gui =
                 diagsVm.ServerPingTextUpdateTime <- diagsVm.ServerPingTextUpdateTime + deltaTime
 
     UpdateRenderClient(guiEnv: GuiEnv, renderWorld: RenderingWorld, clientEntId: EntityId, alpha: float32, windowViews: List<WindowView>): () =
-        let _ =
-            renderWorld.Database.TryGet<TransformLerp, Transform, CameraLerp, Camera>(clientEntId,
+        let db = renderWorld.Database
+        let hasEditor =
+            db.TryGet<EditorLerp, Editor>(clientEntId,
+                (editorLerp, editor) ->
+                    Gui.UpdateRenderPlayer(guiEnv,
+                        &editorLerp.Transform,
+                        &editor.Transform,
+                        &editorLerp.Camera,
+                        &editor.Camera,
+                        renderWorld.Database,
+                        windowViews,
+                        alpha 
+                    )
+            )
+        if (!hasEditor)
+            db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(clientEntId,
                 (transformLerp, transform, cameraLerp, camera) ->
                     Gui.UpdateRenderPlayer(guiEnv,
                         &transformLerp.Value,
