@@ -56,7 +56,7 @@ internal module ClientPhysicsSystemHelpers =
 class ClientPhysicsSystem =
     inherits PhysicsSystem
 
-    private struct FramePredictionInfo =
+    private struct EntityPredictionInfo =
         public field IsValid: bool
         public field Frame: FrameNumber
         public field mutable Position: Vector3
@@ -72,8 +72,8 @@ class ClientPhysicsSystem =
             }
 
     field frameBufferMaxCount: int32
-    field frameInputBuffer: mutable CharacterInput[]
-    field framePredictedPositions: mutable FramePredictionInfo[]
+    field inputsByFrame: mutable CharacterInput[]
+    field predictionsByFrame: mutable EntityPredictionInfo[]
     field inputStream: ByteStream
     field mutable lastPredictedFrame: FrameNumber
 
@@ -83,8 +83,8 @@ class ClientPhysicsSystem =
         let frameBufferMaxCount = 30
         base(PhysicsSystemKind.Client, db, genv) with {
             frameBufferMaxCount = frameBufferMaxCount
-            frameInputBuffer = zeroArray(frameBufferMaxCount)
-            framePredictedPositions = zeroArray(frameBufferMaxCount)
+            inputsByFrame = zeroArray(frameBufferMaxCount)
+            predictionsByFrame = zeroArray(frameBufferMaxCount)
             inputStream = ByteStream()
             PredictionEnabled = true
             rollbackQueue = System.Collections.Generic.PriorityQueue()
@@ -114,27 +114,25 @@ class ClientPhysicsSystem =
 
         let physics = sys.physics
 
-        db.HandleComponentAdded<DynamicObjectId, /**/ RigidBody, Transform>(
-            (entId, physId, physInfo, transform) ->
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), transform.Rotation, transform.Scale)                        
+        db.HandleComponentAdded<DynamicObjectId, /**/ Transform>(
+            (entId, physId, transform) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)                       
         )
 
-        db.HandleComponentAdded<StaticObjectId, /**/ StaticRigidBody, Transform>(
-            (entId, physId, physInfo, transform) ->
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), transform.Rotation, transform.Scale)
+        db.HandleComponentAdded<StaticObjectId, /**/ Transform>(
+            (entId, physId, transform) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)
                                
         )
 
-        db.HandleComponentAdded<CharacterId, /**/ Character, Transform>(
-            (entId, physId, physInfo, transform) ->
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)                            
+        db.HandleComponentAdded<CharacterId, /**/ Transform>(
+            (entId, physId, transform) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)                               
         )
 
-        db.HandleComponentAdded<VirtualCharacterId, /**/ VirtualCharacter, Transform>(
-            (entId, physId, physInfo, transform) ->
-                let s = transform.Sequence
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)           
-                transform.Sequence <- s   
+        db.HandleComponentAdded<VirtualCharacterId, /**/ Transform>(
+            (entId, physId, transform) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)
         )
 
         sys
@@ -142,46 +140,42 @@ class ClientPhysicsSystem =
     private RecordPlayerPrediction(playerInput: inref<CharacterInput>, transform: inref<Transform>, linearVelocity: vec3): () =
         let mutable currentFrame = playerInput.Frame
         let frameIndex = currentFrame % this.frameBufferMaxCount
-        this.framePredictedPositions[frameIndex] <- FramePredictionInfo(currentFrame, transform.Position, linearVelocity, transform.Sequence)
-        this.frameInputBuffer[frameIndex] <- playerInput
+        this.predictionsByFrame[frameIndex] <- EntityPredictionInfo(currentFrame, transform.Position, linearVelocity, transform.Sequence)
+        this.inputsByFrame[frameIndex] <- playerInput
 
     ResetPredictions(): () =
-        For(this.framePredictedPositions.Length,
+        For(this.predictionsByFrame.Length,
             i ->
-                this.framePredictedPositions[i] <- default
+                this.predictionsByFrame[i] <- default
         )
-        For(this.frameInputBuffer.Length,
+        For(this.inputsByFrame.Length,
             i ->
-                this.frameInputBuffer[i] <- default
+                this.inputsByFrame[i] <- default
         )
 
-    UpdatePlayerTransforms(entId: EntityId): () =
+    UpdatePlayerTransforms(playerId: EntityId): () =
         let db = this.db
         let physics = this.physics
 
-        let _ =
-            db.TryGet<Player, VirtualCharacterId, Transform>(entId,
-                (_, vcharacterId, transform) ->
-                    let s = transform.Sequence
-                    transform <- Transform(physics.GetCenterOfMassPosition(vcharacterId), Quaternion.Identity, transform.Scale)
-                    transform.Sequence <- s
-            )
+        db.IfHas<Player, VirtualCharacterId, Transform>(playerId,
+            (_, vcharacterId, transform) ->
+                transform.Position <- physics.GetCenterOfMassPosition(vcharacterId)
+        )
 
-    RecordPlayerPredictions(deltaTime: float32, entId: EntityId): () =
+    RecordPlayerPredictions(deltaTime: float32, playerId: EntityId): () =
         let db = this.db
 
-        let _ =
-            db.TryGet<Player, CharacterInput, Transform>(entId,
-                (_, playerInput, transform) ->
-                    let isVCharacter =
-                        db.TryGet<VirtualCharacter>(entId,
-                            (physCharacter) ->
-                                this.RecordPlayerPrediction(&playerInput, &transform, physCharacter.LinearVelocity)
-                        )
-                    
-                    if (!isVCharacter)
-                        this.RecordPlayerPrediction(&playerInput, &transform, vec3.Zero)
-            )
+        db.IfHas<Player, CharacterInput, Transform>(playerId,
+            (_, playerInput, transform) ->
+                let isVirtualCharacter =
+                    db.TryGet<VirtualCharacter>(playerId,
+                        (physCharacter) ->
+                            this.RecordPlayerPrediction(&playerInput, &transform, physCharacter.LinearVelocity)
+                    )
+                
+                if (!isVirtualCharacter)
+                    this.RecordPlayerPrediction(&playerInput, &transform, vec3.Zero)
+        )
 
     SetState(): () =
         let db = this.db
@@ -263,7 +257,7 @@ class ClientPhysicsSystem =
 
                         let mutable serverFrame = player.ClientInputFrame
                         let serverFrameIndex = serverFrame % this.frameBufferMaxCount
-                        let predictedInfo = this.framePredictedPositions[serverFrameIndex]
+                        let predictedInfo = this.predictionsByFrame[serverFrameIndex]
                         
                         if (predictedInfo.IsValid && predictedInfo.Frame == serverFrame)
                             let frameUpdateCount = Math.Min(this.frameBufferMaxCount, FrameNumber.GetInt32(currentFrame - serverFrame))
@@ -339,11 +333,10 @@ class ClientPhysicsSystem =
 
                             let linearVelocity =
                                 let mutable result = vec3.Zero
-                                let _ =
-                                    db.TryGet<VirtualCharacter>(entId,
-                                        (vcharacter) ->
-                                            result <- vcharacter.LinearVelocity
-                                    )
+                                db.IfHas<VirtualCharacter>(entId,
+                                    (vcharacter) ->
+                                        result <- vcharacter.LinearVelocity
+                                )
                                 result
 
                             if (logPredictionErrors)
@@ -356,7 +349,7 @@ class ClientPhysicsSystem =
                                     let mutable seq = transform.Sequence
                                     LogClient("predicted frame: "  + serverFrame.ToString() + " - teleport - predicted: " + predictedSeq.ToString() + " - actual: " + seq.ToString())
 
-                            this.framePredictedPositions[serverFrameIndex] <- FramePredictionInfo(serverFrame, transform.Position, linearVelocity, transform.Sequence)
+                            this.predictionsByFrame[serverFrameIndex] <- EntityPredictionInfo(serverFrame, transform.Position, linearVelocity, transform.Sequence)
 
                             // LogClient("rollback before frame: " + (serverFrame).ToString())
                             // LogClient("\tposition: " + physCharacter.Position.ToString())
@@ -367,10 +360,10 @@ class ClientPhysicsSystem =
                             while (i < (frameUpdateCount + 1))
                                 let nextServerFrame = (serverFrame + FrameNumber(i))
                                 let frameIndex = nextServerFrame % this.frameBufferMaxCount
-                                let mutable predictedInfo = this.framePredictedPositions[frameIndex]
+                                let mutable predictedInfo = this.predictionsByFrame[frameIndex]
 
                                 if (predictedInfo.IsValid && predictedInfo.Frame == nextServerFrame)
-                                    let playerInput = this.frameInputBuffer[frameIndex]
+                                    let playerInput = this.inputsByFrame[frameIndex]
                                     this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
                                     this.BaseUpdate(time)
                                     db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
@@ -381,9 +374,9 @@ class ClientPhysicsSystem =
                                             else
                                                 physics.Deactivate(physId)
                                     )
-                                    //predictedInfo.Position <- physCharacter.Position
-                                    //predictedInfo.LinearVelocity <- physCharacter.LinearVelocity
-                                    //this.framePredictedPositions[frameIndex] <- predictedInfo
+                                    predictedInfo.Position <- transform.Position
+                                    predictedInfo.LinearVelocity <- linearVelocity
+                                    this.predictionsByFrame[frameIndex] <- predictedInfo
                                     // LogClient("rollback frame: " + nextServerFrame.ToString())
                                     // LogClient("\tposition: " + physCharacter.Position.ToString())
                                     // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())

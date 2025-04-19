@@ -63,10 +63,10 @@ class RenderingWorld =
         }
 
     ResetCharacterInputActions(characterEntId: EntityId): () =
-        let _ =
-            this.Database.TryGet<CharacterInput>(characterEntId,
-                input -> input.Actions <- CharacterActions.None
-            )
+        let db = this.Database
+        db.IfHas<CharacterInput>(characterEntId,
+            input -> input.Actions <- CharacterActions.None
+        )
 
     SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
         let db = this.Database
@@ -88,7 +88,7 @@ class RenderingWorld =
         Renderer.Logic.Update(renv, this.rfenv, this.renderers, this.Database, cameraEntId, /* output */ this.lights)            
 
     Dispatch(renv: RenderEnv, time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, cmds: GpuCommandList): () =
-        Rendering.UpdateCamera(renv, this.Database, cameraEntId, this.lights, alpha)
+        Rendering.UpdateGlobalsFromCamera(renv, this.Database, cameraEntId, this.lights, alpha)
         Rendering.UpdateLights(renv, this.lights, alpha)
         Rendering.Dispatch(renv, this.renderers, this.lights.Count, cmds)
 
@@ -206,11 +206,15 @@ class SpriteRendererBehavior =
 
         let alwaysDrawPlayer = db.Has<Editor>(playerCameraId)
 
+        let defaultRotation = quat.CreateFromAxisAngle(vec3.UnitX, radians(90))
+
         let mutable transparencyOrder = 0: byte
         db.CreateQuery<TransformLerp, Transform, Sprite, Material>().WhereNotContains<Outline>().ForEach(
             (entId, transformLerp, transform, _, material) ->
                 if (alwaysDrawPlayer || entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Sprite, &material)
+                    transformLerp.Value.Rotation <- defaultRotation
+                    transform.Rotation <- defaultRotation
                     DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
         )
 
@@ -218,6 +222,8 @@ class SpriteRendererBehavior =
             (entId, transformLerp, transform, _, material, outline) ->
                 if (alwaysDrawPlayer || entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Sprite, &material)
+                    transformLerp.Value.Rotation <- defaultRotation
+                    transform.Rotation <- defaultRotation
                     DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
@@ -240,7 +246,7 @@ class SpriteRendererBehavior =
 
 private module Rendering =
 
-    private UpdateGlobalsFromCamera(renv: RenderEnv, lights: List<DrawLightInfo>, prevTransform: inref<Transform>, transform: inref<Transform>, prevCamera: inref<Camera>, camera: inref<Camera>, alpha: float32): () =
+    private UpdateGlobalsFromCameraCore(renv: RenderEnv, lights: List<DrawLightInfo>, prevTransform: inref<Transform>, transform: inref<Transform>, prevCamera: inref<Camera>, camera: inref<Camera>, alpha: float32): () =
         let camera =
             let mutable camera = camera
             camera.SetYawPitch(prevCamera.Yaw, prevCamera.Pitch)
@@ -290,16 +296,16 @@ private module Rendering =
                     lights[i] <- item
         )
 
-    UpdateCamera(renv: RenderEnv, db: EntityDatabase, cameraEntId: EntityId, lights: List<DrawLightInfo>, alpha: float32): () =
+    UpdateGlobalsFromCamera(renv: RenderEnv, db: EntityDatabase, cameraEntId: EntityId, lights: List<DrawLightInfo>, alpha: float32): () =
         let hasEditor =
             db.TryGet<EditorLerp, Editor>(cameraEntId,
                 (prevEditor, editor) ->
-                    UpdateGlobalsFromCamera(renv, lights, &prevEditor.Transform, &editor.Transform, &prevEditor.Camera, &editor.Camera, alpha)
+                    UpdateGlobalsFromCameraCore(renv, lights, &prevEditor.Transform, &editor.Transform, &prevEditor.Camera, &editor.Camera, alpha)
             )
         if (!hasEditor)
             db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(cameraEntId,
                 (prevTransform, transform, prevCamera, camera) ->
-                    UpdateGlobalsFromCamera(renv, lights, &prevTransform.Value, &transform, &prevCamera.Value, &camera, alpha)
+                    UpdateGlobalsFromCameraCore(renv, lights, &prevTransform.Value, &transform, &prevCamera.Value, &camera, alpha)
             )
 
     UpdateLights(renv: RenderEnv, lights: IReadOnlyList<DrawLightInfo>, alpha: float32): () =

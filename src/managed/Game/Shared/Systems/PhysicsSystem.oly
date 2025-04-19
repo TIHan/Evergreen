@@ -461,32 +461,35 @@ abstract class PhysicsSystem =
         let db = this.db
         let physics = this.physics
 
-        let _ =
-            db.TryGet<Player, Camera, Transform>(entId,
-                (_, camera, transform) ->
-                    let hasEditor =
-                        db.TryGet<Editor>(entId,
-                            editor ->
-                                Logic.playerEditorTick(deltaTime, &characterInput, &editor)
-                        )
-                    if (!hasEditor)
-                        db.IfHas<VirtualCharacter, VirtualCharacterId>(entId,
-                            (character, characterId) ->
-                                // let log(msg: string) =
-                                //     if (this.kind == PhysicsSystemKind.Client)
-                                //         LogClient(msg)
-                                //     else
-                                //         LogServer(msg)
-                                // log("before frame: " + playerInput.Frame.ToString())
-                                // log("\tposition: " + transform.Position.ToString())
-                                // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())             
-                                Logic.playerVirtualTick(physics, deltaTime, &characterInput, &characterId, &transform, &character, &camera)
-                                // log("Frame " + playerInput.Frame.ToString() + " - " + transform.Position.ToString())
-                                // log("frame: " + playerInput.Frame.ToString())
-                                // log("\tposition: " + transform.Position.ToString())
-                                // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
-                        )                  
-            )
+        db.IfHas<Player, Camera, Transform>(entId,
+            (_, camera, transform) ->
+                let hasEditor =
+                    db.TryGet<Editor>(entId,
+                        editor ->
+                            Logic.playerEditorTick(deltaTime, &characterInput, &editor)
+                    )
+                db.IfHas<VirtualCharacter, VirtualCharacterId>(entId,
+                    (character, characterId) ->
+                        // let log(msg: string) =
+                        //     if (this.kind == PhysicsSystemKind.Client)
+                        //         LogClient(msg)
+                        //     else
+                        //         LogServer(msg)
+                        // log("before frame: " + playerInput.Frame.ToString())
+                        // log("\tposition: " + transform.Position.ToString())
+                        // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+                        let mutable characterInput = characterInput
+                        if (hasEditor)
+                            characterInput.Actions <- CharacterActions.None
+                            characterInput.Yaw <- camera.Yaw
+                            characterInput.Pitch <- camera.Pitch
+                        Logic.playerVirtualTick(physics, deltaTime, &characterInput, &characterId, &transform, &character, &camera)
+                        // log("Frame " + playerInput.Frame.ToString() + " - " + transform.Position.ToString())
+                        // log("frame: " + playerInput.Frame.ToString())
+                        // log("\tposition: " + transform.Position.ToString())
+                        // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+                )                  
+        )
 
     Dispose(): () =
         this.physics.Dispose()
