@@ -114,6 +114,17 @@ class ClientWorld =
                 db.HandleComponentAdded<CameraLerp, /**/ Camera>(
                     (entId, cameraLerp, camera) ->
                         cameraLerp.Value <- camera
+                        db.IfHas<CharacterInput>(entId,
+                            input ->
+                                input.Yaw <- camera.Yaw
+                                input.Pitch <- camera.Pitch
+                        )
+                )
+
+                // The client is the authority for which direction the editor's camera will be on spawn.
+                db.HandleComponentAdded<Editor, Transform>(
+                    (_, editor, transform) ->
+                        editor.Camera.LookAt(editor.Transform.Position, transform.Position)
                 )
 
                 db.HandleComponentAdded<EditorLerp, /**/ Editor>(
@@ -121,20 +132,11 @@ class ClientWorld =
                         editorLerp.Transform <- editor.Transform
                         editorLerp.Camera <- editor.Camera
                         editorLerp.Transform.Sequence <- ByteSequence.Zero // forces a teleport
-                )
-
-                db.HandleComponentAdded<CharacterInput, /**/ Camera>(
-                    (entId, input, camera) ->
-                        // TODO: This doesn't actually set the input. We need to solve this.
-                        input.Yaw <- camera.Yaw
-                        input.Pitch <- camera.Pitch                         
-                )
-
-                db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
-                    (entId, editor, camera, transform, input) ->
-                        // TODO: This doesn't actually set the input. We need to solve this.
-                        input.Yaw <- editor.Camera.Yaw
-                        input.Pitch <- editor.Camera.Pitch
+                        db.IfHas<CharacterInput>(entId,
+                            input ->
+                                input.Yaw <- editor.Camera.Yaw
+                                input.Pitch <- editor.Camera.Pitch
+                        )
                 )
 
                 physicsSystem

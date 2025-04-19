@@ -582,6 +582,8 @@ class ClientGameProxy =
         else
             this.R.DisposeSceneIfPossible()
 
+        this.R.SyncTeleportedCharacterInput(this.CL.LocalPlayerId)
+
         let mutable input = default
         if (this.R.TryGetCharacterInput(this.CL.LocalPlayerId, &input))
             this.CL.UpdateInput(time, input)

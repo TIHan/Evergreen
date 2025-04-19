@@ -62,20 +62,53 @@ class RenderingWorld =
                 renderers
         }
 
-    ResetCharacterInputActions(characterEntId: EntityId): () =
+    private UpdateTeleportedTransforms(): () =
         let db = this.Database
-        db.IfHas<CharacterInput>(characterEntId,
+        db.CreateQuery<TransformLerp, Transform>().ForEach(
+            (entId, transformLerp, transform) ->
+                let mutable seq = transform.Sequence
+                let mutable prevSeq = transformLerp.Value.Sequence
+                if (seq.IsNewerThan(prevSeq))
+                    Log("teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
+                    transformLerp.Value <- transform
+                    transformLerp.Value.Sequence <- prevSeq
+                    db.IfHas<CharacterInput, CameraLerp, Camera>(entId,
+                        (input, cameraLerp, camera) ->
+                            camera.SetYawPitch(input.Yaw, input.Pitch)
+                            cameraLerp.Value.SetYawPitch(input.Yaw, input.Pitch)
+                    )
+        )
+
+        db.CreateQuery<EditorLerp, Editor>().ForEach(
+            (entId, editorLerp, editor) ->
+                let mutable seq = editor.Transform.Sequence
+                let mutable prevSeq = editorLerp.Transform.Sequence
+                if (seq.IsNewerThan(prevSeq))
+                    Log("editor teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
+                    editorLerp.Transform <- editor.Transform
+                    editorLerp.Camera <- editor.Camera
+                    editorLerp.Transform.Sequence <- prevSeq
+                    db.IfHas<CharacterInput>(entId,
+                        input ->
+                            editor.Camera.SetYawPitch(input.Yaw, input.Pitch)
+                            editorLerp.Camera.SetYawPitch(input.Yaw, input.Pitch)
+                    )
+        )
+
+    ResetCharacterInputActions(entId: EntityId): () =
+        let db = this.Database
+        db.IfHas<CharacterInput>(entId,
             input -> input.Actions <- CharacterActions.None
         )
 
-    SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
+    SetCharacterInput(entId: EntityId, newInput: inref<CharacterInput>): () =
         let db = this.Database
-        db.IfHas<CharacterInput, TransformLerp, Transform, CameraLerp, Camera>(characterEntId,
+        db.IfHas<CharacterInput, TransformLerp, Transform, CameraLerp, Camera>(entId,
             (input, transformLerp, transform, cameraLerp, camera) ->
                 input <- newInput
 
                 let hasEditor =
-                    db.TryGet<EditorLerp, Editor>(characterEntId,
+                    db.TryGet<EditorLerp, Editor>(entId,
                         (editorLerp, editor) ->
                             // Immediately update the previous camera rotation.
                             editorLerp.Camera.SetYawPitch(input.Yaw, input.Pitch)
@@ -85,8 +118,9 @@ class RenderingWorld =
                     cameraLerp.Value.SetYawPitch(input.Yaw, input.Pitch)
         )
 
-    Update(renv: RenderEnv, cameraEntId: EntityId): () =
-        Renderer.Logic.Update(renv, this.rfenv, this.renderers, this.Database, cameraEntId, /* output */ this.lights)            
+    Update(renv: RenderEnv, cameraId: EntityId): () =
+        this.UpdateTeleportedTransforms()
+        Renderer.Logic.Update(renv, this.rfenv, this.renderers, this.Database, cameraId, /* output */ this.lights)            
 
     Dispatch(renv: RenderEnv, time: GameTime, alpha: float32, screenSize: Vector2, cameraEntId: EntityId, cmds: GpuCommandList): () =
         Rendering.UpdateGlobalsFromCamera(renv, this.Database, cameraEntId, this.lights, alpha)

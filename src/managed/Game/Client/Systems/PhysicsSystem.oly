@@ -374,9 +374,9 @@ class ClientPhysicsSystem =
                                             else
                                                 physics.Deactivate(physId)
                                     )
-                                    predictedInfo.Position <- transform.Position
-                                    predictedInfo.LinearVelocity <- linearVelocity
-                                    this.predictionsByFrame[frameIndex] <- predictedInfo
+                                    // predictedInfo.Position <- transform.Position
+                                    // predictedInfo.LinearVelocity <- linearVelocity
+                                    // this.predictionsByFrame[frameIndex] <- predictedInfo
                                     // LogClient("rollback frame: " + nextServerFrame.ToString())
                                     // LogClient("\tposition: " + physCharacter.Position.ToString())
                                     // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())

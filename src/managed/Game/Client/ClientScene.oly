@@ -77,7 +77,9 @@ internal class ClientScene =
                     playerInput <- input
                     playerInput.Frame <- time.Frame
                     playerInput.TimeStamp <- this.timeStamp
-                    camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+                    let hasEditor = db.Has<Editor>(clientEntId)
+                    if (!hasEditor)
+                        camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
                     if (this.World.PredictionEnabled)
                         this.World.Physics.UpdatePlayer(time.DeltaTime, clientEntId, &playerInput)
                         this.World.RecordPlayerPredictions(time.DeltaTime, clientEntId)

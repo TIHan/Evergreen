@@ -37,11 +37,51 @@ class RenderScene =
             WorldBack = RenderingWorld(renv)
         }
 
+    SyncTeleportedCharacterInput(entId: EntityId): () =
+        let frontDb = this.WorldFront.Database
+        let backDb = this.WorldBack.Database
+
+        let mutable yaw = 0: float32
+        let mutable pitch = 0: float32
+        let mutable didTeleport = false
+
+        let hasEditor =
+            backDb.TryGet<EditorLerp, Editor>(entId,
+                (editorLerp, editor) ->
+                    let seq = editor.Transform.Sequence
+                    let prevSeq = editorLerp.Transform.Sequence
+                    if (seq.IsNewerThan(prevSeq))
+                        yaw <- editor.Camera.Yaw
+                        pitch <- editor.Camera.Pitch
+                        editorLerp.Camera.Yaw <- yaw
+                        editorLerp.Camera.Pitch <- pitch
+                        didTeleport <- true
+            ) 
+        if (!hasEditor)
+            backDb.IfHas<TransformLerp, Transform, CameraLerp, Camera>(entId,
+                (transformLerp, transform, cameraLerp, camera) ->
+                    let seq = transform.Sequence
+                    let prevSeq = transformLerp.Value.Sequence
+                    if (seq.IsNewerThan(prevSeq))
+                        yaw <- camera.Yaw
+                        pitch <- camera.Pitch
+                        cameraLerp.Value.Yaw <- yaw
+                        cameraLerp.Value.Pitch <- pitch
+                        didTeleport <- true
+            )
+
+        if (didTeleport)
+            frontDb.IfHas<CharacterInput>(entId,
+                input ->
+                    input.Yaw <- yaw
+                    input.Pitch <- pitch
+            )
+
     ResetCharacterInputActions(characterEntId: EntityId): () =
-        this.WorldFront.ResetCharacterInputActions(characterEntId)
+        this.RenderingWorld.ResetCharacterInputActions(characterEntId)
 
     SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
-        this.WorldFront.SetCharacterInput(characterEntId, &newInput)
+        this.RenderingWorld.SetCharacterInput(characterEntId, &newInput)
 
     TryGetCharacterInput(characterEntId: EntityId, outInput: byref<CharacterInput>): bool =
         let mutable input = default

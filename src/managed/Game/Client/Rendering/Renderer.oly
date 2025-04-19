@@ -1144,28 +1144,10 @@ class Renderer =
 
     module Logic =
 
-        Update(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, db: EntityDatabase, cameraEntId: EntityId, outLights: List<DrawLightInfo>): () =
-            db.CreateQuery<TransformLerp, Transform>().ForEach(
-                (entId, transformLerp, transform) ->
-                    let mutable seq = transform.Sequence
-                    let mutable prevSeq = transformLerp.Value.Sequence
-                    if (seq.IsNewerThan(prevSeq))
-                        Log("teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
-                        transformLerp.Value <- transform
-            )
-
-            db.CreateQuery<EditorLerp, Editor>().ForEach(
-                (entId, editorLerp, editor) ->
-                    let mutable seq = editor.Transform.Sequence
-                    let mutable prevSeq = editorLerp.Transform.Sequence
-                    if (seq.IsNewerThan(prevSeq))
-                        Log("editor teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
-                        editorLerp.Transform <- editor.Transform
-            )
-
+        Update(renv: RenderEnv, rfenv: RenderFrameEnv, renderers: IReadOnlyList<Renderer>, db: EntityDatabase, cameraId: EntityId, outLights: List<DrawLightInfo>): () =
             ForEach(renderers,
                 renderer ->
-                    renderer.Update(renv, rfenv, db, cameraEntId)
+                    renderer.Update(renv, rfenv, db, cameraId)
             )
 
             outLights.Clear()

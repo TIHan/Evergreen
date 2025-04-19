@@ -62,18 +62,14 @@ class ServerWorld =
             PhysicsSystem = 
                 let physicsSystem = ServerPhysicsSystem.Create(db, genv)
 
-                db.HandleComponentAdded<CharacterInput, /**/ Camera, Transform>(
-                    (entId, input, camera, transform) ->
-                        camera.SetYawPitch(input.Yaw, input.Pitch)
+                db.HandleComponentAdded<Camera, /**/ Transform>(
+                    (entId, camera, transform) ->
                         transform.Sequence <- transform.Sequence.Increment()
                 )
 
-                db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
-                    (entId, editor, camera, transform, input) ->
+                db.HandleComponentAdded<Editor, Transform>(
+                    (entId, editor, transform) ->
                         editor.Transform.Position <- transform.Position + Vector3(5)
-                        editor.Camera.LookAt(editor.Transform.Position, transform.Position)
-                        input.Yaw <- editor.Camera.Yaw
-                        input.Pitch <- editor.Camera.Pitch
                         editor.Transform.Sequence <- editor.Transform.Sequence.Increment()
                 )
 
