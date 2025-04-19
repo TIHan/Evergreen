@@ -77,6 +77,7 @@ class RenderingWorld =
                 let hasEditor =
                     db.TryGet<EditorLerp, Editor>(characterEntId,
                         (editorLerp, editor) ->
+                            // Immediately update the previous camera rotation.
                             editorLerp.Camera.SetYawPitch(input.Yaw, input.Pitch)
                     )
                 if (!hasEditor)

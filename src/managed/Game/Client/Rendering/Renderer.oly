@@ -1152,11 +1152,15 @@ class Renderer =
                     if (seq.IsNewerThan(prevSeq))
                         Log("teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
                         transformLerp.Value <- transform
+            )
 
-                        db.IfHas<EditorLerp, Editor>(entId,
-                            (editorLerp, editor) ->
-                                editorLerp.Transform <- editor.Transform
-                        )
+            db.CreateQuery<EditorLerp, Editor>().ForEach(
+                (entId, editorLerp, editor) ->
+                    let mutable seq = editor.Transform.Sequence
+                    let mutable prevSeq = editorLerp.Transform.Sequence
+                    if (seq.IsNewerThan(prevSeq))
+                        Log("editor teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
+                        editorLerp.Transform <- editor.Transform
             )
 
             ForEach(renderers,
