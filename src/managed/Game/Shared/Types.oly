@@ -299,7 +299,11 @@ struct Transform =
             Transform(position, rotation, scale)
         else
             printLine("Warning: Failed to decompose matrix.")
-            Transform(position, rotation, scale)
+            Transform(vec3.Zero, Quaternion.Identity, vec3.One)
+
+    mutable SetPositionAndRotation(position: vec3, rotation: quat): () =
+        this.Position <- position
+        this.Rotation <- rotation
 
     Matrix: Matrix4x4
         get() =

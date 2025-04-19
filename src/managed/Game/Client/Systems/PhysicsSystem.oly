@@ -214,31 +214,24 @@ class ClientPhysicsSystem =
         let db = this.db
         let physics = this.physics
 
-        db.CreateQuery<RigidBody, Transform, DynamicObjectId>().ForEach(
-            (entId, physInfo, transform, physId) ->
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), transform.Rotation, transform.Scale)
+        db.CreateQuery<Transform, DynamicObjectId>().ForEach(
+            (entId, transform, physId) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)
         )
 
-        db.CreateQuery<Character, Transform, CharacterId>().ForEach(
-            (entId, physInfo, transform, physId) ->               
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)
+        db.CreateQuery<Transform, CharacterId>().ForEach(
+            (entId, transform, physId) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)
         )
 
-        db.CreateQuery<VirtualCharacter, Transform, VirtualCharacterId>().ForEach(
-            (entId, physInfo, transform, physId) ->               
-                let s = transform.Sequence
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), Quaternion.Identity, transform.Scale)
-                transform.Sequence <- s
+        db.CreateQuery<Transform, VirtualCharacterId>().ForEach(
+            (entId, transform, physId) ->
+                transform.Position <- physics.GetCenterOfMassPosition(physId)   
         )
 
-        db.CreateQuery<VirtualCharacter, Transform, Camera>().ForEach(
-            (entId, char, transform, camera) ->
-                transform.Rotation <- camera.Rotation
-        )
-
-        db.CreateQuery<StaticRigidBody, Transform, StaticObjectId>().ForEach(
-            (entId, physInfo, transform, physId) ->               
-                transform <- Transform(physics.GetCenterOfMassPosition(physId), transform.Rotation, transform.Scale)
+        db.CreateQuery<Transform, StaticObjectId>().ForEach(
+            (entId, transform, physId) ->     
+                transform.Position <- physics.GetCenterOfMassPosition(physId)
         )
 
     private BaseUpdate(time: GameTime): () =
