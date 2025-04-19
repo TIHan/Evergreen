@@ -108,6 +108,7 @@ class ClientWorld =
                 db.HandleComponentAdded<TransformLerp, /**/ Transform>(
                     (entId, transformLerp, transform) ->
                         transformLerp.Value <- transform
+                        transformLerp.Value.Sequence <- ByteSequence.Zero // forces a teleport
                 )
 
                 db.HandleComponentAdded<CameraLerp, /**/ Camera>(
@@ -119,6 +120,7 @@ class ClientWorld =
                     (entId, editorLerp, editor) ->
                         editorLerp.Transform <- editor.Transform
                         editorLerp.Camera <- editor.Camera
+                        editorLerp.Transform.Sequence <- ByteSequence.Zero // forces a teleport
                 )
 
                 db.HandleComponentAdded<CharacterInput, /**/ Camera>(
@@ -166,15 +168,16 @@ class ClientWorld =
         this.Physics.RollbackCorrections(time, entId)
 
     SetInterpolationState(): () =
-        this.Database.CreateQuery<TransformLerp, Transform>().ForEach(
+        let db = this.Database
+        db.CreateQuery<TransformLerp, Transform>().ForEach(
             (entId, transformLerp, transform) ->
                 transformLerp <- TransformLerp(transform)
         )
-        this.Database.CreateQuery<CameraLerp, Camera>().ForEach(
+        db.CreateQuery<CameraLerp, Camera>().ForEach(
             (entId, cameraLerp, camera) ->
                 cameraLerp <- CameraLerp(camera)
         )
-        this.Database.CreateQuery<EditorLerp, Editor>().ForEach(
+        db.CreateQuery<EditorLerp, Editor>().ForEach(
             (entId, editorLerp, editor) ->
                 editorLerp.Transform <- editor.Transform
                 editorLerp.Camera <- editor.Camera

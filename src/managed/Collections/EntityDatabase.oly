@@ -1525,16 +1525,16 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T, TMatch>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch.GetId()]]
-                let store = buffer.Store
-                let store1 = buffer1.Store
-                buffer.ComponentAdded.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch>(index))                       
-                )
-                i <- i + 1
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch.GetId()]]
+            let store = buffer.Store
+            let store1 = buffer1.Store
+            buffer.ComponentAdded.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch>(index))                       
+            )
+            i <- i + 1
 
     static SubAdded<T, TMatch1, TMatch2>(db: UnlockedEntityDatabase, f: (EntityId, byref<T>, byref<TMatch1>, byref<TMatch2>) -> ()): ()
         where T: blittable, struct, ValueType, { new() }, trait IComponent 
@@ -1545,18 +1545,18 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T, TMatch1, TMatch2>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
-                let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
-                let store = buffer.Store
-                let store1 = buffer1.Store
-                let store2 = buffer2.Store
-                buffer.ComponentAdded.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index))                       
-                )
-                i <- i + 1
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
+            let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
+            let store = buffer.Store
+            let store1 = buffer1.Store
+            let store2 = buffer2.Store
+            buffer.ComponentAdded.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index))                       
+            )
+            i <- i + 1
 
     static SubAdded<T, TMatch1, TMatch2, TMatch3>(db: UnlockedEntityDatabase, f: (EntityId, byref<T>, byref<TMatch1>, byref<TMatch2>, byref<TMatch3>) -> ()): ()
         where T: blittable, struct, ValueType, { new() }, trait IComponent 
@@ -1568,20 +1568,20 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T, TMatch1, TMatch2, TMatch3>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
-                let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
-                let buffer3 = archetype.Buffers[archetype.BufferLookup[TMatch3.GetId()]]
-                let store = buffer.Store
-                let store1 = buffer1.Store
-                let store2 = buffer2.Store
-                let store3 = buffer3.Store
-                buffer.ComponentAdded.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index), &store3.GetAs<TMatch3>(index))                       
-                )
-                i <- i + 1
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
+            let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
+            let buffer3 = archetype.Buffers[archetype.BufferLookup[TMatch3.GetId()]]
+            let store = buffer.Store
+            let store1 = buffer1.Store
+            let store2 = buffer2.Store
+            let store3 = buffer3.Store
+            buffer.ComponentAdded.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index), &store3.GetAs<TMatch3>(index))                       
+            )
+            i <- i + 1
 
     static SubRemoving<T>(db: UnlockedEntityDatabase, f: (EntityId, byref<T>) -> ()): ()
         where T: blittable, struct, ValueType, { new() }, trait IComponent 
@@ -1590,14 +1590,14 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let store = buffer.Store
-                buffer.ComponentRemoving.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index))                       
-                )
-                i <- i + 1
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let store = buffer.Store
+            buffer.ComponentRemoving.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index))                       
+            )
+            i <- i + 1
 
     static SubRemoving<T, TMatch>(db: UnlockedEntityDatabase, f: (EntityId, byref<T>, byref<TMatch>) -> ()): ()
         where T: blittable, struct, ValueType, { new() }, trait IComponent 
@@ -1607,16 +1607,16 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T, TMatch>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch.GetId()]]
-                let store = buffer.Store
-                let store1 = buffer1.Store
-                buffer.ComponentRemoving.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch>(index))                       
-                )
-                i <- i + 1
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch.GetId()]]
+            let store = buffer.Store
+            let store1 = buffer1.Store
+            buffer.ComponentRemoving.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch>(index))                       
+            )
+            i <- i + 1
 
     static SubRemoving<T, TMatch1, TMatch2>(db: UnlockedEntityDatabase, f: (EntityId, byref<T>, byref<TMatch1>, byref<TMatch2>) -> ()): ()
         where T: blittable, struct, ValueType, { new() }, trait IComponent 
@@ -1627,18 +1627,18 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T, TMatch1, TMatch2>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
-                let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
-                let store = buffer.Store
-                let store1 = buffer1.Store
-                let store2 = buffer2.Store
-                buffer.ComponentRemoving.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index))                       
-                )
-                i <- i + 1
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
+            let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
+            let store = buffer.Store
+            let store1 = buffer1.Store
+            let store2 = buffer2.Store
+            buffer.ComponentRemoving.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index))                       
+            )
+            i <- i + 1
 
     static SubRemoving<T, TMatch1, TMatch2, TMatch3>(db: UnlockedEntityDatabase, f: (EntityId, byref<T>, byref<TMatch1>, byref<TMatch2>, byref<TMatch3>) -> ()): ()
         where T: blittable, struct, ValueType, { new() }, trait IComponent 
@@ -1650,20 +1650,20 @@ class UnlockedEntityDatabase =
         let indices = db.GetArchetypedIndices(GetArchetypeId<T, TMatch1, TMatch2, TMatch3>())
         let mutable i = 0
         while (i < indices.Length)
-                let archetype = db.GetArchetype(indices[i])
-                let entIds = archetype.EntityIds
-                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
-                let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
-                let buffer3 = archetype.Buffers[archetype.BufferLookup[TMatch3.GetId()]]
-                let store = buffer.Store
-                let store1 = buffer1.Store
-                let store2 = buffer2.Store
-                let store3 = buffer3.Store
-                buffer.ComponentRemoving.Add(
-                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index), &store3.GetAs<TMatch3>(index))                       
-                )
-                i <- i + 1  
+            let archetype = db.GetArchetype(indices[i])
+            let entIds = archetype.EntityIds
+            let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+            let buffer1 = archetype.Buffers[archetype.BufferLookup[TMatch1.GetId()]]
+            let buffer2 = archetype.Buffers[archetype.BufferLookup[TMatch2.GetId()]]
+            let buffer3 = archetype.Buffers[archetype.BufferLookup[TMatch3.GetId()]]
+            let store = buffer.Store
+            let store1 = buffer1.Store
+            let store2 = buffer2.Store
+            let store3 = buffer3.Store
+            buffer.ComponentRemoving.Add(
+                index -> f(entIds.GetAs(index), &store.GetAs<T>(index), &store1.GetAs<TMatch1>(index), &store2.GetAs<TMatch2>(index), &store3.GetAs<TMatch3>(index))                       
+            )
+            i <- i + 1  
 
     new(kind: EntityDatabaseKind, registry: ComponentRegistry) = base(kind, registry)
 
@@ -1673,14 +1673,14 @@ class UnlockedEntityDatabase =
             let indices = db.GetArchetypedIndices(GetArchetypeId<T>())
             let mutable i = 0
             while (i < indices.Length)
-                    let archetype = db.GetArchetype(indices[i])
-                    let entIds = archetype.EntityIds
-                    let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
-                    let store = buffer.Store
-                    buffer.ComponentAdded.Add(
-                        index -> f(entIds.GetAs(index), &store.GetAs<T>(index))                       
-                    )
-                    i <- i + 1
+                let archetype = db.GetArchetype(indices[i])
+                let entIds = archetype.EntityIds
+                let buffer = archetype.Buffers[archetype.BufferLookup[T.GetId()]]
+                let store = buffer.Store
+                buffer.ComponentAdded.Add(
+                    index -> f(entIds.GetAs(index), &store.GetAs<T>(index))                       
+                )
+                i <- i + 1
         this.Resubs.Add(() -> sub(this, f))
         sub(this, f)
 

@@ -65,6 +65,7 @@ class ServerWorld =
                 db.HandleComponentAdded<CharacterInput, /**/ Camera, Transform>(
                     (entId, input, camera, transform) ->
                         camera.SetYawPitch(input.Yaw, input.Pitch)
+                        transform.Sequence <- transform.Sequence.Increment()
                 )
 
                 db.HandleComponentAdded<Editor, Camera, Transform, CharacterInput>(
@@ -73,6 +74,7 @@ class ServerWorld =
                         editor.Camera.LookAt(editor.Transform.Position, transform.Position)
                         input.Yaw <- editor.Camera.Yaw
                         input.Pitch <- editor.Camera.Pitch
+                        editor.Transform.Sequence <- editor.Transform.Sequence.Increment()
                 )
 
                 physicsSystem
