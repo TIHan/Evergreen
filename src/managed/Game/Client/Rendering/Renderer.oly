@@ -25,79 +25,6 @@ open Game.Client.Systems
 open static Game.Client.Types
 open static Game.Client.Components
 
-class InstanceOutputs =
-
-    PlayerCamera: GpuBuffer<InstanceShaderData> get
-    PlayerCameraDrawCommands: GpuBuffer<VkDrawIndexedIndirectCommand> get
-    PlayerCameraComputeDescriptorSet: GpuDescriptorSet get
-
-    LightCameras: GpuBuffer<InstanceShaderData>[] get
-    LightCamerasDrawCommands: GpuBuffer<VkDrawIndexedIndirectCommand>[] get
-    LightCamerasComputeDescriptorSets: GpuDescriptorSet[] get
-    
-    new(maxLightCount: int32) =
-        {
-            PlayerCamera = GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
-            PlayerCameraDrawCommands = GpuBuffer.ZeroCreate<VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
-            PlayerCameraComputeDescriptorSet =
-                GpuDescriptorSet(
-                    "player_frustum_culling",
-                    GpuDescriptorSetLayout(
-                        [
-                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
-                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
-                        ]
-                    ),
-                    [this.PlayerCamera: IGpuInput; this.PlayerCameraDrawCommands]
-                )
-            LightCameras = 
-                initArray(maxLightCount, 
-                    (_) -> GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
-                )
-            LightCamerasDrawCommands =
-                initArray(maxLightCount, 
-                    (_) -> GpuBuffer.ZeroCreate<VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, EntityDatabase.MaxNumberOfEntities)
-                )
-            LightCamerasComputeDescriptorSets =
-                initArray(maxLightCount,
-                    (mutable i) ->
-                        GpuDescriptorSet(
-                            "light" + i.ToString() + "_frustum_culling",
-                            GpuDescriptorSetLayout(
-                                [
-                                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
-                                    GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
-                                ]
-                            ),
-                            [this.LightCameras[i]: IGpuInput; this.LightCamerasDrawCommands[i]]
-                        )
-                )        
-        }
-
-    ClearUpdateRanges(): () =
-        this.PlayerCamera.UpdateRanges.Clear()
-        this.PlayerCameraDrawCommands.UpdateRanges.Clear()
-        ForEach(this.LightCameras, x -> x.UpdateRanges.Clear())
-        ForEach(this.LightCamerasDrawCommands, x -> x.UpdateRanges.Clear())
-
-    AddUpdateRange(item: (start: int32, length: int32)): () =
-        this.PlayerCamera.UpdateRanges.Add(item)
-        ForEach(this.LightCameras, x -> x.UpdateRanges.Add(item))
-
-    SetNeedsUpdate(): () =
-        this.PlayerCamera.NeedsUpdate <- true
-        this.PlayerCameraDrawCommands.NeedsUpdate <- true
-        ForEach(this.LightCameras, x -> x.NeedsUpdate <- true)
-        ForEach(this.LightCamerasDrawCommands, x -> x.NeedsUpdate <- true)
-
-    Free(gpu: Gpu): () =
-        gpu.Free(this.PlayerCameraComputeDescriptorSet)
-        gpu.Free(this.PlayerCamera)
-        gpu.Free(this.PlayerCameraDrawCommands)
-        ForEach(this.LightCamerasComputeDescriptorSets, x -> gpu.Free(x))
-        ForEach(this.LightCameras, x -> gpu.Free(x)) // TODO-language-bug: Cannot do 'ForEach(this.ShadowMapCameras, gpu.Free)' because of an overload bug on 'gpu.Free'
-        ForEach(this.LightCamerasDrawCommands, x -> gpu.Free(x))
-
 interface IRendererBehavior =
 
     GetDepthPipeline(renv: RenderEnv): GpuPipeline
@@ -115,7 +42,6 @@ interface IRendererBehavior =
     DrawOutlineMask(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): ()
 
     DrawShadowMaps(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): ()
-
 
 class Renderer =
 
