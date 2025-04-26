@@ -106,7 +106,7 @@ class ClientGame =
             ()
         this.HasBegun <- false
 
-    LoadScene(sceneName: string, snapshotSequence: ByteSequence): () =
+    LoadScene(sceneName: string, snapshotSequence: ByteSequence, isListenServer: bool): () =
         this.CheckExecuting()
         this.Executing <- true
 
@@ -119,7 +119,7 @@ class ClientGame =
                 Task.Factory.StartNew(
                     () -> 
                         Thread.Sleep(1000) // artificial delay
-                        ClientScene.Load(sceneName, this.Env.GameEnv)
+                        ClientScene.Load(sceneName, this.Env.GameEnv, isListenServer)
                 )
             )
         
@@ -291,11 +291,12 @@ newtype ClientCommandBuffer =
         stream.Write(ClientCommandTag.PrintEntity)
         stream.WriteInt32(index)
 
-    LoadScene(sceneName: string, snapshotSequence: ByteSequence): () =
+    LoadScene(sceneName: string, snapshotSequence: ByteSequence, isListenServer: bool): () =
         let stream = this.Stream
         stream.Write(ClientCommandTag.LoadScene)
         stream.WriteSmallString(sceneName)
         stream.WriteByte(ByteSequence.GetByte(snapshotSequence))
+        stream.Write(isListenServer)
 
     DisposeScene(): () =
         let stream = this.Stream
@@ -343,10 +344,10 @@ module ClientCommand =
         ConsumeTag(stream)
         stream.ReadInt32()
 
-    pattern LoadScene(reader: ClientCommandReader): (string, ByteSequence) when (reader.Tag == ClientCommandTag.LoadScene) =>
+    pattern LoadScene(reader: ClientCommandReader): (string, ByteSequence, isListenServer: bool) when (reader.Tag == ClientCommandTag.LoadScene) =>
         let stream = reader.Stream
         ConsumeTag(stream)
-        (stream.ReadSmallString(), ByteSequence(stream.ReadByte()))
+        (stream.ReadSmallString(), ByteSequence(stream.ReadByte()), stream.Read())
 
     pattern DisposeScene(reader: ClientCommandReader): () when (reader.Tag == ClientCommandTag.DisposeScene) =>
         let stream = reader.Stream
@@ -543,8 +544,8 @@ class ClientGameProxy =
                 else
                     Log(json)
 
-            | ClientCommand.LoadScene(sceneName, snapshotSequence) =>
-                cl.LoadScene(sceneName, snapshotSequence)
+            | ClientCommand.LoadScene(sceneName, snapshotSequence, isListenServer) =>
+                cl.LoadScene(sceneName, snapshotSequence, isListenServer)
 
             | ClientCommand.DisposeScene =>
                 cl.DisposeSceneIfPossible()
@@ -662,9 +663,9 @@ class ClientGameProxy =
         clCmds.OptimizeStaticEnvironment()
 
     /// Main-thread only
-    LoadScene(sceneName: string, snapshotSequence: ByteSequence): () =
+    LoadScene(sceneName: string, snapshotSequence: ByteSequence, isListenServer: bool): () =
         let clCmds = ClientCommandBuffer(this.ClientCommandStreams.Front)
-        clCmds.LoadScene(sceneName, snapshotSequence)
+        clCmds.LoadScene(sceneName, snapshotSequence, isListenServer)
 
     /// Main-thread only
     SetPassword(password: string): () =

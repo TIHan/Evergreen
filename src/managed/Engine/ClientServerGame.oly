@@ -208,9 +208,8 @@ module ClientServerGameHelpers =
                 | ClientEvent.Connected(connectionString) =>
                     if (csgenv.IsConnected)
                         fail("should not be connected")
-                    let isListenServer = game.LocalServerPort == game.ClientPort && game.ClientAddress == "127.0.0.1"
-                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- isListenServer
-                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- isListenServer
+                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- game.IsListenServer
+                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- game.IsListenServer
                     guiEnv.LoadingModel.Text.Value <- "Waiting on server..."
                     csgenv.IsConnected <- true
                     LogClient("Connected: " + connectionString)
@@ -371,6 +370,8 @@ class ClientServerGame =
     ClientPing: int64                  get() = this.CL.Ping
     ClientPassword: string             get() = this.CL.Password
 
+    IsListenServer: bool get() = this.LocalServerPort == this.ClientPort && this.ClientAddress == "127.0.0.1"
+
     /// Background-thread only
     BackgroundFixedUpdate(genv: GameEnv, time: GameTime, isCatchingUp: bool): () =
         this.CL.BackgroundProcessCommands()
@@ -485,7 +486,7 @@ class ClientServerGame =
 
     /// Main-thread only
     LoadClientScene(sceneName: string, snapshotSequence: ByteSequence): () =
-        this.CL.LoadScene(sceneName, snapshotSequence)
+        this.CL.LoadScene(sceneName, snapshotSequence, false)
 
     /// Main-thread only
     CloseScene(): () =

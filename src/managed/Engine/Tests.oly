@@ -27,7 +27,7 @@ SerializeDeserializePlayer(genv: GameEnv): () =
     let serverWorld = ServerWorld(genv)
     let serverSnapshotWorld = World(EntityDatabaseKind.Server)
 
-    let clientWorld = ClientWorld(genv)
+    let clientWorld = ClientWorld(genv, /* isListenServer = */ false)
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot() =
@@ -75,7 +75,7 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
     let serverStagingWorld = World(EntityDatabaseKind.Server)
     let serverSnapshotWorld = World(EntityDatabaseKind.Server)
 
-    let clientWorld = ClientWorld(genv)
+    let clientWorld = ClientWorld(genv, /* isListenServer = */ false)
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
@@ -133,7 +133,7 @@ SerializeDeserializePlayer3(genv: GameEnv): () =
     let serverStagingWorld = World(EntityDatabaseKind.Server)
     let serverSnapshotWorld = World(EntityDatabaseKind.Server)
 
-    let clientWorld = ClientWorld(genv)
+    let clientWorld = ClientWorld(genv, /* isListenServer = */ false)
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
@@ -192,7 +192,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     let serverStagingWorld = World(EntityDatabaseKind.Server)
     let serverSnapshotWorld = World(EntityDatabaseKind.Server)
 
-    let clientWorld = ClientWorld(genv)
+    let clientWorld = ClientWorld(genv, /* isListenServer = */ false)
     let clientWorldCopy = ClientStagingWorld(genv)
     let clientSnapshotWorld = World(EntityDatabaseKind.Client)
     let clientWorldUpdateSnapshot(clientSnapshotWorld: World) =
@@ -242,7 +242,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
 
     clientWorld.Database.CreateQuery<VirtualCharacter, VirtualCharacterId>().ForEach(
         (entId, _, physId) ->
-            let result = clientWorld.Physics.IsValidPhysicsId(physId)
+            let result = clientWorld.IsValidPhysicsId(physId)
             if (!result)
                 fail("database integrity failed")
     )
@@ -250,7 +250,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     ASSERT(clientWorld.Database.IsValid(entId2))
     clientWorld.Database.CreateQuery<VirtualCharacter, VirtualCharacterId>().ForEach(
         (entId, _, physId) ->
-            let result = clientWorld.Physics.IsValidPhysicsId(physId)
+            let result = clientWorld.IsValidPhysicsId(physId)
             if (!result)
                 fail("database integrity failed")
     )

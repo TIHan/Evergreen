@@ -87,24 +87,29 @@ class ClientWorld =
 
     UnlockedDatabase: UnlockedEntityDatabase get
 
-    new(genv: GameEnv) =
+    new(genv: GameEnv, isListenServer: bool) =
         let db = UnlockedEntityDatabase(EntityDatabaseKind.Client, ClientWorld.CreateRegistry(genv))
         base(db) with {
             Physics = 
-                // This registers the events in the physics system first.
-                let physicsSystem = ClientPhysicsSystem.Create(db, genv)
+                if (isListenServer)
+                    None
+                else
+                    // This registers the events in the physics system first.
+                    let physicsSystem = ClientPhysicsSystem.Create(db, genv)
 
-                db.HandleComponentAdded<PredictiveInfo, /**/ Transform>(
-                    (entId, predictiveInfo, transform) ->
-                        predictiveInfo.EntityId <- entId
-                        predictiveInfo.TransitionDuration <- 2
-                        predictiveInfo.LerpToPredictTransitionTime <- 0
-                        predictiveInfo.PredictToLerpTransitionTime <- 0
-                        predictiveInfo.Position <- transform.Position
-                        predictiveInfo.Rotation <- transform.Rotation
-                        predictiveInfo.Status <- PredictionStatus.NotPredicting                      
-                )    
+                    db.HandleComponentAdded<PredictiveInfo, /**/ Transform>(
+                        (entId, predictiveInfo, transform) ->
+                            predictiveInfo.EntityId <- entId
+                            predictiveInfo.TransitionDuration <- 2
+                            predictiveInfo.LerpToPredictTransitionTime <- 0
+                            predictiveInfo.PredictToLerpTransitionTime <- 0
+                            predictiveInfo.Position <- transform.Position
+                            predictiveInfo.Rotation <- transform.Rotation
+                            predictiveInfo.Status <- PredictionStatus.NotPredicting                      
+                    )    
 
+                    Some(physicsSystem)
+            UnlockedDatabase = 
                 db.HandleComponentAdded<TransformLerp, /**/ Transform>(
                     (entId, transformLerp, transform) ->
                         transformLerp.Value <- transform
@@ -138,36 +143,75 @@ class ClientWorld =
                                 input.Pitch <- editor.Camera.Pitch
                         )
                 )
-
-                physicsSystem
-            UnlockedDatabase = db
+                db
         }
     
-    public field Physics: ClientPhysicsSystem
+    public field Physics: Option<ClientPhysicsSystem>
 
     PredictionEnabled: bool
-        get() = this.Physics.PredictionEnabled
-        set(value) = this.Physics.PredictionEnabled <- value
+        get() = 
+            match (this.Physics)
+            | Some(physics) =>
+                physics.PredictionEnabled
+            | _ =>
+                false
+        set(value) = 
+            match (this.Physics)
+            | Some(physics) =>
+                physics.PredictionEnabled <- value
+            | _ =>
+                ()
+
+    IsValidPhysicsId(physId: VirtualCharacterId): bool =
+        match (this.Physics)
+        | Some(physics) =>
+            physics.IsValidPhysicsId(physId)
+        | _ =>
+            false
 
     PredictUpdate(time: GameTime, entId: EntityId): () =
-        if (this.PredictionEnabled)
-            this.Physics.Update(time)
+        match (this.Physics)
+        | Some(physics) =>
+            if (this.PredictionEnabled)
+                physics.Update(time)
+        | _ =>
+            ()
 
     ResetPredictions(): () =
-        this.Physics.ResetPredictions()
+        match (this.Physics)
+        | Some(physics) =>
+            physics.ResetPredictions()
+        | _ =>
+            ()
 
     RecordPlayerPredictions(deltaTime: float32, entId: EntityId): () =
-        if (this.PredictionEnabled)
-            this.Physics.RecordPlayerPredictions(deltaTime, entId)
+        match (this.Physics)
+        | Some(physics) =>
+            if (this.PredictionEnabled)
+                physics.RecordPlayerPredictions(deltaTime, entId)
+        | _ =>
+            ()
 
     SetPhysicsState(): () =
-        this.Physics.SetState()
+        match (this.Physics)
+        | Some(physics) =>
+            physics.SetState()
+        | _ =>
+            ()
 
     UpdateTransforms(): () =
-        this.Physics.UpdateTransforms()
+        match (this.Physics)
+        | Some(physics) =>
+            physics.UpdateTransforms()
+        | _ =>
+            ()
 
     RollbackCorrections(time: GameTime, entId: EntityId): () =
-        this.Physics.RollbackCorrections(time, entId)
+        match (this.Physics)
+        | Some(physics) =>
+            physics.RollbackCorrections(time, entId)
+        | _ =>
+            ()
 
     SetInterpolationState(): () =
         let db = this.Database
@@ -186,7 +230,15 @@ class ClientWorld =
         )
 
     OptimizeStaticEnvironment(): () =
-        this.Physics.OptimizeBroadPhase()
+        match (this.Physics)
+        | Some(physics) =>
+            physics.OptimizeBroadPhase()
+        | _ =>
+            ()
 
     Dispose(): () =
-        this.Physics.Dispose()
+        match (this.Physics)
+        | Some(physics) =>
+            physics.Dispose()
+        | _ =>
+            ()

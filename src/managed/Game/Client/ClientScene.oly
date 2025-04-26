@@ -33,10 +33,10 @@ internal class ClientScene =
     ClientEntityId: EntityId get() = this.clientEntityId
     ClientWorld: ClientWorld get() = this.World
 
-    new(name: string, genv: GameEnv) =
+    new(name: string, genv: GameEnv, isListenServer: bool) =
         {
             Name = name
-            World = ClientWorld(genv)
+            World = ClientWorld(genv, isListenServer)
             WorldCopy = ClientStagingWorld(genv)
 
             clientEntityId = EntityId.Nil
@@ -80,10 +80,14 @@ internal class ClientScene =
                     let hasEditor = db.Has<Editor>(clientEntId)
                     if (!hasEditor)
                         camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
-                    if (this.World.PredictionEnabled)
-                        this.World.Physics.UpdatePlayer(time.DeltaTime, clientEntId, &playerInput)
-                        this.World.RecordPlayerPredictions(time.DeltaTime, clientEntId)
-                        this.World.Physics.UpdatePlayerTransforms(clientEntId)
+                    match (this.World.Physics)
+                    | Some(physics) =>
+                        if (this.World.PredictionEnabled)
+                            physics.UpdatePlayer(time.DeltaTime, clientEntId, &playerInput)
+                            this.World.RecordPlayerPredictions(time.DeltaTime, clientEntId)
+                            physics.UpdatePlayerTransforms(clientEntId)
+                    | _ =>
+                        ()
                     result <- ClientInput(playerInput, this.prevPlayerInput, this.prevPrevPlayerInput)
                     this.prevPrevPlayerInput <- this.prevPlayerInput
                     this.prevPlayerInput <- playerInput
@@ -151,8 +155,8 @@ internal class ClientScene =
         this.World.UnlockedDatabase.DeleteAll()
         this.World.Dispose()
 
-    static Load(sceneName: string, genv: GameEnv): ClientScene =
-        let scene = ClientScene(sceneName, genv)
+    static Load(sceneName: string, genv: GameEnv, isListenServer: bool): ClientScene =
+        let scene = ClientScene(sceneName, genv, isListenServer)
         let loadingWorld = ClientReceivedWorld(genv)
         let dstWorld = scene.World
 
