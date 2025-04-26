@@ -38,5 +38,7 @@ internal class ClientEnv =
             Connection = ServerConnection(genv, clientEventPublisher)
         }
 
+    IsListenServer: bool get() = this.Connection.IsListenServer
+
     Dispose(): () =
         this.Connection.Dispose()

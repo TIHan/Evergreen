@@ -55,8 +55,9 @@ internal class ConnectedClient =
 
     Ping: int64 get, set
     SpeedOffset: float32 get, set
+    IsListenServer: bool get
 
-    new(index: byte, endPoint: System.Net.IPEndPoint) =
+    new(index: byte, endPoint: System.Net.IPEndPoint, isListenServer: bool) =
         {
             Index = index
             EndPoint = endPoint
@@ -104,6 +105,7 @@ internal class ConnectedClient =
 
             Ping = 0
             SpeedOffset = 0
+            IsListenServer = isListenServer
         }
 
     OnSceneLoading(sceneName: string, sceneSequence: ByteSequence): () =
@@ -145,6 +147,7 @@ internal class ServerHost =
     field ConnectedClients: Dictionary<System.Net.IPEndPoint, byte>
 
     field Publisher: ServerEventPublisher
+    field mutable IsListenServer: bool
 
     new(publisher: ServerEventPublisher) =
         let maxNumberOfClients = 8
@@ -163,7 +166,9 @@ internal class ServerHost =
                     else
                         let mutable clientIndex = unchecked default
                         if (connectedClientIndexStack.TryPop(&clientIndex))
-                            let connectedClient = ConnectedClient(clientIndex, endPoint)
+                            // TODO: This can have a slight bug if another connection gets here before the local client does.
+                            let isListenServer = this.IsListenServer && clientIndex == 1 // 1 always means the local client is hosting
+                            let connectedClient = ConnectedClient(clientIndex, endPoint, isListenServer)
                             connectedClients[endPoint] <- clientIndex
                             connectedClientIndices[int32(clientIndex)] <- connectedClient
                             LogServer("Client Connection Requested: " + endPoint.ToString())
@@ -256,6 +261,7 @@ internal class ServerHost =
             ConnectedClients = connectedClients
 
             Publisher = publisher
+            IsListenServer = false
         }
 
     ForEachClient(f: scoped ConnectedClient -> ()): () =
@@ -270,8 +276,9 @@ internal class ServerHost =
 
     Stop(): () =
         this.NetworkServer.Stop()
+        this.IsListenServer <- false
 
-    Start(connectionKey: string): bool =
+    Start(connectionKey: string, isListenServer: bool): bool =
         let netServer = this.NetworkServer
         let maxNumberOfClients = this.MaxNumberOfClients
         let connectedClientIndices = this.ConnectedClientIndices
@@ -279,6 +286,8 @@ internal class ServerHost =
         let connectedClients = this.ConnectedClients
 
         let publisher = this.Publisher
+
+        this.IsListenServer <- isListenServer
 
         netServer.Start(connectionKey)
 
@@ -331,7 +340,10 @@ internal class ServerHost =
                     if (inputBuffer.TryGetItem(&input))
                         connectedClient.CurrentInputFrame <- input.Frame
                         connectedClient.CurrentInputTimeStamp <- input.TimeStamp
-                        publisher.ClientInputUpdated(byte(i), input)
+
+                        // Listen server input updates are handled in thread sync.
+                        if (!connectedClient.IsListenServer)
+                            publisher.ClientInputUpdated(byte(i), input)
   
             i <- i + 1
 

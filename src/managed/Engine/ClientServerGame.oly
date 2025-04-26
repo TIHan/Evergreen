@@ -55,7 +55,7 @@ module ClientServerGameHelpers =
         guiEnv.NavigationStack.Clear()
 
     private connect(game: ClientServerGame, guiEnv: GuiEnv, address: string, port: int32, connectionKey: string): () =
-        game.Connect(address, port, connectionKey)
+        game.Connect(address, port, connectionKey, guiEnv.SettingsMenuModel.SimulateClient.Value)
         guiEnv.MainMenuModel.IsNewGameVisible.Value <- false
         guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- false
         guiEnv.MainMenuModel.IsSaveGameVisible.Value <- false
@@ -158,7 +158,7 @@ module ClientServerGameHelpers =
                         fail("should not be connected")
                     if (guiEnv.MainMenuModel.IsNewGameVisible.Value)
                         game.LoadScene("map01.json")
-                        game.StartHosting(genv.ConnectionKey)
+                        game.StartHosting(genv.ConnectionKey, guiEnv.SettingsMenuModel.SimulateClient.Value)
                         csgenv.IsHosting <- true
                         connectLocalHost(game, guiEnv, genv.ConnectionKey)
                         guiEnv.CurrentMenuState <- GuiMenuState.Loading
@@ -193,7 +193,7 @@ module ClientServerGameHelpers =
                         if (!csgenv.IsConnected)
                             if (csgenv.IsHosting)
                                 fail("already hosting")
-                            game.StartHosting(genv.ConnectionKey)
+                            game.StartHosting(genv.ConnectionKey, guiEnv.SettingsMenuModel.SimulateClient.Value)
                             csgenv.IsHosting <- true
                             connectLocalHost(game, guiEnv, genv.ConnectionKey)           
     
@@ -208,8 +208,6 @@ module ClientServerGameHelpers =
                 | ClientEvent.Connected(connectionString) =>
                     if (csgenv.IsConnected)
                         fail("should not be connected")
-                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- game.IsListenServer
-                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- game.IsListenServer
                     guiEnv.LoadingModel.Text.Value <- "Waiting on server..."
                     csgenv.IsConnected <- true
                     LogClient("Connected: " + connectionString)
@@ -250,7 +248,7 @@ module ClientServerGameHelpers =
                     Gui.ShowDialog(guiEnv, "Connection Failed", "Reason: " + reason)
     
                 | ClientEvent.LoadClientSceneRequested(sceneName, snapshotSequence) =>
-                    game.LoadClientScene(sceneName, snapshotSequence, guiEnv.SettingsMenuModel.SimulateClient.Value)
+                    game.LoadClientScene(sceneName, snapshotSequence)
     
                 | ClientEvent.SceneLoading(path) =>
                     if (!csgenv.IsConnected)
@@ -280,6 +278,8 @@ module ClientServerGameHelpers =
                     guiEnv.MainMenuModel.IsNewGameVisible.Value <- false
                     guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- false
                     guiEnv.MainMenuModel.IsExitGameVisible.Value <- true
+                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- game.IsListenServer
+                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- game.IsListenServer
                     resetGuiMenuStateToNone(guiEnv)
                     LogClient("Scene Began: " + sceneName)
                     let musicPlayback = genv.SoundManager.Get("Music/Freedoom/d_e1m6.ogg").StopAndPlay(csgenv.MusicPlayback, guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true)
@@ -370,7 +370,7 @@ class ClientServerGame =
     ClientPing: int64                  get() = this.CL.Ping
     ClientPassword: string             get() = this.CL.Password
 
-    IsListenServer: bool get() = this.LocalServerPort == this.ClientPort && this.ClientAddress == "127.0.0.1"
+    IsListenServer: bool get() = this.CL.IsListenServer
 
     /// Background-thread only
     BackgroundFixedUpdate(genv: GameEnv, time: GameTime, isCatchingUp: bool): () =
@@ -469,8 +469,9 @@ class ClientServerGame =
         this.CL.OptimizeStaticEnvironment()
 
     /// Main-thread only
-    Connect(address: string, port: int32, connectionKey: string): () =
-        this.CL.Connect(address, port, connectionKey)
+    Connect(address: string, port: int32, connectionKey: string, simulateClient: bool): () =
+        let isListenServer = this.LocalServerPort == port && address == "localhost" && !simulateClient
+        this.CL.Connect(address, port, connectionKey, isListenServer)
 
     /// Main-thread only
     Disconnect(): () =
@@ -485,8 +486,8 @@ class ClientServerGame =
         this.SV.LoadScene(path)
 
     /// Main-thread only
-    LoadClientScene(sceneName: string, snapshotSequence: ByteSequence, simulateClient: bool): () =
-        this.CL.LoadScene(sceneName, snapshotSequence, this.IsListenServer && !simulateClient)
+    LoadClientScene(sceneName: string, snapshotSequence: ByteSequence): () =
+        this.CL.LoadScene(sceneName, snapshotSequence)
 
     /// Main-thread only
     CloseScene(): () =
@@ -494,8 +495,8 @@ class ClientServerGame =
         this.SV.DisposeScene()
 
     /// Main-thread only
-    StartHosting(connectionKey: string): () =
-        this.SV.StartHosting(connectionKey)
+    StartHosting(connectionKey: string, simulateClient: bool): () =
+        this.SV.StartHosting(connectionKey, /* isListenServer = */!simulateClient)
 
     /// Main-thread only
     StopHosting(): () =

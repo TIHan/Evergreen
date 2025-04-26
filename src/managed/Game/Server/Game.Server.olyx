@@ -22,8 +22,8 @@ class ServerGame =
     Port: int32       get() = this.senv.Host.Port
     IsHosting: bool   get() = this.senv.Host.IsStarted
 
-    StartHosting(connectionKey: string): () =
-        Server.startHosting(this.senv, connectionKey)
+    StartHosting(connectionKey: string, isListenServer: bool): () =
+        Server.startHosting(this.senv, connectionKey, isListenServer)
 
     StopHosting(): () =
         Server.stopHosting(this.senv)
@@ -76,10 +76,11 @@ newtype ServerCommandBuffer =
         stream.Write(ServerCommandTag.SaveScene)
         stream.WriteSmallString(path)
 
-    StartHosting(connectionKey: string): () =
+    StartHosting(connectionKey: string, isListenServer: bool): () =
         let stream = this.Stream
         stream.Write(ServerCommandTag.StartHosting)
         stream.WriteString(connectionKey)
+        stream.Write(isListenServer)
 
     StopHosting(): () =
         let stream = this.Stream
@@ -118,10 +119,10 @@ module ServerCommand =
         ConsumeTag(stream)
         stream.ReadSmallString()
 
-    pattern StartHosting(reader: ServerCommandReader): string when (reader.Tag == ServerCommandTag.StartHosting) =>
+    pattern StartHosting(reader: ServerCommandReader): (string, isListenServer: bool) when (reader.Tag == ServerCommandTag.StartHosting) =>
         let stream = reader.Stream
         ConsumeTag(stream)
-        stream.ReadString()
+        (stream.ReadString(), stream.Read())
 
     pattern StopHosting(reader: ServerCommandReader): () when (reader.Tag == ServerCommandTag.StopHosting) =>
         let stream = reader.Stream
@@ -192,9 +193,9 @@ class ServerGameProxy =
                 if (!sv.SaveScene(path))
                     LogServerError("Unable to save scene at '" + path + "'")
 
-            | ServerCommand.StartHosting(connectionKey) =>
+            | ServerCommand.StartHosting(connectionKey, isListenServer) =>
                 LogServer("Command: StartHosting")
-                sv.StartHosting(Hash.Pbkdf2(this.Password, connectionKey, 256))
+                sv.StartHosting(Hash.Pbkdf2(this.Password, connectionKey, 256), isListenServer)
 
             | ServerCommand.StopHosting =>
                 LogServer("Command: StopHosting")
@@ -237,9 +238,9 @@ class ServerGameProxy =
         svCmds.LoadScene(path)
 
     /// Main-thread only
-    StartHosting(connectionKey: string): () =
+    StartHosting(connectionKey: string, isListenServer: bool): () =
         let svCmds = ServerCommandBuffer(this.ServerCommandStreams.Front)
-        svCmds.StartHosting(connectionKey)
+        svCmds.StartHosting(connectionKey, isListenServer)
 
     /// Main-thread only
     StopHosting(): () =

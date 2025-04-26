@@ -29,6 +29,7 @@ internal class ServerConnection =
     field mutable latestSnapshotTimeStamp: int64
 
     private SendStream: ByteStream get
+    IsListenServer: bool get, private set
 
     ClientIndex: byte get() = this.clientIndex
 
@@ -175,6 +176,7 @@ internal class ServerConnection =
             latestSnapshotTimeStamp = 0
 
             SendStream = ByteStream()
+            IsListenServer = false
         }
 
     private Reset(): () =
@@ -285,11 +287,13 @@ internal class ServerConnection =
         stream.Write(userCmd)
         this.NetworkClient.SendReliableSequenced(stream.AsReadOnlySpan(), NetworkChannels.UserCommandChannel)
 
-    Connect(ipOrHostName: string, port: int32, connectionKey: string): () =
+    Connect(ipOrHostName: string, port: int32, connectionKey: string, isListenServer: bool): () =
+        this.IsListenServer <- isListenServer
         this.NetworkClient.Connect(ipOrHostName, port, connectionKey)
 
     DisconnectIfPossible(): () =
         this.NetworkClient.DisconnectIfPossible(ClientDisconnectReason.ClientInitiated)
+        this.IsListenServer <- false
 
     Address: string 
         get() =
