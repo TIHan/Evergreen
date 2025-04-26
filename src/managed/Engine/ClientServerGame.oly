@@ -250,7 +250,7 @@ module ClientServerGameHelpers =
                     Gui.ShowDialog(guiEnv, "Connection Failed", "Reason: " + reason)
     
                 | ClientEvent.LoadClientSceneRequested(sceneName, snapshotSequence) =>
-                    game.LoadClientScene(sceneName, snapshotSequence)
+                    game.LoadClientScene(sceneName, snapshotSequence, guiEnv.SettingsMenuModel.SimulateClient.Value)
     
                 | ClientEvent.SceneLoading(path) =>
                     if (!csgenv.IsConnected)
@@ -485,8 +485,8 @@ class ClientServerGame =
         this.SV.LoadScene(path)
 
     /// Main-thread only
-    LoadClientScene(sceneName: string, snapshotSequence: ByteSequence): () =
-        this.CL.LoadScene(sceneName, snapshotSequence, false)
+    LoadClientScene(sceneName: string, snapshotSequence: ByteSequence, simulateClient: bool): () =
+        this.CL.LoadScene(sceneName, snapshotSequence, this.IsListenServer && !simulateClient)
 
     /// Main-thread only
     CloseScene(): () =

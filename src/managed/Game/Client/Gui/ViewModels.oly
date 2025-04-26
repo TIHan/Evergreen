@@ -46,6 +46,7 @@ class SettingsMenuViewModel =
     ShowPhysicsDebugInfo: Var<bool> get = Var(false)
     ShowDiagnostics: Var<bool> get = Var(false)
     ShowImGuiDemo: Var<bool> get = Var(false)
+    SimulateClient: Var<bool> get = Var(false)
     SimulateLatency: Var<bool> get = Var(false)
     SimulatePacketLoss: Var<bool> get = Var(false)
     AsyncServer: Var<bool> get = Var(false)

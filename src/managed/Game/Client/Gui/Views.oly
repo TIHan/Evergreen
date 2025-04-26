@@ -231,6 +231,12 @@ CreateSettingsMenu(vm: SettingsMenuViewModel, publisher: ClientEventPublisher): 
         )
         gameTabView.Children.Add(
             let view = CheckboxView()
+            view.Label <- "Simulate Client"
+            Binding.IsChecked(view, vm.SimulateClient)
+            view
+        )
+        gameTabView.Children.Add(
+            let view = CheckboxView()
             view.Label <- "Simulate Latency"
             Binding.IsChecked(view, vm.SimulateLatency)
             view
