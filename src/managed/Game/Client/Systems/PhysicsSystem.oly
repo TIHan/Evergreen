@@ -153,15 +153,6 @@ class ClientPhysicsSystem =
                 this.inputsByFrame[i] <- default
         )
 
-    UpdatePlayerTransforms(playerId: EntityId): () =
-        let db = this.db
-        let physics = this.physics
-
-        db.IfHas<Player, VirtualCharacterId, Transform>(playerId,
-            (_, vcharacterId, transform) ->
-                transform.Position <- physics.GetCenterOfMassPosition(vcharacterId)
-        )
-
     RecordPlayerPredictions(deltaTime: float32, playerId: EntityId): () =
         let db = this.db
 

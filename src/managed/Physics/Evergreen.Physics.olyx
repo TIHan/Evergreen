@@ -90,7 +90,7 @@ class Physics =
         // See StickToFloor inStepDown parameter. Can be zero to turn off.
         settings.stickToFloorStepDown <- Vector3(0, 0, -0.5)
         // See WalkStairs inStepUp parameter. Can be zero to turn off.
-        settings.walkStairsStepUp <- Vector3(0, 0, 0.4)
+        settings.walkStairsStepUp <- Vector3(0, 0, 0.25)
         // See WalkStairs inStepForward parameter. Note that the parameter only indicates a magnitude, direction is taken from current velocity.
         settings.walkStairsMinStepForward <- 0.02
         // See WalkStairs inStepForwardTest parameter. Note that the parameter only indicates a magnitude, direction is taken from current velocity.
@@ -569,10 +569,10 @@ class Physics =
 
     AddVirtualCharacter(position: Vector3, layer: byte, userData: uint64): VirtualCharacterId =
         let mutable settings = default: EgJoltCharacterSettings
-        settings.standingHeight <- 1.8
-        settings.standingRadius <- 0.3
+        settings.standingHeight <- 1.75
+        settings.standingRadius <- 0.75
         settings.crouchingHeight <- 1.5
-        settings.crouchingRadius <- 0.3
+        settings.crouchingRadius <- 0.75
         settings.maxStrength <- 50
         settings.padding <- 0.02
         settings.penetrationRecoverySpeed <- 1

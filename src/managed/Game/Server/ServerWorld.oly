@@ -196,7 +196,7 @@ class ServerWorld =
         transform.Position <- vec3.Zero
         transform.Scale <- vec3.One
 
-        camera.Offset <- Vector3(0, 0, 1.7)
+        camera.Offset <- Vector3(0, 0, 1.75) // 1.75 is the default character standing height
 
         this.Database.CreateQuery<Transform, PlayerSpawnPoint>().ForEach(
             (spawnPointId, spawnPointTransform, _) ->

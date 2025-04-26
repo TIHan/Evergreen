@@ -85,7 +85,6 @@ internal class ClientScene =
                         if (this.World.PredictionEnabled)
                             physics.UpdatePlayer(time.DeltaTime, clientEntId, &playerInput)
                             this.World.RecordPlayerPredictions(time.DeltaTime, clientEntId)
-                            physics.UpdatePlayerTransforms(clientEntId)
                     | _ =>
                         ()
                     result <- ClientInput(playerInput, this.prevPlayerInput, this.prevPrevPlayerInput)
