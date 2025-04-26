@@ -16,6 +16,8 @@ open static Game.Client.Rendering.Module
 open static Game.AssetManager
 open static Evergreen.Utilities.Geometry
 
+open Game.Graphics
+
 #[open]
 abstract class ShaderName =
 

@@ -38,6 +38,7 @@ open Evergreen.Collections
 open static Game.Shared.Types
 open static Game.Shared.Components
 open Game.Server
+open Game.Graphics
 
 BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
     let world = ServerWorld(genv)
@@ -117,7 +118,7 @@ main(args: string[]): () =
         let resx = Resources(r) // TODO-language-bug: crashes when doing 'Resources.Initialize(r)'. note: 'Initialize' doesn't exist.
 
         let connectionKey = "oly" + engineHash
-        let genv = GameEnv(connectionKey, engineHash, resx.Maps, resx.RenderMeshes, resx.Sounds, resx.Pipelines, resx.Images)
+        let genv = GameEnv(connectionKey, engineHash, resx.Maps, resx.Meshes, resx.Sounds, resx.Pipelines, resx.Images)
         let renv = RenderEnv(r, resx.ShaderGlobals, resx.Frames, resx.Pipelines, resx.RenderMeshes, resx.Images)
 
         Tests.SerializeDeserializePlayer(genv)

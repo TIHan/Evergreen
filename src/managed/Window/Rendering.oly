@@ -16,6 +16,8 @@ open Evergreen.Graphics.Rendering.UI
 
 private alias Unsafe = OlyPrelude.Unsafe
 
+alias VkDrawIndexedIndirectCommand = TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand
+
 class GpuDescriptorSet =
     Name: string get
     internal IsInitialized: bool get, set
@@ -1619,7 +1621,7 @@ internal abstract class GpuCommand = // TODO-language-bug: 'internal' doesn't wo
         private DrawIndexedIndirectVulkanPool: mutable DrawIndexedIndirectVulkan[] get = zeroArray(1000000)
         private DrawIndexedIndirectVulkanPoolCount: int32 get, set = 0
 
-        internal RentDrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
+        internal RentDrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
             let index = DrawIndexedIndirectVulkanPoolCount
 
             if (index >= 1000000)
@@ -1709,16 +1711,16 @@ internal abstract class GpuCommand = // TODO-language-bug: 'internal' doesn't wo
 
         Vertices: IGpuBuffer get, set = unchecked default
         Indices: IGpuBuffer get, set = unchecked default
-        Buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand> get, set = unchecked default
+        Buffer: GpuBuffer<VkDrawIndexedIndirectCommand> get, set = unchecked default
         Offset: uint64 get, set = 0
         DrawCount: uint32 get, set = 0
         Stride: uint32 get, set = 0
 
-    internal pattern DrawIndexedIndirectVulkan(cmd: GpuCommand): (vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32) when (cmd.Tag == 9) =>
+    internal pattern DrawIndexedIndirectVulkan(cmd: GpuCommand): (vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32) when (cmd.Tag == 9) =>
         let cmd = Unsafe.Cast<DrawIndexedIndirectVulkan>(cmd)
         (cmd.Vertices, cmd.Indices, cmd.Buffer, cmd.Offset, cmd.DrawCount, cmd.Stride)
 
-    internal static DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
+    internal static DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
         if (Pool.IsPooling)
             Pool.RentDrawIndexedIndirectVulkan(vertices, indices, buffer, offset, drawCount, stride)
         else
@@ -1789,7 +1791,7 @@ class GpuCommandList =
         this.Validate()
         this.Commands.Add(GpuCommand.Dispatch(groupCountX, groupCountY, groupCountZ))
 
-    DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): () =
+    DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): () =
         this.Validate()
         this.Commands.Add(GpuCommand.DrawIndexedIndirectVulkan(vertices, indices, buffer, offset, drawCount, stride))
 

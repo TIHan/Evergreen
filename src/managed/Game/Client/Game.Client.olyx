@@ -6,8 +6,7 @@
 #load "Gui/*.oly"
 
 #reference "../Shared/Game.Shared.olyx"
-#reference "../../Graphics/Evergreen.Graphics.olyx"
-#reference "../../Window/Evergreen.Window.olyx"
+#reference "../Graphics/Game.Graphics.olyx"
 #reference "../../Network/Evergreen.Network.olyx"
 
 namespace Game.Client
@@ -39,6 +38,8 @@ open static Game.Client.ViewModels
 open static Game.Client.Views
 open static Game.Client.RenderState
 open static Game.Client.Internal.Environment
+
+open Game.Graphics
 
 class ClientGame =
     implements IDisposable

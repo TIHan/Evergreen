@@ -27,6 +27,8 @@ open static Game.Client.RenderState
 
 open static Game.Client.RenderGameHelpers
 
+open Game.Graphics
+
 internal module RenderGameHelpers =
 
     ResetGlobals(renv: RenderEnv, resolution: Vector2, time: GameTime, alpha: float32): () =

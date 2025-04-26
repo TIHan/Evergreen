@@ -9,19 +9,20 @@ open Evergreen.Graphics
 open Evergreen.Graphics.Rendering
 open Evergreen.Audio
 open static Game.AssetManager
+open static Evergreen.Utilities.Geometry
 
 class GameEnv =
     ConnectionKey: string get
     EngineHash: string get
     Maps: AssetManager<Stream> get
-    MeshManager: AssetManager<RenderMeshGroup> get
+    MeshManager: AssetManager<MeshGroup> get
     Pipelines: AssetManager<GpuPipeline> get
     Images: AssetManager<IGpuImage[]> get
     SoundManager: AssetManager<Sound> get
 
     ConsoleWriter: StringWriter get
 
-    new(connectionKey: string, engineHash: string, maps: AssetManager<Stream>, meshManager: AssetManager<RenderMeshGroup>, soundManager: AssetManager<Sound>, pipelines: AssetManager<GpuPipeline>, images: AssetManager<IGpuImage[]>) =
+    new(connectionKey: string, engineHash: string, maps: AssetManager<Stream>, meshManager: AssetManager<MeshGroup>, soundManager: AssetManager<Sound>, pipelines: AssetManager<GpuPipeline>, images: AssetManager<IGpuImage[]>) =
         {
             ConnectionKey = connectionKey
             EngineHash = engineHash

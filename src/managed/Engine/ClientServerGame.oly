@@ -19,6 +19,8 @@ open static Game.Client.Rendering.Module
 open static Game.Client.ViewModels
 open static Game.Client.RenderState
 
+open Game.Graphics
+
 class ClientServerGameEnv =
 
     IsConnected: bool get, set

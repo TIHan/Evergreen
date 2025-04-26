@@ -14,40 +14,6 @@ open static Game.AssetManager
 open static Game.Shared.Types
 open static Game.Shared.Components
 
-struct Vertex =
-    public field Position: Vector3
-    public field Normal: Vector3
-    public field TexCoord: Vector2
-
-    new(position: Vector3, normal: Vector3, texCoord: Vector2) =
-        {
-            Position = position
-            Normal = normal
-            TexCoord = texCoord
-        }
-
-    overrides ToString(): string = 
-        "(Position = " + this.Position.ToString() + ")"
-
-class RenderMesh =
-
-    Vertices: GpuBuffer<Vertex> get
-    Indices: GpuBuffer<uint32> get
-    AABB: AABB get
-    MaterialIndex: int32 get
-
-    new(vertices: GpuBuffer<Vertex>, indices: GpuBuffer<uint32>, aabb: AABB, materialIndex: int32) =
-        {
-            Vertices = vertices
-            Indices = indices
-            AABB = aabb
-            MaterialIndex = materialIndex
-        }
-
-class RenderMeshGroup =
-    Meshes: RenderMesh[] get
-    new(meshes: RenderMesh[]) = { Meshes = meshes }
-
 interface IUnlockedWorld =
 
     UnlockedDatabase: UnlockedEntityDatabase get

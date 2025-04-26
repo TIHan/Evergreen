@@ -1,0 +1,194 @@
+#target "dotnet: net8"
+#library
+
+#load "*.oly"
+
+#reference "../../Utilities/Evergreen.Utilities.olyx"
+
+#[open]
+module GameCore
+
+open System
+open System.Numerics
+open Evergreen.Utilities
+
+enum CameraProjectionKind =
+    | Perspective
+    | Orthographic
+
+struct Transform =
+    public field mutable Sequence: ByteSequence
+    public field mutable Position: vec3
+    public field mutable Rotation: quat
+    public field mutable Scale: vec3
+
+    new(position: vec3, rotation: quat, scale: vec3) = { Position = position; Rotation = rotation; Scale = scale; Sequence = ByteSequence.Zero }
+    new(position: vec3, rotation: quat) = Transform(position, rotation, vec3.One)
+    new(position: vec3) = Transform(position, quat.Identity)
+    new() = Transform(vec3.Zero)
+    new(rotation: quat) = Transform(vec3.Zero, rotation)
+
+    static FromMatrix(m: mat4): Transform =
+        let mutable position = default
+        let mutable rotation = default
+        let mutable scale = default
+        if (mat4.Decompose(m, &scale, &rotation, &position))
+            Transform(position, rotation, scale)
+        else
+            printLine("Warning: Failed to decompose matrix.")
+            Transform(vec3.Zero, Quaternion.Identity, vec3.One)
+
+    mutable SetPositionAndRotation(position: vec3, rotation: quat): () =
+        this.Position <- position
+        this.Rotation <- rotation
+
+    Matrix: Matrix4x4
+        get() =
+            let positionMatrix = mat4.CreateTranslation(this.Position)
+            let rotationMatrix = mat4.CreateFromQuaternion(this.Rotation)
+            let scaleMatrix = mat4.CreateScale(this.Scale)
+            scaleMatrix * rotationMatrix * positionMatrix
+
+    Forward: vec3
+        get() = vec3.Transform(vec3.Forward, this.Rotation)
+
+    Backward: vec3
+        get() = vec3.Transform(vec3.Backward, this.Rotation)
+
+    Left: vec3
+        get() = vec3.Transform(vec3.Left, this.Rotation)
+
+    Right: vec3
+        get() = vec3.Transform(vec3.Right, this.Rotation)
+
+    Up: vec3
+        get() = vec3.Transform(vec3.Up, this.Rotation)
+
+    Down: vec3
+        get() = vec3.Transform(vec3.Down, this.Rotation)
+
+    WorldToLocalMatrix: mat4
+        get() =
+            let mutable inverted = default
+            if (mat4.Invert(this.Matrix, &inverted))
+                inverted
+            else
+                mat4.Identity
+
+    Direction: vec3
+        get() = 
+            this.Rotation.Direction
+
+struct Camera =
+    private static DefaultRotation: quat get = quat.CreateFromAxisAngle(vec3.UnitX, radians(90))
+
+    public field mutable Offset: vec3
+
+    public field mutable Yaw: float32
+    public field mutable Pitch: float32
+    public field mutable Roll: float32
+
+    public field mutable FieldOfView: float32
+    public field mutable Width: int32
+    public field mutable Height: int32
+    public field mutable NearPlaneDistance: float32
+    public field mutable FarPlaneDistance: float32
+    public field mutable ProjectionKind: CameraProjectionKind
+
+    new(fov: float32, width: int32, height: int32, nearPlaneDistance: float32, farPlaneDistance: float32, projectionKind: CameraProjectionKind) =
+        {
+            Offset = vec3.Zero
+            Yaw = 0
+            Pitch = 0
+            Roll = 0
+            FieldOfView = fov
+            Width = width
+            Height = height
+            NearPlaneDistance = nearPlaneDistance
+            FarPlaneDistance = farPlaneDistance
+            ProjectionKind = projectionKind
+        }
+
+    mutable SetYawPitch(yaw: float32, pitch: float32): () =
+        this.Yaw <- yaw
+        this.Pitch <- pitch
+
+    mutable SetRoll(roll: float32): () =
+        this.Roll <- roll
+
+    GetPosition(position: vec3): vec3 =
+        position + this.Offset
+
+    GetPosition(transform: Transform): vec3 =
+        this.GetPosition(transform.Position)
+
+    GetTransform(position: vec3): Transform =
+        Transform(this.GetPosition(position), this.Rotation, vec3.One)
+
+    mutable LookAt(cameraPosition: vec3, targetPosition: vec3): () =
+        let m = mat4.CreateLookAt(cameraPosition, targetPosition, vec3.Down)
+        let q = quat.CreateFromRotationMatrix(m)
+        let angles = q.ToEulerAngles()
+        this.Yaw <- radians(90) + angles.X
+        this.Pitch <- angles.Y
+        this.Roll <- 0
+
+    Direction: vec3
+        get() =
+            this.Rotation.Direction
+
+    Rotation: quat
+        get() =
+            Camera.DefaultRotation * this.RealRotation
+
+    RealRotation: quat
+        get() =
+            quat.CreateFromYawPitchRoll(this.Yaw, this.Pitch, this.Roll)
+
+    Projection: Matrix4x4
+        get() =
+            match (this.ProjectionKind)
+            | CameraProjectionKind.Orthographic =>
+                mat4.CreateOrthographicOffCenter(-float32(this.Width), float32(this.Width), -float32(this.Height), float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
+            | _ =>
+                let fov = 
+                    let fov = this.FieldOfView
+                    if (fov <= 5)
+                        5: float32
+                    else if (fov >= 175)
+                        175
+                    else
+                        fov
+                mat4.CreatePerspectiveFieldOfView(radians(fov), float32(this.Width) / float32(this.Height), this.NearPlaneDistance, this.FarPlaneDistance)
+
+struct MeshReference =
+    public field mutable MeshId: Int32Id
+    new(meshId: Int32Id) = { MeshId = meshId }
+    new() = MeshReference(Int32Id(0))
+
+#[Flags]
+enum MaterialFlags =
+    | None              = 0b0000
+    | Transparent       = 0b0001
+    | CastShadows       = 0b0010
+    | AcceptLight       = 0b0100
+    | RepeatingTexture  = 0b1000
+
+struct Material =
+    public field mutable ImageId: Int32Id = Int32Id(0)
+    public field mutable Flags: MaterialFlags = MaterialFlags.None
+
+    IsTransparent: bool get() = this.Flags & MaterialFlags.Transparent != MaterialFlags.None
+    CanCastShadows: bool get() = this.Flags & MaterialFlags.CastShadows != MaterialFlags.None
+    CanAcceptLight: bool get() = this.Flags & MaterialFlags.AcceptLight != MaterialFlags.None
+    IsRepeatingTexture: bool get() = this.Flags & MaterialFlags.RepeatingTexture != MaterialFlags.None
+
+enum LightKind =
+    inherits byte
+
+    | Directional
+    | Spot
+
+struct Light =
+    public field mutable Kind: LightKind = LightKind.Directional
+    public field mutable Color: vec4 = vec4.Zero

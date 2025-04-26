@@ -16,6 +16,8 @@ open Evergreen.Graphics.Rendering
 open Evergreen.Window
 open static Game.AssetManager
 
+open Game.Graphics
+
 open Game.Shared
 open static Game.Shared.Types
 open static Game.Shared.Components
@@ -53,7 +55,7 @@ class RenderingWorld =
         let maxLightCount = LightArrayShaderData.MaxCount
 
         base(EntityDatabase(EntityDatabaseKind.Client, registry)) with {
-            rfenv = RenderFrameEnv()
+            rfenv = RenderFrameEnv(renv)
             lights = List()
             renderers =
                 let renderers = List()
@@ -161,7 +163,9 @@ class MeshRendererBehavior =
 
     GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.Lighting.MeshShadowMapFrames
 
-    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =        
+    Update(rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+        let renv = rfenv.RenderEnvironment
+
         let mutable cameraPosition = vec3.Zero
         let hasEditor =
             db.TryGet<Editor>(playerCameraId,
@@ -185,14 +189,14 @@ class MeshRendererBehavior =
                         transparencyQueue.Enqueue(entId, -(cameraPosition - transform.Position).Length())
                     else
                         let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Mesh, &material)
-                        DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
+                        DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp.Value, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)
         )
 
         db.CreateQuery<TransformLerp, Transform, MeshReference, Material, Outline>().ForEach(
             (entId, transformLerp, transform, meshRef, material, outline) ->
                 if (alwaysDrawPlayer || entId != playerCameraId)
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Mesh, &material)
-                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp.Value, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
         // Transparency
@@ -204,12 +208,13 @@ class MeshRendererBehavior =
                 db.TryGet<TransformLerp, Transform, MeshReference, Material>(entId,
                     (transformLerp, transform, meshRef, material) ->
                         let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Mesh, &material)
-                        DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
+                        DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Mesh, renv.MeshManager, renv.ImageManager, &transformLerp.Value, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, transparencyLookup, transparencyOrder)
                         if (transparencyOrder != 255)
                             transparencyOrder <- transparencyOrder + 1
                 )
 
-    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+    Draw(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let renv = rfenv.RenderEnvironment
         let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
         gpuCommands.BindDescriptorSet(1, imageDs)
         gpuCommands.BindDescriptorSet(2, instancesDs)
@@ -217,11 +222,13 @@ class MeshRendererBehavior =
         gpuCommands.BindDescriptorSet(4, renv.Lighting.ShadowMapDescriptorSet)
         gpuCommands.BindDescriptorSet(5, rfenv.Textures.DescriptorSet)
 
-    DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+    DrawOutlineMask(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let renv = rfenv.RenderEnvironment
         gpuCommands.BindDescriptorSet(1, instancesDs)
         gpuCommands.BindDescriptorSet(2, occluderDepthImageDs)
 
-    DrawShadowMaps(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+    DrawShadowMaps(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let renv = rfenv.RenderEnvironment
         gpuCommands.BindDescriptorSet(1, instancesDs)
         gpuCommands.BindDescriptorSet(2, renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet())
 
@@ -236,7 +243,8 @@ class SpriteRendererBehavior =
 
     GetShadowMaps(renv: RenderEnv): IGpuFrame[] = renv.Lighting.SpriteShadowMapFrames
 
-    Update(renv: RenderEnv, rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+    Update(rfenv: RenderFrameEnv, db: EntityDatabase, playerCameraId: EntityId, drawCmds: mutable VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>, outlineLookup: DrawLookup, noOutlineLookup: DrawLookup, transparencyLookup: DrawLookup): () =
+        let renv = rfenv.RenderEnvironment
         let meshRef = renv.GetPlaneRenderMeshReference()
 
         let alwaysDrawPlayer = db.Has<Editor>(playerCameraId)
@@ -250,7 +258,7 @@ class SpriteRendererBehavior =
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Sprite, &material)
                     transformLerp.Value.Rotation <- defaultRotation
                     transform.Rotation <- defaultRotation
-                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
+                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp.Value, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, noOutlineLookup, 0)                       
         )
 
         db.CreateQuery<TransformLerp, Transform, Sprite, Material, Outline>().ForEach(
@@ -259,23 +267,26 @@ class SpriteRendererBehavior =
                     let pipelineId = DrawHelpers.GetPipelineIdFromMaterial(renv, DrawKind.Sprite, &material)
                     transformLerp.Value.Rotation <- defaultRotation
                     transform.Rotation <- defaultRotation
-                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
+                    DrawHelpers.PrepareDraw(rfenv.Textures, pipelineId, DrawKind.Sprite, renv.MeshManager, renv.ImageManager, &transformLerp.Value, &transform, meshRef, material, drawCmds, &nextDrawCmdIndex, outlineLookup, 0)
         )
 
-    Draw(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+    Draw(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let renv = rfenv.RenderEnvironment
         let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
         gpuCommands.BindDescriptorSet(1, imageDs)
         gpuCommands.BindDescriptorSet(2, instancesDs)
         gpuCommands.BindDescriptorSet(3, renv.Lighting.LightsVertexFragmentDescriptorSet)
         gpuCommands.BindDescriptorSet(4, renv.Lighting.ShadowMapDescriptorSet)
 
-    DrawOutlineMask(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+    DrawOutlineMask(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, occluderDepthImageDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let renv = rfenv.RenderEnvironment
         let imageDs = renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet()
         gpuCommands.BindDescriptorSet(1, instancesDs)
         gpuCommands.BindDescriptorSet(2, occluderDepthImageDs)
         gpuCommands.BindDescriptorSet(3, imageDs)
 
-    DrawShadowMaps(renv: RenderEnv, rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+    DrawShadowMaps(rfenv: RenderFrameEnv, key: RenderKey, instancesDs: GpuDescriptorSet, gpuCommands: GpuCommandList): () =
+        let renv = rfenv.RenderEnvironment
         gpuCommands.BindDescriptorSet(1, instancesDs)
         gpuCommands.BindDescriptorSet(2, renv.ImageManager.Get(key.Material.ImageId)[key.MeshKey.MaterialIndex].GetVertexDescriptorSet())
 
@@ -404,21 +415,21 @@ private module Rendering =
         let screenMesh = renv.ScreenMesh
 
         // Begin Shadow Map
-        Renderer.Passes.DrawShadows(renv, rfenv, renderers, lights, alpha, cmds)
+        Renderer.Passes.DrawShadows(rfenv, renderers, lights, alpha, cmds)
         // End Shadow Map
 
         cmds.PipelineBarrier(GpuPipelineBarrierKind.DepthStencilToVertexFragmentRead)
 
         // // Begin Main
         cmds.BeginFrame(screenFrame)
-        Renderer.Passes.Draw(renv, rfenv, renderers, cmds)
+        Renderer.Passes.Draw(rfenv, renderers, cmds)
         Renderer.Passes.DrawTransparency(renv, rfenv, renderers, cmds)
         cmds.EndFrame()
         // End Main
 
         // Begin No Outlines
         cmds.BeginFrame(noOutlinesFrame)
-        Renderer.Passes.DrawOutlineNoMask(renv, rfenv, renderers, cmds)
+        Renderer.Passes.DrawOutlineNoMask(rfenv, renderers, cmds)
         cmds.EndFrame()
         // End No Outlines
         
@@ -426,7 +437,7 @@ private module Rendering =
 
         // Begin Mask
         cmds.BeginFrame(maskFrame)
-        Renderer.Passes.DrawOutlineMask(renv, rfenv, renderers, cmds)
+        Renderer.Passes.DrawOutlineMask(rfenv, renderers, cmds)
         cmds.EndFrame()
         // End Mask             
 
