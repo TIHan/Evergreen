@@ -10,8 +10,11 @@ namespace Game.Server
 
 open System
 open Evergreen.Utilities
+open Evergreen.Collections
 open Game.Shared // GameEnv
 open Game.Server.Internal
+
+open static Game.Shared.Types
 
 class ServerGame =
     implements IDisposable
@@ -45,6 +48,9 @@ class ServerGame =
 
     LoadScene(filePath: string, genv: GameEnv): () =
         Server.loadScene(this.senv, genv, filePath)
+
+    TryUpdatePlayer(time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>): bool =
+        Server.tryUpdatePlayer(this.senv, time, playerId, &input, &outTransform)
 
     Dispose(): () =
         Server.dispose(this.senv)
@@ -225,6 +231,16 @@ class ServerGameProxy =
 
         this.ServerCommandStreams.Swap()
         this.ServerCommandStreams.Front.Reset()
+        // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
+
+    /// Main-thread only
+    /// These need to be fast operations since this where we sync the main and background threads.
+    TrySyncPlayer(time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>): bool =
+        // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
+        // Background is halted at this point.
+
+        this.SV.TryUpdatePlayer(time, playerId, &input, &outTransform)
+
         // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
 
     /// Main-thread only

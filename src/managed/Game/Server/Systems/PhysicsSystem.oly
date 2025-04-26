@@ -63,7 +63,8 @@ class ServerPhysicsSystem =
         db.CreateQuery<Player, CharacterInput>().ForEach(
             (entId, player, playerInput) ->
                 player.ClientInputFrame <- playerInput.Frame
-                this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
+                if (!player.Flags.HasFlag(PlayerFlags.Host))
+                    this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
         )
 
         base.Update(time)

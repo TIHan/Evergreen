@@ -52,7 +52,7 @@ internal module Server =
         else
             NoneStruct
 
-    spawnClientPlayer(senv: ServerEnv, clientIndex: byte): () =
+    spawnClientPlayer(senv: ServerEnv, clientIndex: byte, isHost: bool): () =
         match (tryGetWorld(senv))
         | Some(world) =>
             let mutable entId = EntityId.Nil
@@ -64,7 +64,7 @@ internal module Server =
             )
 
             if (entId.IsNil)
-                entId <- world.SpawnPlayer(clientIndex)
+                entId <- world.SpawnPlayer(clientIndex, isHost)
                 
             senv.EntityIdToClientIndex[entId] <- clientIndex
             senv.ClientIndexToEntityId[clientIndex] <- entId
@@ -152,6 +152,14 @@ internal module Server =
                 senv.Host.SendLoadScene(client, sceneName, senv.Sequence)
         )
 
+    tryUpdatePlayer(senv: ServerEnv, time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>): bool =
+        match (tryGetWorld(senv))
+        | Some(world) =>
+            world.SetPlayerInput(playerId, input)
+            world.TryUpdatePlayer(time, playerId, &outTransform)
+        | _ =>
+            false
+
     processEvents(env: ServerEnv, deltaTime: float32): () =
         let eventStream = env.EventStream
         eventStream.ResetPosition()
@@ -183,7 +191,7 @@ internal module Server =
                     if (client.SceneState == ClientSceneState.Loaded && !client.IsAwaitingFullSnapshot && !client.IsAwaitingFirstDeltaSnapshot)
                         let clientIndex = client.Index
                         if (!senv.ClientIndexToEntityId.ContainsKey(clientIndex))
-                            spawnClientPlayer(senv, clientIndex)
+                            spawnClientPlayer(senv, clientIndex, client.IsListenServer)
             )
             let stagingWorld = scene.Update(time)
             host.SendSnapshot(scene.Name, time, time.Frame, stagingWorld, senv.Sequence)
@@ -229,7 +237,7 @@ internal module Server =
     onClientInputUpdated(env: ServerEnv, clientIndex: byte, input: inref<CharacterInput>): () =
         match (tryGetClientEntityId(env, clientIndex), tryGetWorld(env))
         | SomeStruct(entId), Some(world) =>
-            world.AddOrUpdatePlayerInput(entId, input)
+            world.SetPlayerInput(entId, input)
         | _ =>
             ()
 

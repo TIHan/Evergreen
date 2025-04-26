@@ -382,6 +382,11 @@ class ClientServerGame =
     /// Main-thread only
     Sync(time: GameTime): () =
         this.CL.Sync(time) // Updating the client first is intentional.
+        if (this.IsListenServer)
+            let mutable input = default
+            let mutable transform = default
+            if (this.CL.TryGetPlayerInput(&input) && this.SV.TrySyncPlayer(time, this.ClientEntityId, &input, &transform))
+                ()
         this.SV.Sync(time)
 
     /// Main-thread only

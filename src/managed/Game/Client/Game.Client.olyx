@@ -635,6 +635,10 @@ class ClientGameProxy =
             this.R.SetCharacterInput(localPlayerId, &input)
 
     /// Main-thread only
+    TryGetPlayerInput(outInput: byref<CharacterInput>): bool =
+        this.R.TryGetCharacterInput(this.LocalPlayerId, &outInput)
+
+    /// Main-thread only
     Render(time: GameTime, alpha: float32, screenSize: Vector2, cont: scoped GpuCommandList -> ()): () =
         this.R.Render(time, alpha, screenSize, this.LocalPlayerId, cont)
 
