@@ -163,7 +163,7 @@ internal class ClientScene =
             EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
             genv.Maps.Free(sceneName)
         else
-            let fs = System.IO.File.OpenRead(sceneName)
+            let fs = IO.OpenReadFile(sceneName)
             EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
             fs.Dispose()
 

@@ -192,3 +192,32 @@ enum LightKind =
 struct Light =
     public field mutable Kind: LightKind = LightKind.Directional
     public field mutable Color: vec4 = vec4.Zero
+
+module SpecialFolder =
+
+    OlyEvergreenGame: string get() = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OlyEvergreenGame/")
+
+module SpecialFile =
+
+    QuickSave: string get() = "quick_save.json"
+
+module IO =
+
+    CreateFile(filePath: string): System.IO.FileStream =
+        if (System.IO.Path.IsPathRooted(filePath))
+            throw System.InvalidOperationException("cannot be rooted")
+        let filePath = System.IO.Path.Combine(SpecialFolder.OlyEvergreenGame, filePath)
+        let _ = System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath))
+        System.IO.File.Create(filePath)
+
+    OpenReadFile(filePath: string): System.IO.FileStream =
+        if (System.IO.Path.IsPathRooted(filePath))
+            throw System.InvalidOperationException("cannot be rooted")
+        let filePath = System.IO.Path.Combine(SpecialFolder.OlyEvergreenGame, filePath)
+        System.IO.File.OpenRead(filePath)
+
+    FileExists(filePath: string): bool =
+        if (System.IO.Path.IsPathRooted(filePath))
+            throw System.InvalidOperationException("cannot be rooted")
+        let filePath = System.IO.Path.Combine(SpecialFolder.OlyEvergreenGame, filePath)
+        System.IO.File.Exists(filePath)

@@ -76,7 +76,7 @@ module ClientServerGameHelpers =
                 if (keyEvent.IsPressed)
                     match (keyEvent.key)
                     | Key.F5 =>
-                        clientEventPublisher.SaveGameRequested("quick_save.json")
+                        clientEventPublisher.SaveGameRequested(SpecialFile.QuickSave)
                     | Key.BACKQUOTE =>
                         clientEventPublisher.ConsoleRequested()
                     | Key.ESCAPE =>
@@ -86,7 +86,7 @@ module ClientServerGameHelpers =
 
                     match (keyEvent.key)
                     | Key.F7 =>
-                        clientEventPublisher.LoadGameRequested("quick_save.json")
+                        clientEventPublisher.LoadGameRequested(SpecialFile.QuickSave)
                     | _ =>
                         ()
 
@@ -185,6 +185,7 @@ module ClientServerGameHelpers =
                 | ClientEvent.SaveGameRequested(path) =>
                     if (guiEnv.MainMenuModel.IsSaveGameVisible.Value)
                         game.SaveScene(path)
+                        guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- true
     
                 | ClientEvent.LoadGameRequested(path) =>
                     if (guiEnv.MainMenuModel.IsLoadGameEnabled.Value)
@@ -350,6 +351,9 @@ class ClientServerGame =
 
         Gui.SetIsFullscreen(guiEnv, window.IsFullscreen)
         Gui.SetIsBorderless(guiEnv, window.IsBorderless)
+
+        // REVIEW: Only checks at the start. We should keep checking it?
+        guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- IO.FileExists(SpecialFile.QuickSave)
 
         {
             SV = svGame

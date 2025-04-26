@@ -440,14 +440,14 @@ CreateMainMenu(vm: MainMenuViewModel, publisher: ClientEventPublisher): WindowVi
     )
 
     window.Children.Add(
-        let view = CreateMenuButton(publisher, () -> publisher.SaveGameRequested("quick_save.json"))
+        let view = CreateMenuButton(publisher, () -> publisher.SaveGameRequested(SpecialFile.QuickSave))
         view.Label <- "\U0001F3AE Save Game"
         Binding.IsVisible(view, vm.IsSaveGameVisible)
         view
     )
 
     window.Children.Add(
-        let view = CreateMenuButton(publisher, () -> publisher.LoadGameRequested("quick_save.json"))
+        let view = CreateMenuButton(publisher, () -> publisher.LoadGameRequested(SpecialFile.QuickSave))
         view.Label <- "\U0001F969 Load Game"
         Binding.IsVisible(view, vm.IsLoadGameEnabled)
         view

@@ -66,8 +66,8 @@ class CommandProcessor =
     private Initialize(svGame: ServerGameProxy, gameOpt: Option<ClientServerGame>, appendEvent: (scoped ClientEventPublisher -> ()) -> ()): string[] = // TODO-language-bug: returning 'IEnumerable<Command>' crashes in runtime emitter.
         this.AddDef(ActionCommand(             "quit",                           () -> appendEvent(x -> x.QuitGameRequested())))
         this.AddDef(ActionCommand<string>.Impl("echo", "value",                  x  -> Log(x)))
-        this.AddDef(ActionCommand(             "quick_save",                     () -> appendEvent(x -> x.SaveGameRequested("quick_save.json"))))
-        this.AddDef(ActionCommand(             "quick_load",                     () -> appendEvent(x -> x.LoadGameRequested("quick_save.json"))))
+        this.AddDef(ActionCommand(             "quick_save",                     () -> appendEvent(x -> x.SaveGameRequested(SpecialFile.QuickSave))))
+        this.AddDef(ActionCommand(             "quick_load",                     () -> appendEvent(x -> x.LoadGameRequested(SpecialFile.QuickSave))))
         this.AddDef(ActionCommand(             "port",                           () -> LogCommandInfo("port: " + svGame.Port.ToString())))
         this.AddDef(ActionCommand(             "disconnect",                     () -> appendEvent(x -> x.ExitGameRequested())))
         this.AddDef(ActionCommand(             "clear",                          () -> appendEvent(x -> x.ClearConsoleRequested())))

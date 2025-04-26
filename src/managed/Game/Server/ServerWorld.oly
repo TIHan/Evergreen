@@ -98,7 +98,7 @@ class ServerWorld =
             let _ = this.UnlockedDatabase.TryDelete(entId)
 
     Save(filePath: string): () =       
-        let fs = System.IO.File.Create(filePath)
+        let fs = IO.CreateFile(filePath)
         let jsonSave = EntityDatabase.SerializeJson(this.Database, fs)
         fs.Dispose()
 
@@ -112,7 +112,7 @@ class ServerWorld =
             EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
             genv.Maps.Free(filePath)
         else
-            let fs = System.IO.File.OpenRead(filePath)
+            let fs = IO.OpenReadFile(filePath)
             EntityDatabase.DeserializeJson(fs, loadingWorld.Database)
             fs.Dispose()
 
