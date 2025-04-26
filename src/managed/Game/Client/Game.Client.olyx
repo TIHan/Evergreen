@@ -639,6 +639,18 @@ class ClientGameProxy =
         this.R.TryGetCharacterInput(this.LocalPlayerId, &outInput)
 
     /// Main-thread only
+    SetPlayerTransform(previousTransform: inref<Transform>, newTransform: inref<Transform>): () =
+        match (this.R.RenderingWorld)
+        | Some(world) =>
+            world.Database.IfHas<Player, TransformLerp, Transform>(this.LocalPlayerId,
+                (_, transformLerp, transform) -> 
+                    transformLerp.Value <- previousTransform
+                    transform <- newTransform
+            )
+        | _ =>
+            ()
+
+    /// Main-thread only
     Render(time: GameTime, alpha: float32, screenSize: Vector2, cont: scoped GpuCommandList -> ()): () =
         this.R.Render(time, alpha, screenSize, this.LocalPlayerId, cont)
 

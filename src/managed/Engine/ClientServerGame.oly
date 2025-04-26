@@ -331,6 +331,8 @@ class ClientServerGame =
     GuiEnv: GuiEnv get // TODO: Eventually make this private.
     private RenderEnv: RenderEnv get
 
+    private PreviousPlayerTransform: Transform get, set
+
     new(svGame: ServerGameProxy, genv: GameEnv, renv: RenderEnv, clientEventPublisher: ClientEventPublisher) =
         let gpu = renv.Gpu
         let guiEnv = GuiEnv(genv.EngineHash, renv.Window.Size, renv.Window.GetDisplayModes(), renv.ImageManager, renv.FrameManager, clientEventPublisher)
@@ -359,6 +361,7 @@ class ClientServerGame =
             CL = ClientGameProxy(genv, renv, clientEventPublisher)
             GuiEnv = guiEnv
             RenderEnv = renv
+            PreviousPlayerTransform = Transform()
         }
 
     LocalServerBandwidth: uint64       get() = this.SV.Bandwidth
@@ -386,7 +389,13 @@ class ClientServerGame =
             let mutable input = default
             let mutable transform = default
             if (this.CL.TryGetPlayerInput(&input) && this.SV.TrySyncPlayer(time, this.ClientEntityId, &input, &transform))
-                ()
+                let previousTransform = 
+                    if (transform.Sequence.IsNewerThan(this.PreviousPlayerTransform.Sequence))
+                        transform
+                    else
+                        this.PreviousPlayerTransform
+                this.CL.SetPlayerTransform(&previousTransform, &transform)
+                this.PreviousPlayerTransform <- transform
         this.SV.Sync(time)
 
     /// Main-thread only
