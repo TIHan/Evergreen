@@ -103,6 +103,15 @@ class InterpolationBuffer<T> =
             if (this.frames.Add(frame))
                 this.queue.Enqueue(item, frame)
 
+    TryGetLatestItem(outValue: byref<T>): bool =
+        let mutable hasItem = false
+        let mutable item = default
+        let mutable throwAwayPriority = default
+        while (this.queue.TryDequeue(&item, &throwAwayPriority))
+            outValue <- item.Value
+            hasItem <- true
+        hasItem
+
     TryGetItem(outValue: byref<T>): bool =
         let nextExpectedFrame = this.GetNextExpectedFrame()  
 

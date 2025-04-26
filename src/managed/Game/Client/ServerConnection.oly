@@ -260,7 +260,10 @@ internal class ServerConnection =
         this.sceneName <- sceneName
 
     TryGetSnapshot(snapshot: byref<Snapshot>): bool =
-        this.SnapshotBuffer.TryGetItem(&snapshot)
+        if (this.IsListenServer)
+            this.SnapshotBuffer.TryGetLatestItem(&snapshot)
+        else
+            this.SnapshotBuffer.TryGetItem(&snapshot)
 
     Heartbeat(deltaTime: float32): () =
         this.NetworkClient.Heartbeat(deltaTime)
