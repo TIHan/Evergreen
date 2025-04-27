@@ -1,5 +1,5 @@
 // Generated. Do not modify.
-namespace Evergreen.Collections
+namespace Evergreen.Database
 
 open System
 open System.Collections.Generic

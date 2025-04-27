@@ -16,12 +16,12 @@
 #end
 
 #if DEBUG
-#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.dll"
-#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.pdb"
+#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Native.dll"
+#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Native.pdb"
 #end
 
 #if RELEASE
-#copy "../../native/libs/Evergreen.Physics/x64/Release/Evergreen.Physics.Backend.Jolt.Native.dll"
+#copy "../../native/libs/Evergreen.Physics/x64/Release/Evergreen.Physics.Native.dll"
 #end
 
 open System
@@ -34,7 +34,7 @@ open static Game.Client.Rendering.Module // RenderEnv
 open Evergreen.Utilities
 
 open System.Numerics
-open Evergreen.Collections
+open Evergreen.Database
 open static Game.Shared.Types
 open static Game.Shared.Components
 open Game.Server

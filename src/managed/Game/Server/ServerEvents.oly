@@ -1,7 +1,7 @@
 module Game.Server.Events
 
 open Evergreen.Utilities
-open Evergreen.Collections
+open Evergreen.Database
 open Game.Shared
 open static Game.Shared.Types
 

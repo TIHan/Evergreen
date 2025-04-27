@@ -1,4 +1,4 @@
-namespace Evergreen.Collections
+namespace Evergreen.Database
 
 open System
 open System.IO

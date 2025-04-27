@@ -2,7 +2,7 @@ module Game.Client.ViewModels
 
 open System.Numerics
 open Evergreen.Utilities
-open Evergreen.Collections
+open Evergreen.Database
 open Evergreen.Graphics.Rendering // Only used for IGpuImage. Is there a better way to do this?
 
 // Note: Do not reference views here, or anything graphical.

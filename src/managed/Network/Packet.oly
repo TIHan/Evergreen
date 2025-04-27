@@ -268,7 +268,7 @@ internal class PacketPool =
         this.pool.Push(packet)
 
 module NetworkMTU =
-    public Amount: int32 get = 1500
+    public Amount: int32 get = 1400
 
 module NetworkPacket =
     public MaxDataSize: int32 get = 1024

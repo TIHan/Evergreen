@@ -3,7 +3,7 @@
 #load "*.oly"
 
 #reference "../Physics/Evergreen.Physics.olyx"
-#reference "../Collections/Evergreen.Collections.olyx"
+#reference "../Database/Evergreen.Database.olyx"
 #reference "../Window/Evergreen.Window.olyx"
 
 module Game.AssetManager
@@ -21,7 +21,7 @@ open Evergreen
 open Evergreen.Utilities
 open Evergreen.Physics
 open Evergreen.Window
-open Evergreen.Collections
+open Evergreen.Database
 open Evergreen.Graphics.Backend.Vulkan
 open Evergreen.Graphics.Rendering
 open Evergreen.Graphics.Rendering.UI

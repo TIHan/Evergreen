@@ -1,7 +1,7 @@
 module Game.Client.Components
 
 open System
-open Evergreen.Collections
+open Evergreen.Database
 open Evergreen.Utilities
 
 open static Game.Client.Types

@@ -3,7 +3,7 @@ module Game.Shared.Components
 open System
 open System.Runtime.InteropServices
 open Evergreen.Utilities
-open Evergreen.Collections
+open Evergreen.Database
 open Evergreen.Physics
 open static Game.Shared.Types
 

@@ -16,7 +16,7 @@ open static Game.Client.Types
 open static Game.Shared.Components
 open static Game.Client.Components
 
-open Evergreen.Collections
+open Evergreen.Database
 open Evergreen.Physics
 
 ASSERT(cond: bool): () =
