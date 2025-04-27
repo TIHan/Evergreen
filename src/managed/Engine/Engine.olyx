@@ -132,5 +132,5 @@ main(args: string[]): () =
             (_) -> return BenchmarkMap(resx, genv)
         )
 
-        Console.SetOut(genv.ConsoleWriter)
+       // Console.SetOut(genv.ConsoleWriter)
         Game.Orchestration.Run(genv, renv)

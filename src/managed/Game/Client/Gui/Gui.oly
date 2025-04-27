@@ -214,33 +214,18 @@ module Gui =
                 diagsVm.ServerPingTextUpdateTime <- diagsVm.ServerPingTextUpdateTime + deltaTime
 
     UpdateRenderClient(guiEnv: GuiEnv, renderWorld: RenderingWorld, clientEntId: EntityId, alpha: float32, windowViews: List<WindowView>): () =
-        let db = renderWorld.Database
-        let hasEditor =
-            db.TryGet<EditorLerp, Editor>(clientEntId,
-                (editorLerp, editor) ->
-                    Gui.UpdateRenderPlayer(guiEnv,
-                        &editorLerp.Transform,
-                        &editor.Transform,
-                        &editorLerp.Camera,
-                        &editor.Camera,
-                        renderWorld.Database,
-                        windowViews,
-                        alpha 
-                    )
-            )
-        if (!hasEditor)
-            db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(clientEntId,
-                (transformLerp, transform, cameraLerp, camera) ->
-                    Gui.UpdateRenderPlayer(guiEnv,
-                        &transformLerp.Value,
-                        &transform,
-                        &cameraLerp.Value,
-                        &camera,
-                        renderWorld.Database,
-                        windowViews,
-                        alpha 
-                    )
-            )
+        renderWorld.Database.IfHasCamera(clientEntId,
+            (_, prevTransform, transform, prevCamera, camera) ->
+                Gui.UpdateRenderPlayer(guiEnv,
+                    &prevTransform,
+                    &transform,
+                    &prevCamera,
+                    &camera,
+                    renderWorld.Database,
+                    windowViews,
+                    alpha 
+                )
+        )
 
     UpdateRenderDiagnostics(guiEnv: GuiEnv, deltaTime: float32, frame: int32, renderTime: int64, lastRenderTime: int64, memoryUsage: int64): () =
         if (guiEnv.SettingsMenuModel.ShowDiagnostics.Value)

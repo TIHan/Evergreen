@@ -67,12 +67,6 @@ class ServerWorld =
                         transform.Sequence <- transform.Sequence.Increment()
                 )
 
-                db.HandleComponentAdded<Editor, Transform>(
-                    (entId, editor, transform) ->
-                        editor.Transform.Position <- transform.Position + Vector3(5)
-                        editor.Transform.Sequence <- editor.Transform.Sequence.Increment()
-                )
-
                 physicsSystem
             genv = genv
             
@@ -129,7 +123,7 @@ class ServerWorld =
 
         db.CreateQuery<Orbit, EntityList8, Ownership>().ForEach(
             (entId, orbit, entList, ownership) ->
-                db.IfHas<Transform, VirtualCharacter, CharacterInput>(ownership.Owner,
+                db.IfHas<Transform, VirtualCharacter, CharacterInput>(ownership.OwnerId,
                     (transform, virtc, input) ->
                         if (input.Actions.HasFlag(CharacterActions.Special))
                             if (virtc.SpecialCount == 0)
@@ -171,7 +165,7 @@ class ServerWorld =
             phys.Flags <- RigidBodyFlags.Active | RigidBodyFlags.Predicted
 
             let mutable ownership = Ownership()
-            ownership.Owner <- owner
+            ownership.OwnerId <- owner
 
             let collider = BoxCollider()
 
@@ -180,7 +174,7 @@ class ServerWorld =
             EntityId.Nil
 
     SpawnPlayer(clientIndex: byte, isHost: bool): EntityId =
-        let mutable camera = Camera(70, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
+        let mutable camera = Camera.Create16x9Perspective(70)
 
         let mutable material = Material()
         material.ImageId <- this.genv.Images.FindId("Freedoom/stfst01.png")
@@ -208,7 +202,7 @@ class ServerWorld =
         let playerId = this.UnlockedDatabase.Create(transform, CharacterInput(), camera, player, Sprite(), material, phys)
 
         let mutable ownership = Ownership()
-        ownership.Owner <- playerId
+        ownership.OwnerId <- playerId
         let _ = this.UnlockedDatabase.Create(Orbit(), EntityList8(), ownership)
 
         playerId
@@ -217,48 +211,74 @@ class ServerWorld =
         this.DestroyEntityQueue.Enqueue(entId)
 
     SetPlayerInput(entId: EntityId, playerInput: CharacterInput): () =
-        this.UnlockedDatabase.TryAddOrUpdate(entId, playerInput)
+        this.UnlockedDatabase.AddOrUpdate(entId, playerInput)
 
     TryUpdatePlayer(time: GameTime, playerId: EntityId, outTransform: byref<Transform>): bool =
-        this.UnlockedDatabase.TryGet<Transform, CharacterInput>(playerId,
-            (transform, input) ->
+        let db = this.UnlockedDatabase
+        db.TryGet<CharacterInput>(playerId,
+            input ->
                 this.PhysicsSystem.UpdatePlayer(time.DeltaTime, playerId, &input)
-                outTransform <- transform
+                let mutable hasEditor = false
+                db.IfHas<Editor>(playerId,
+                    editor ->
+                        hasEditor <-
+                            db.TryGet<Transform>(editor.CameraId,
+                                transform ->
+                                    outTransform <- transform
+                            )
+                )
+                if (!hasEditor)
+                    db.IfHas<Transform>(playerId,
+                        transform ->
+                            outTransform <- transform
+                    )
         )
+
+    SpawnCamera(transform: Transform, camera: Camera, ownerId: EntityId): EntityId =
+        let mutable ownership = Ownership()
+        ownership.OwnerId <- ownerId
+        this.UnlockedDatabase.Create(transform, camera, ownership)
 
     ToggleNoclip(mutable entId: EntityId): () =
         this.UnlockedDatabase.IfHas<VirtualCharacter>(entId,
             x ->
                 if (x.Flags.HasFlag(VirtualCharacterFlags.Noclip))
-                    ()
-                    if (!x.Flags.HasFlag(VirtualCharacterFlags.Editor))
-                        x.Flags <- x.Flags & ~VirtualCharacterFlags.Noclip
-                        LogServer("'" + entId.ToString() + "' disabled 'noclip'")
+                    x.Flags <- x.Flags & ~VirtualCharacterFlags.Noclip
+                    LogServer("'" + entId.ToString() + "' disabled 'noclip'")
                 else
                     x.Flags <- x.Flags | VirtualCharacterFlags.Noclip
                     LogServer("'" + entId.ToString() + "' enabled 'noclip'")
         )
 
     ToggleEditor(mutable entId: EntityId): () =
+        let db = this.UnlockedDatabase
+
         let mutable hasEditor = false
-        let isVirtualCharacter =
-            this.UnlockedDatabase.TryGet<VirtualCharacter>(entId,
-                x ->
-                    if (x.Flags.HasFlag(VirtualCharacterFlags.Editor))
-                        x.Flags <- x.Flags & ~VirtualCharacterFlags.Editor
+        let mutable position = vec3.Zero
+        let isValid =
+            db.TryGet<Transform>(entId,
+                transform ->
+                    position <- transform.Position
+                    hasEditor <- db.Has<Editor>(entId)
+                    if (hasEditor)
                         LogServer("'" + entId.ToString() + "' disabled 'editor'")
                         hasEditor <- false
                     else
-                        x.Flags <- x.Flags | VirtualCharacterFlags.Editor
                         LogServer("'" + entId.ToString() + "' enabled 'editor'")
                         hasEditor <- true
             )
-        if (isVirtualCharacter)
+        if (isValid)
             ()
             if (hasEditor)
-                this.UnlockedDatabase.TryAddOrUpdate(entId, Editor())
+                let transform = Transform(position + Vector3(5))
+                let mutable camera = Camera.Create16x9Perspective(70)
+                camera.LookAt(transform.Position, position)
+                db.AddOrUpdate(entId, Editor(this.SpawnCamera(transform, camera, entId)))
             else
-                this.UnlockedDatabase.TryRemove<Editor>(entId)
+                let mutable deletingCameraId = EntityId.Nil
+                db.IfHas<Editor>(entId, editor -> deletingCameraId <- editor.CameraId)
+                let _ = db.TryRemove<Editor>(entId)
+                let _ = db.TryDelete(deletingCameraId)
 
     SpawnBox(position: vec3, rotation: quat, scale: vec3, mass: float32, material: Material): () =
         let db = this.UnlockedDatabase

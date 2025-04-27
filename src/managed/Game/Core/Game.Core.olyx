@@ -82,6 +82,8 @@ struct Transform =
 struct Camera =
     private static DefaultRotation: quat get = quat.CreateFromAxisAngle(vec3.UnitX, radians(90))
 
+    static Create16x9Perspective(fov: float32): Camera = Camera(fov, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
+
     public field mutable Offset: vec3
 
     public field mutable Yaw: float32

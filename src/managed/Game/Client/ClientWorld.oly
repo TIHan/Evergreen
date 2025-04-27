@@ -24,6 +24,30 @@ open Game.Client.Systems
 open static Game.Client.Types
 open static Game.Client.Components
 
+// TODO: These should be world extensions, as at some point we never should expose the database from the world.
+//       The world is supposed to act like a repository.
+#[open]
+extension EntityDatabaseClientExtensions =
+    inherits EntityDatabase
+
+    IfHasCamera(entId: EntityId, f: scoped (cameraId: EntityId, prevTransform: byref<Transform>, transform: byref<Transform>, prevCamera: byref<Camera>, camera: byref<Camera>) -> ()): () =
+        let db = this
+
+        let mutable hasEditor = false
+        db.IfHas<Editor>(entId,
+            editor ->
+                hasEditor <-
+                    db.TryGet<TransformLerp, Transform, CameraLerp, Camera>(editor.CameraId,
+                        (transformLerp, transform, cameraLerp, camera) ->
+                            f(editor.CameraId, &transformLerp.Value, &transform, &cameraLerp.Value, &camera)
+                    )
+        )
+        if (!hasEditor)
+            db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(entId,
+                (transformLerp, transform, cameraLerp, camera) ->
+                    f(entId, &transformLerp.Value, &transform, &cameraLerp.Value, &camera)
+            )
+
 class ClientReceivedWorld =
     inherits World
 
@@ -78,9 +102,6 @@ class ClientWorld =
         registry.Register<TransformLerp>()
         registry.RegisterAttachment<Transform, TransformLerp>()
 
-        registry.Register<EditorLerp>()
-        registry.RegisterAttachment<Editor, EditorLerp>()
-
         World.RegisterFieldMappings(genv, registry)
 
         registry
@@ -119,30 +140,8 @@ class ClientWorld =
                 db.HandleComponentAdded<CameraLerp, /**/ Camera>(
                     (entId, cameraLerp, camera) ->
                         cameraLerp.Value <- camera
-                        db.IfHas<CharacterInput>(entId,
-                            input ->
-                                input.Yaw <- camera.Yaw
-                                input.Pitch <- camera.Pitch
-                        )
                 )
 
-                // The client is the authority for which direction the editor's camera will be on spawn.
-                db.HandleComponentAdded<Editor, Transform>(
-                    (_, editor, transform) ->
-                        editor.Camera.LookAt(editor.Transform.Position, transform.Position)
-                )
-
-                db.HandleComponentAdded<EditorLerp, /**/ Editor>(
-                    (entId, editorLerp, editor) ->
-                        editorLerp.Transform <- editor.Transform
-                        editorLerp.Camera <- editor.Camera
-                        editorLerp.Transform.Sequence <- ByteSequence.Zero // forces a teleport
-                        db.IfHas<CharacterInput>(entId,
-                            input ->
-                                input.Yaw <- editor.Camera.Yaw
-                                input.Pitch <- editor.Camera.Pitch
-                        )
-                )
                 db
         }
     
@@ -222,11 +221,6 @@ class ClientWorld =
         db.CreateQuery<CameraLerp, Camera>().ForEach(
             (entId, cameraLerp, camera) ->
                 cameraLerp <- CameraLerp(camera)
-        )
-        db.CreateQuery<EditorLerp, Editor>().ForEach(
-            (entId, editorLerp, editor) ->
-                editorLerp.Transform <- editor.Transform
-                editorLerp.Camera <- editor.Camera
         )
 
     OptimizeStaticEnvironment(): () =

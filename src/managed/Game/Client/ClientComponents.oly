@@ -20,10 +20,7 @@ extension TransformLerpComponent =
 
     static overrides GetName(): string = "TransformLerp"
 
-#[open]
-extension EditorLerpComponent =
-    inherits EditorLerp
-    implements IComponent<509, EditorLerp>
+// VACANT COMPONENT #509
 
 #[open]
 extension PredictiveInfoComponent =

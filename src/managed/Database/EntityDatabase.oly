@@ -1774,9 +1774,9 @@ class UnlockedEntityDatabase =
         this.HandleComponentAdded(added)
         this.HandleComponentRemoving(removing)
 
-    TryAddOrUpdate<T>(entId: EntityId, value: T): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
-        this.TryAddOrUpdate(entId, &value)
-    TryAddOrUpdate<T>(mutable entId: EntityId, value: inref<T>): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
+    AddOrUpdate<T>(entId: EntityId, value: T): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
+        this.AddOrUpdate(entId, &value)
+    AddOrUpdate<T>(mutable entId: EntityId, value: inref<T>): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.ThrowIfDepth()
         this.ThrowIfParallelDepth()
         if (this.IsValid(entId))
@@ -1798,7 +1798,7 @@ class UnlockedEntityDatabase =
 #end
                 LogError("Cannot add component '" + T.GetName() + "' to entity '" + entId.ToString() + "'. The resulting archetype is not registered:\n\t" + currentArchetype.ComponentListNoAttachmentsText + T.GetName() + ",")
 
-    TryRemove<T>(entId: EntityId): () where T: blittable, struct, ValueType, { new() }, trait IComponent =
+    TryRemove<T>(entId: EntityId): bool where T: blittable, struct, ValueType, { new() }, trait IComponent =
         this.ThrowIfDepth()
         this.ThrowIfParallelDepth()
         if (this.IsValid(entId))
@@ -1809,7 +1809,9 @@ class UnlockedEntityDatabase =
                     let compId: ComponentId = T.GetId()
                     let lookupIndex = this.entityIndexLookup[entId.Index]
 
+                    this.IncrementDepth()
                     archetype.TriggerComponentRemoving(compId, lookupIndex)
+                    this.DecrementDepth()
 
                     let newArchetypeId = archetype.Id & compId.BitwiseNot()
                     let newArchetypeIndex = this.GetArchetypedIndex(newArchetypeId)
@@ -1824,6 +1826,13 @@ class UnlockedEntityDatabase =
                     this.SwapRemoveEntityByLookupIndex(archetype, lookupIndex)
                     
                     this.DebugCheckIntegrity()
+                    true
+                else
+                    false
+            else
+                false
+        else
+            false
 
     Delete(entId: EntityId): () =
         this.Check(entId)

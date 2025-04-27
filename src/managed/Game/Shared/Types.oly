@@ -193,8 +193,8 @@ ClipToScreen(screenSize: Vector2, clipPosition: Vector3): Vector2 =
     )
 
 struct Editor =
-    public field mutable Transform: Transform = Transform()
-    public field mutable Camera: Camera = Camera(70, 1280 / 32, 720 / 32, 0.1, 1000000, CameraProjectionKind.Perspective)
+    public field mutable CameraId: EntityId
+    new(cameraId: EntityId) = { CameraId = cameraId }
 
 #[Flags]
 enum PlayerFlags =
@@ -296,7 +296,6 @@ struct Character =
 enum VirtualCharacterFlags =
     | None   = 0b000
     | Noclip = 0b001
-    | Editor = 0b011
 
 struct VirtualCharacter =
     public field mutable LinearVelocity: Vector3 = Vector3.Zero
@@ -326,7 +325,7 @@ struct RigidBody =
 struct Outline
 
 struct Ownership =
-    public field mutable Owner: EntityId = EntityId.Nil
+    public field mutable OwnerId: EntityId = EntityId.Nil
 
 struct EntityList8 =
     public field mutable Count: uint32      = 0

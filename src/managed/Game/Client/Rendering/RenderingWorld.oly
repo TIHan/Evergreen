@@ -23,6 +23,7 @@ open static Game.Shared.Types
 open static Game.Shared.Components
 open static Game.Shared.World
 
+open Game.Client
 open Game.Client.Systems
 open static Game.Client.Types
 open static Game.Client.Components
@@ -48,9 +49,6 @@ class RenderingWorld =
 
         registry.Register<TransformLerp>()
         registry.RegisterAttachment<Transform, TransformLerp>()
-
-        registry.Register<EditorLerp>()
-        registry.RegisterAttachment<Editor, EditorLerp>()
 
         let maxLightCount = LightArrayShaderData.MaxCount
 
@@ -81,22 +79,6 @@ class RenderingWorld =
                     )
         )
 
-        db.CreateQuery<EditorLerp, Editor>().ForEach(
-            (entId, editorLerp, editor) ->
-                let mutable seq = editor.Transform.Sequence
-                let mutable prevSeq = editorLerp.Transform.Sequence
-                if (seq.IsNewerThan(prevSeq))
-                    Log("editor teleported - current: " + seq.ToString() + " - previous: " + prevSeq.ToString())
-                    editorLerp.Transform <- editor.Transform
-                    editorLerp.Camera <- editor.Camera
-                    editorLerp.Transform.Sequence <- prevSeq
-                    db.IfHas<CharacterInput>(entId,
-                        input ->
-                            editor.Camera.SetYawPitch(input.Yaw, input.Pitch)
-                            editorLerp.Camera.SetYawPitch(input.Yaw, input.Pitch)
-                    )
-        )
-
     ResetCharacterInputActions(entId: EntityId): () =
         let db = this.Database
         db.IfHas<CharacterInput>(entId,
@@ -105,19 +87,14 @@ class RenderingWorld =
 
     SetCharacterInput(entId: EntityId, newInput: inref<CharacterInput>): () =
         let db = this.Database
-        db.IfHas<CharacterInput, TransformLerp, Transform, CameraLerp, Camera>(entId,
-            (input, transformLerp, transform, cameraLerp, camera) ->
+        db.IfHas<CharacterInput>(entId,
+            input ->
                 input <- newInput
-
-                let hasEditor =
-                    db.TryGet<EditorLerp, Editor>(entId,
-                        (editorLerp, editor) ->
-                            // Immediately update the previous camera rotation.
-                            editorLerp.Camera.SetYawPitch(input.Yaw, input.Pitch)
-                    )
-                if (!hasEditor)
-                    // Immediately update the previous camera rotation.
-                    cameraLerp.Value.SetYawPitch(input.Yaw, input.Pitch)
+                db.IfHasCamera(entId,
+                    (_, _, _, prevCamera, _) ->
+                        // Immediately update the previous camera rotation.
+                        prevCamera.SetYawPitch(input.Yaw, input.Pitch)
+                )
         )
 
     Update(renv: RenderEnv, cameraId: EntityId): () =
@@ -167,20 +144,14 @@ class MeshRendererBehavior =
         let renv = rfenv.RenderEnvironment
 
         let mutable cameraPosition = vec3.Zero
-        let hasEditor =
-            db.TryGet<Editor>(playerCameraId,
-                editor ->
-                    cameraPosition <- editor.Camera.GetPosition(editor.Transform.Position)
-            )
-        if (!hasEditor)
-            db.IfHas<Camera, Transform>(playerCameraId,
-                (camera, transform) ->
-                    cameraPosition <- camera.GetPosition(transform.Position)
-            )
+        db.IfHasCamera(playerCameraId,
+            (_, _, transform, _, camera) ->
+                cameraPosition <- camera.GetPosition(transform.Position)
+        )
 
         let transparencyQueue = PriorityQueue<EntityId, float32>()
 
-        let alwaysDrawPlayer = hasEditor
+        let alwaysDrawPlayer = db.Has<Editor>(playerCameraId)
 
         db.CreateQuery<TransformLerp, Transform, MeshReference, Material>().WhereNotContains<Outline>().ForEach(
             (entId, transformLerp, transform, meshRef, material) ->
@@ -343,16 +314,10 @@ private module Rendering =
         )
 
     UpdateGlobalsFromCamera(renv: RenderEnv, db: EntityDatabase, cameraEntId: EntityId, lights: List<DrawLightInfo>, alpha: float32): () =
-        let hasEditor =
-            db.TryGet<EditorLerp, Editor>(cameraEntId,
-                (prevEditor, editor) ->
-                    UpdateGlobalsFromCameraCore(renv, lights, &prevEditor.Transform, &editor.Transform, &prevEditor.Camera, &editor.Camera, alpha)
-            )
-        if (!hasEditor)
-            db.IfHas<TransformLerp, Transform, CameraLerp, Camera>(cameraEntId,
-                (prevTransform, transform, prevCamera, camera) ->
-                    UpdateGlobalsFromCameraCore(renv, lights, &prevTransform.Value, &transform, &prevCamera.Value, &camera, alpha)
-            )
+        db.IfHasCamera(cameraEntId,
+            (_, prevTransform, transform, prevCamera, camera) ->
+                UpdateGlobalsFromCameraCore(renv, lights, &prevTransform, &transform, &prevCamera, &camera, alpha)
+        )
 
     UpdateLights(renv: RenderEnv, lights: IReadOnlyList<DrawLightInfo>, alpha: float32): () =
         let maxLights = renv.Lighting.MaxLightCount

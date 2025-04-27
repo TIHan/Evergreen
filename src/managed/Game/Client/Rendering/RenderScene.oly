@@ -47,30 +47,17 @@ class RenderScene =
         let mutable pitch = 0: float32
         let mutable didTeleport = false
 
-        let hasEditor =
-            backDb.TryGet<EditorLerp, Editor>(entId,
-                (editorLerp, editor) ->
-                    let seq = editor.Transform.Sequence
-                    let prevSeq = editorLerp.Transform.Sequence
-                    if (seq.IsNewerThan(prevSeq))
-                        yaw <- editor.Camera.Yaw
-                        pitch <- editor.Camera.Pitch
-                        editorLerp.Camera.Yaw <- yaw
-                        editorLerp.Camera.Pitch <- pitch
-                        didTeleport <- true
-            ) 
-        if (!hasEditor)
-            backDb.IfHas<TransformLerp, Transform, CameraLerp, Camera>(entId,
-                (transformLerp, transform, cameraLerp, camera) ->
-                    let seq = transform.Sequence
-                    let prevSeq = transformLerp.Value.Sequence
-                    if (seq.IsNewerThan(prevSeq))
-                        yaw <- camera.Yaw
-                        pitch <- camera.Pitch
-                        cameraLerp.Value.Yaw <- yaw
-                        cameraLerp.Value.Pitch <- pitch
-                        didTeleport <- true
-            )
+        backDb.IfHasCamera(entId,
+            (_, prevTransform, transform, prevCamera, camera) ->
+                let seq = transform.Sequence
+                let prevSeq = prevTransform.Sequence
+                if (seq.IsNewerThan(prevSeq))
+                    yaw <- camera.Yaw
+                    pitch <- camera.Pitch
+                    prevCamera.Yaw <- yaw
+                    prevCamera.Pitch <- pitch
+                    didTeleport <- true
+        )
 
         if (didTeleport)
             frontDb.IfHas<CharacterInput>(entId,
@@ -130,70 +117,43 @@ class RenderScene =
         this.WorldBack.Update(renv, localClientEntId)
 
     CopyInputResultFrom(renv: RenderEnv, clientWorld: ClientWorld, localClientEntId: EntityId): () =
+        let clientDb = clientWorld.Database
+        let frontDb = this.WorldFront.Database
+
         let mutable currentPlayerInput = default
         let mutable currentCamera = default
         let mutable currentCameraLerp = default
         let mutable currentTransform = default
         let mutable currentTransformLerp = default
         
-        let hasEditor =
-            clientWorld.Database.TryGet<CharacterInput, EditorLerp, Editor>(localClientEntId,
-                (playerInput, editorLerp, editor) ->
-                    currentPlayerInput <- playerInput
-                    currentCamera <- editor.Camera
-                    currentCameraLerp <- editorLerp.Camera
-                    currentTransform <- editor.Transform
-                    currentTransformLerp <- editorLerp.Transform
-            )
-        if (hasEditor)
-            this.WorldFront.Database.IfHas<CharacterInput, EditorLerp, Editor>(localClientEntId,
-                (playerInput, editorLerp, editor) ->
-                    editor.Transform <- currentTransform
-                    editorLerp.Transform <- currentTransformLerp
-                    playerInput <- currentPlayerInput
-                    editor.Camera <- currentCamera
-                    editorLerp.Camera <- currentCameraLerp
-            )
-        else
-            clientWorld.Database.IfHas<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
-                (playerInput, camera, cameraLerp, transform, transformLerp) ->
-                    currentPlayerInput <- playerInput
-                    currentCamera <- camera
-                    currentCameraLerp <- cameraLerp.Value
-                    currentTransform <- transform
-                    currentTransformLerp <- transformLerp.Value
-            )
-            this.WorldFront.Database.IfHas<CharacterInput, Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
-                (playerInput, camera, cameraLerp, transform, transformLerp) ->
-                    transform <- currentTransform
-                    transformLerp.Value <- currentTransformLerp
-                    playerInput <- currentPlayerInput
-                    camera <- currentCamera
-                    cameraLerp.Value <- currentCameraLerp
-
-                    // Update transform so that the mesh can render with a rotation that matches the camera.
-                    transform.Rotation <- camera.Rotation
-
-                    transformLerp.Value.Rotation <- cameraLerp.Value.Rotation
-                    cameraLerp.Value <- camera
-            )
-
-        this.WorldFront.Database.IfHas<Camera, CameraLerp, Transform, TransformLerp>(localClientEntId,
-            (camera, cameraLerp, transform, transformLerp) ->
-                // Update transform so that the mesh can render with a rotation that matches the camera.
-                transform.Rotation <- camera.Rotation
-
-                transformLerp.Value.Rotation <- cameraLerp.Value.Rotation
-                cameraLerp.Value <- camera
+        clientDb.IfHas<CharacterInput>(localClientEntId,
+            playerInput ->
+                currentPlayerInput <- playerInput
+                clientDb.IfHasCamera(localClientEntId,
+                    (_, prevTransform, transform, prevCamera, camera) ->
+                        currentCamera <- camera
+                        currentCameraLerp <- prevCamera
+                        currentTransform <- transform
+                        currentTransformLerp <- prevTransform
+                )
         )
 
-        this.WorldFront.Database.IfHas<EditorLerp, Editor>(localClientEntId,
-            (editorLerp, editor) ->
-                // Update transform so that the mesh can render with a rotation that matches the camera.
-                editor.Transform.Rotation <- editor.Camera.Rotation
+        frontDb.IfHas<CharacterInput>(localClientEntId,
+            playerInput ->
+                playerInput <- currentPlayerInput
+                frontDb.IfHasCamera(localClientEntId,
+                    (_, prevTransform, transform, prevCamera, camera) ->
+                        camera <- currentCamera
+                        prevCamera <- currentCameraLerp
+                        transform <- currentTransform
+                        prevTransform <- currentTransformLerp
 
-                editorLerp.Transform.Rotation <- editorLerp.Camera.Rotation
-                editorLerp.Camera <- editor.Camera
+                        // Update transform so that the mesh can render with a rotation that matches the camera.
+                        transform.Rotation <- camera.Rotation
+
+                        prevTransform.Rotation <- prevCamera.Rotation
+                        prevCamera <- camera
+                )
         )
 
     Dispose(): () =

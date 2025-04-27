@@ -37,7 +37,3 @@ struct PredictiveInfo =
     PredictToLerpAlpha: float32
         get() =
             1 - (this.PredictToLerpTransitionTime / this.TransitionDuration)
-
-struct EditorLerp =
-    public field mutable Transform: Transform = default
-    public field mutable Camera: Camera = default

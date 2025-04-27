@@ -111,12 +111,12 @@ module Logic =
         physics.Update(characterId, Unsafe.Cast(layer), deltaTime) // virtual only
         SyncPhysicsInfo(physics, characterId, &transform, &physCharacter)
 
-    playerEditorTick(deltaTime: float32, playerInput: inref<CharacterInput>, editor: byref<Editor>): () =
-        editor.Camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+    playerEditorTick(deltaTime: float32, playerInput: inref<CharacterInput>, transform: byref<Transform>, camera: byref<Camera>): () =
+        camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
 
-        let motion = playerInputToMotion(&playerInput, &editor.Camera, 1, CharacterMotionKind.Fly)
+        let motion = playerInputToMotion(&playerInput, &camera, 1, CharacterMotionKind.Fly)
 
-        editor.Transform.Position <- editor.Transform.Position + motion
+        transform.Position <- transform.Position + motion
 
     SyncPhysicsInfo(physics: Physics, physId: StaticObjectId, transform: byref<Transform>, physInfo: byref<StaticRigidBody>): () =
         let mutable _isActive = false
@@ -419,7 +419,7 @@ abstract class PhysicsSystem =
             (entId, orbit, entList, ownership) ->
                 entList.RemoveAllInvalid(db)
                 let _ =
-                    db.TryGet<Transform, VirtualCharacter, Player, Camera>(ownership.Owner,
+                    db.TryGet<Transform, VirtualCharacter, Player, Camera>(ownership.OwnerId,
                         (transform, virtc, player, camera) ->
                             let origin = camera.GetPosition(transform.Position)
 
@@ -463,11 +463,15 @@ abstract class PhysicsSystem =
 
         db.IfHas<Player, Camera, Transform>(entId,
             (_, camera, transform) ->
-                let hasEditor =
-                    db.TryGet<Editor>(entId,
-                        editor ->
-                            Logic.playerEditorTick(deltaTime, &characterInput, &editor)
-                    )
+                let mutable hasEditor = false
+                db.IfHas<Editor>(entId,
+                    editor ->
+                        db.IfHas<Transform, Camera>(editor.CameraId,
+                            (trasnform, camera) ->
+                                hasEditor <- true
+                                Logic.playerEditorTick(deltaTime, &characterInput, &transform, &camera)
+                        )
+                )
                 db.IfHas<VirtualCharacter, VirtualCharacterId>(entId,
                     (character, characterId) ->
                         // let log(msg: string) =
