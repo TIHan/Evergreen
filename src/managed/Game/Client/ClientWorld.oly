@@ -106,15 +106,18 @@ class ClientWorld =
 
         registry
 
+    private IsListenServer: bool get
     UnlockedDatabase: UnlockedEntityDatabase get
 
     new(genv: GameEnv, isListenServer: bool) =
         let db = UnlockedEntityDatabase(EntityDatabaseKind.Client, ClientWorld.CreateRegistry(genv))
         base(db) with {
+            PredictionEnabled = true
+            IsListenServer = isListenServer
             Physics = 
-                if (isListenServer)
-                    None
-                else
+                // if (isListenServer)
+                //     None
+                // else
                     // This registers the events in the physics system first.
                     let physicsSystem = ClientPhysicsSystem.Create(db, genv)
 
@@ -147,19 +150,7 @@ class ClientWorld =
     
     public field Physics: Option<ClientPhysicsSystem>
 
-    PredictionEnabled: bool
-        get() = 
-            match (this.Physics)
-            | Some(physics) =>
-                physics.PredictionEnabled
-            | _ =>
-                false
-        set(value) = 
-            match (this.Physics)
-            | Some(physics) =>
-                physics.PredictionEnabled <- value
-            | _ =>
-                ()
+    PredictionEnabled: bool get, set
 
     IsValidPhysicsId(physId: VirtualCharacterId): bool =
         match (this.Physics)
@@ -171,7 +162,7 @@ class ClientWorld =
     PredictUpdate(time: GameTime, entId: EntityId): () =
         match (this.Physics)
         | Some(physics) =>
-            if (this.PredictionEnabled)
+            if (this.PredictionEnabled && !this.IsListenServer)
                 physics.Update(time)
         | _ =>
             ()
@@ -183,11 +174,19 @@ class ClientWorld =
         | _ =>
             ()
 
-    RecordPlayerPredictions(deltaTime: float32, entId: EntityId): () =
+    PredictPlayer(deltaTime: float32, playerId: EntityId, input: inref<CharacterInput>): () =
+        let db = this.Database
+
         match (this.Physics)
         | Some(physics) =>
-            if (this.PredictionEnabled)
-                physics.RecordPlayerPredictions(deltaTime, entId)
+            if (this.PredictionEnabled && !this.IsListenServer)
+                physics.UpdatePlayer(deltaTime, playerId, &input)
+                physics.RecordPlayerPredictions(deltaTime, playerId)
+                // UpdatePlayerTransform
+                db.IfHas<Transform, VirtualCharacterId>(playerId,
+                    (transform, physId) ->
+                        transform.Position <- physics.physics.GetCenterOfMassPosition(physId)
+                )
         | _ =>
             ()
 
@@ -208,7 +207,8 @@ class ClientWorld =
     RollbackCorrections(time: GameTime, entId: EntityId): () =
         match (this.Physics)
         | Some(physics) =>
-            physics.RollbackCorrections(time, entId)
+            if (this.PredictionEnabled && !this.IsListenServer)
+                physics.RollbackCorrections(time, entId)
         | _ =>
             ()
 

@@ -49,8 +49,8 @@ class ServerGame =
     LoadScene(filePath: string, genv: GameEnv): () =
         Server.loadScene(this.senv, genv, filePath)
 
-    TryUpdatePlayer(time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>): bool =
-        Server.tryUpdatePlayer(this.senv, time, playerId, &input, &outTransform)
+    TryUpdatePlayer(time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>, outCameraId: byref<EntityId>): bool =
+        Server.tryUpdatePlayer(this.senv, time, playerId, &input, &outTransform, &outCameraId)
 
     Dispose(): () =
         Server.dispose(this.senv)
@@ -235,11 +235,11 @@ class ServerGameProxy =
 
     /// Main-thread only
     /// These need to be fast operations since this where we sync the main and background threads.
-    TrySyncPlayer(time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>): bool =
+    TrySyncPlayer(time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>, outCameraId: byref<EntityId>): bool =
         // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
         // Background is halted at this point.
 
-        this.SV.TryUpdatePlayer(time, playerId, &input, &outTransform)
+        this.SV.TryUpdatePlayer(time, playerId, &input, &outTransform, &outCameraId)
 
         // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
 

@@ -332,6 +332,7 @@ class ClientServerGame =
     private RenderEnv: RenderEnv get
 
     private PreviousPlayerTransform: Transform get, set
+    private PreviousPlayerCameraId: EntityId get, set
 
     new(svGame: ServerGameProxy, genv: GameEnv, renv: RenderEnv, clientEventPublisher: ClientEventPublisher) =
         let gpu = renv.Gpu
@@ -362,6 +363,7 @@ class ClientServerGame =
             GuiEnv = guiEnv
             RenderEnv = renv
             PreviousPlayerTransform = Transform()
+            PreviousPlayerCameraId = EntityId.Nil
         }
 
     LocalServerBandwidth: uint64       get() = this.SV.Bandwidth
@@ -387,15 +389,17 @@ class ClientServerGame =
         this.CL.Sync(time) // Updating the client first is intentional.
         if (this.IsListenServer)
             let mutable input = default
-            let mutable transform = default
-            if (this.CL.TryGetPlayerInput(&input) && this.SV.TrySyncPlayer(time, this.ClientEntityId, &input, &transform))
+            let mutable outTransform = default
+            let mutable outCameraId = default
+            if (this.CL.TryGetPlayerInput(&input) && this.SV.TrySyncPlayer(time, this.ClientEntityId, &input, &outTransform, &outCameraId))
                 let previousTransform = 
-                    if (transform.Sequence.IsNewerThan(this.PreviousPlayerTransform.Sequence))
-                        transform
+                    if (outTransform.Sequence.IsNewerThan(this.PreviousPlayerTransform.Sequence) || this.PreviousPlayerCameraId != outCameraId)
+                        outTransform
                     else
                         this.PreviousPlayerTransform
-                this.CL.SetPlayerTransform(&previousTransform, &transform)
-                this.PreviousPlayerTransform <- transform
+                this.CL.SetPlayerTransform(&previousTransform, &outTransform)
+                this.PreviousPlayerTransform <- outTransform
+                this.PreviousPlayerCameraId <- outCameraId
         this.SV.Sync(time)
 
     /// Main-thread only

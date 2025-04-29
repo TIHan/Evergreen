@@ -467,7 +467,7 @@ abstract class PhysicsSystem =
                 db.IfHas<Editor>(entId,
                     editor ->
                         db.IfHas<Transform, Camera>(editor.CameraId,
-                            (trasnform, camera) ->
+                            (transform, camera) ->
                                 hasEditor <- true
                                 Logic.playerEditorTick(deltaTime, &characterInput, &transform, &camera)
                         )

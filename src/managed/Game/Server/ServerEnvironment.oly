@@ -20,7 +20,7 @@ internal class ServerEnv =
     Publisher: ServerEventPublisher get
     EntityIdToClientIndex: Dictionary<EntityId, byte> get
     ClientIndexToEntityId: Dictionary<byte, EntityId> get
-    SceneTask: Option<Task<ServerScene>> get, set    
+    SceneTask: Option<Task<ServerScene>> get, set
     Scene: Option<ServerScene> get, set
     Sequence: ByteSequence get, set
 
@@ -152,11 +152,11 @@ internal module Server =
                 senv.Host.SendLoadScene(client, sceneName, senv.Sequence)
         )
 
-    tryUpdatePlayer(senv: ServerEnv, time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>): bool =
+    tryUpdatePlayer(senv: ServerEnv, time: GameTime, playerId: EntityId, input: inref<CharacterInput>, outTransform: byref<Transform>, outCameraId: byref<EntityId>): bool =
         match (tryGetWorld(senv))
         | Some(world) =>
             world.SetPlayerInput(playerId, input)
-            world.TryUpdatePlayer(time, playerId, &outTransform)
+            world.TryUpdatePlayer(time, playerId, &outTransform, &outCameraId) // TODO-language-bug: ', outCameraId)' should give a proper error range.
         | _ =>
             false
 

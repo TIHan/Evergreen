@@ -64,29 +64,27 @@ internal class ClientScene =
     GetEntityAsJsonByIndex(index: int32): string =
         this.World.Database.GetEntityAsJsonByIndex(index)
 
-    UpdateInput(time: GameTime, input: CharacterInput): OptionStruct<ClientInput> =
+    UpdateLocalPlayer(time: GameTime, input: CharacterInput): OptionStruct<ClientInput> =
         let db = this.World.Database
-        let clientEntId = this.clientEntityId
+        let playerId = this.clientEntityId
 
         this.timeStamp <- time.Now()
         
         let mutable result = default: ClientInput
         let hasPlayer = 
-            db.TryGet<CharacterInput, Player, Camera>(clientEntId,
-                (playerInput, playerInfo, camera) ->
+            db.TryGet<CharacterInput>(playerId,
+                playerInput ->
                     playerInput <- input
                     playerInput.Frame <- time.Frame
                     playerInput.TimeStamp <- this.timeStamp
-                    let hasEditor = db.Has<Editor>(clientEntId)
-                    if (!hasEditor)
-                        camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
-                    match (this.World.Physics)
-                    | Some(physics) =>
-                        if (this.World.PredictionEnabled)
-                            physics.UpdatePlayer(time.DeltaTime, clientEntId, &playerInput)
-                            this.World.RecordPlayerPredictions(time.DeltaTime, clientEntId)
-                    | _ =>
-                        ()
+
+                    // Always update the camera.
+                    db.IfHasCamera(playerId,
+                        (_, _, _, _, camera) ->
+                            camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+                    )
+                    
+                    this.World.PredictPlayer(time.DeltaTime, playerId, &playerInput)
                     result <- ClientInput(playerInput, this.prevPlayerInput, this.prevPrevPlayerInput)
                     this.prevPrevPlayerInput <- this.prevPlayerInput
                     this.prevPlayerInput <- playerInput
@@ -97,8 +95,6 @@ internal class ClientScene =
             NoneStruct
 
     FixedUpdate(time: GameTime, isCatchingUp: bool, snapshotOpt: OptionStruct<(Snapshot, byte)>): () =
-        let printLog = false
-            
         let deltaTime = time.DeltaTime
             
         let clientWorld = this.World
@@ -124,11 +120,6 @@ internal class ClientScene =
             if (this.clientEntityId.IsNil)
                 let mutable currentClientIndex = currentClientIndex
                 LogClientWarning("client " + "'" + currentClientIndex.ToString() + "'" + " player is not assigned an entity")
-
-            if (prevClientId != this.clientEntityId && !this.clientEntityId.IsNil)
-                if (printLog)
-                    LogClient("recording first prediction for " + this.clientEntityId.ToString())
-                clientWorld.RecordPlayerPredictions(deltaTime, this.clientEntityId)
 
             clientWorld.SetPhysicsState()
 

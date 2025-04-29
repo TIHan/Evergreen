@@ -77,8 +77,6 @@ class ClientPhysicsSystem =
     field inputStream: ByteStream
     field mutable lastPredictedFrame: FrameNumber
 
-    PredictionEnabled: bool get, set
-
     new(db: UnlockedEntityDatabase, genv: GameEnv) =
         let frameBufferMaxCount = 30
         base(PhysicsSystemKind.Client, db, genv) with {
@@ -86,7 +84,6 @@ class ClientPhysicsSystem =
             inputsByFrame = zeroArray(frameBufferMaxCount)
             predictionsByFrame = zeroArray(frameBufferMaxCount)
             inputStream = ByteStream()
-            PredictionEnabled = true
             rollbackQueue = System.Collections.Generic.PriorityQueue()
             lastPredictedFrame = FrameNumber.Zero
         }
@@ -114,25 +111,10 @@ class ClientPhysicsSystem =
 
         let physics = sys.physics
 
-        db.HandleComponentAdded<DynamicObjectId, /**/ Transform>(
-            (entId, physId, transform) ->
-                transform.Position <- physics.GetCenterOfMassPosition(physId)                       
-        )
-
         db.HandleComponentAdded<StaticObjectId, /**/ Transform>(
             (entId, physId, transform) ->
                 transform.Position <- physics.GetCenterOfMassPosition(physId)
                                
-        )
-
-        db.HandleComponentAdded<CharacterId, /**/ Transform>(
-            (entId, physId, transform) ->
-                transform.Position <- physics.GetCenterOfMassPosition(physId)                               
-        )
-
-        db.HandleComponentAdded<VirtualCharacterId, /**/ Transform>(
-            (entId, physId, transform) ->
-                transform.Position <- physics.GetCenterOfMassPosition(physId)
         )
 
         sys
@@ -156,16 +138,23 @@ class ClientPhysicsSystem =
     RecordPlayerPredictions(deltaTime: float32, playerId: EntityId): () =
         let db = this.db
 
-        db.IfHas<Player, CharacterInput, Transform>(playerId,
-            (_, playerInput, transform) ->
-                let isVirtualCharacter =
-                    db.TryGet<VirtualCharacter>(playerId,
-                        (physCharacter) ->
+        db.IfHas<CharacterInput>(playerId,
+            playerInput ->
+                let mutable hasEditor = false
+                db.IfHas<Editor>(playerId,
+                    editor ->
+                        hasEditor <-
+                            db.TryGet<Transform>(editor.CameraId,
+                                transform ->
+                                    // TODO: Need to record the cameraId.
+                                    this.RecordPlayerPrediction(&playerInput, &transform, vec3.Zero)
+                            )
+                )
+                if (!hasEditor)
+                    db.IfHas<VirtualCharacter, Transform>(playerId,
+                        (physCharacter, transform) ->
                             this.RecordPlayerPrediction(&playerInput, &transform, physCharacter.LinearVelocity)
                     )
-                
-                if (!isVirtualCharacter)
-                    this.RecordPlayerPrediction(&playerInput, &transform, vec3.Zero)
         )
 
     SetState(): () =
@@ -211,7 +200,7 @@ class ClientPhysicsSystem =
 
         db.CreateQuery<Transform, VirtualCharacterId>().ForEach(
             (entId, transform, physId) ->
-                transform.Position <- physics.GetCenterOfMassPosition(physId)   
+                transform.Position <- physics.GetCenterOfMassPosition(physId)
         )
 
         db.CreateQuery<Transform, StaticObjectId>().ForEach(
@@ -238,50 +227,76 @@ class ClientPhysicsSystem =
         let _ =
             db.TryGet<Player, CharacterInput, Transform>(entId,
                 (player, playerInput, transform) ->
-                    if (this.PredictionEnabled)
-                        let mutable currentFrame = playerInput.Frame
+                    let mutable currentFrame = playerInput.Frame
+                    // --------------------------------------------------
+
+                    let position = transform.Position
+
+                    // --------------------------------------------------
+
+                    let mutable serverFrame = player.ClientInputFrame
+                    let serverFrameIndex = serverFrame % this.frameBufferMaxCount
+                    let predictedInfo = this.predictionsByFrame[serverFrameIndex]
+                    
+                    if (predictedInfo.IsValid && predictedInfo.Frame == serverFrame)
+                        let frameUpdateCount = Math.Min(this.frameBufferMaxCount, FrameNumber.GetInt32(currentFrame - serverFrame))
+                        let frameUpdateCount =
+                            if (frameUpdateCount > rollbackFrameLimit)
+                                if (logPredictionErrors)
+                                    LogClientWarning("rollback frame limit hit")
+                                rollbackFrameLimit
+                            else
+                                frameUpdateCount
+
                         // --------------------------------------------------
 
-                        let position = transform.Position
+                        // Determine which objects we should do prediction for.
+                        // We do not need to predict objects if our frame-update-count is zero.
+                        if (frameUpdateCount > 0)
+                            db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
+                                (entId, physInfo, transform, physId, predictiveInfo) ->
+                                    predictiveInfo.ServerPosition <- transform.Position
+                                    predictiveInfo.ServerRotation <- transform.Rotation
+
+                                    if (physInfo.IsPredicted)
+                                        let dist = Math.Abs((transform.Position - position).Length())
+                                        if (dist <= rollbackDistanceLimit)
+                                            this.rollbackQueue.Enqueue(entId, dist)
+                                        else
+                                            disableRollback(
+                                                physics,
+                                                entId,
+                                                physId,
+                                                &physInfo,
+                                                &predictiveInfo
+                                            )
+                                    else
+                                        disableRollback(
+                                            physics,
+                                            entId,
+                                            physId,
+                                            &physInfo,
+                                            &predictiveInfo
+                                        )
+                            )
 
                         // --------------------------------------------------
 
-                        let mutable serverFrame = player.ClientInputFrame
-                        let serverFrameIndex = serverFrame % this.frameBufferMaxCount
-                        let predictedInfo = this.predictionsByFrame[serverFrameIndex]
-                        
-                        if (predictedInfo.IsValid && predictedInfo.Frame == serverFrame)
-                            let frameUpdateCount = Math.Min(this.frameBufferMaxCount, FrameNumber.GetInt32(currentFrame - serverFrame))
-                            let frameUpdateCount =
-                                if (frameUpdateCount > rollbackFrameLimit)
-                                    if (logPredictionErrors)
-                                        LogClientWarning("rollback frame limit hit")
-                                    rollbackFrameLimit
-                                else
-                                    frameUpdateCount
-
-                            // --------------------------------------------------
-
-                            // Determine which objects we should do prediction for.
-                            // We do not need to predict objects if our frame-update-count is zero.
-                            if (frameUpdateCount > 0)
-                                db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
-                                    (entId, physInfo, transform, physId, predictiveInfo) ->
-                                        predictiveInfo.ServerPosition <- transform.Position
-                                        predictiveInfo.ServerRotation <- transform.Rotation
-
-                                        if (physInfo.IsPredicted)
-                                            let dist = Math.Abs((transform.Position - position).Length())
-                                            if (dist <= rollbackDistanceLimit)
-                                                this.rollbackQueue.Enqueue(entId, dist)
-                                            else
-                                                disableRollback(
-                                                    physics,
-                                                    entId,
-                                                    physId,
-                                                    &physInfo,
-                                                    &predictiveInfo
-                                                )
+                        let mutable rollbackCount = 0
+                        let mutable rollbackEntId = default
+                        let mutable rollbackDist = 0: float32
+                        while (this.rollbackQueue.TryDequeue(&rollbackEntId, &rollbackDist))
+                            let _ = 
+                                db.TryGet<RigidBody, DynamicObjectId, PredictiveInfo>(rollbackEntId,
+                                    (physInfo, physId, predictiveInfo) ->
+                                        if (rollbackCount < rollbackLimit)
+                                            enableRollback(
+                                                physics,
+                                                entId,
+                                                physId,
+                                                &physInfo,
+                                                &predictiveInfo
+                                            )
                                         else
                                             disableRollback(
                                                 physics,
@@ -291,112 +306,85 @@ class ClientPhysicsSystem =
                                                 &predictiveInfo
                                             )
                                 )
+                            rollbackCount <- rollbackCount + 1
 
-                            // --------------------------------------------------
+                        // --------------------------------------------------
 
-                            let mutable rollbackCount = 0
-                            let mutable rollbackEntId = default
-                            let mutable rollbackDist = 0: float32
-                            while (this.rollbackQueue.TryDequeue(&rollbackEntId, &rollbackDist))
-                                let _ = 
-                                    db.TryGet<RigidBody, DynamicObjectId, PredictiveInfo>(rollbackEntId,
-                                        (physInfo, physId, predictiveInfo) ->
-                                            if (rollbackCount < rollbackLimit)
-                                                enableRollback(
-                                                    physics,
-                                                    entId,
-                                                    physId,
-                                                    &physInfo,
-                                                    &predictiveInfo
-                                                )
-                                            else
-                                                disableRollback(
-                                                    physics,
-                                                    entId,
-                                                    physId,
-                                                    &physInfo,
-                                                    &predictiveInfo
-                                                )
-                                    )
-                                rollbackCount <- rollbackCount + 1
+                        let linearVelocity =
+                            let mutable result = vec3.Zero
+                            db.IfHas<VirtualCharacter>(entId,
+                                (vcharacter) ->
+                                    result <- vcharacter.LinearVelocity
+                            )
+                            result
 
-                            // --------------------------------------------------
+                        if (logPredictionErrors)
+                            if (predictedInfo.Position != transform.Position)
+                                LogClient("predicted frame: " + serverFrame.ToString() + " - position - predicted: " + predictedInfo.Position.ToString() + " - actual: " + transform.Position.ToString())
+                            if (predictedInfo.LinearVelocity != linearVelocity)
+                                LogClient("predicted frame: " + serverFrame.ToString() + " - linear velocity - predicted: " + predictedInfo.LinearVelocity.ToString() + " - actual: " + linearVelocity.ToString())
+                            if (predictedInfo.Sequence != transform.Sequence)
+                                let mutable predictedSeq = predictedInfo.Sequence
+                                let mutable seq = transform.Sequence
+                                LogClient("predicted frame: "  + serverFrame.ToString() + " - teleport - predicted: " + predictedSeq.ToString() + " - actual: " + seq.ToString())
 
-                            let linearVelocity =
-                                let mutable result = vec3.Zero
-                                db.IfHas<VirtualCharacter>(entId,
-                                    (vcharacter) ->
-                                        result <- vcharacter.LinearVelocity
+                        this.predictionsByFrame[serverFrameIndex] <- EntityPredictionInfo(serverFrame, transform.Position, linearVelocity, transform.Sequence)
+
+                        // LogClient("rollback before frame: " + (serverFrame).ToString())
+                        // LogClient("\tposition: " + physCharacter.Position.ToString())
+                        // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+
+                        this.ContactListeningEnabled <- false
+                        let mutable i = 1
+                        while (i < (frameUpdateCount + 1))
+                            let nextServerFrame = (serverFrame + FrameNumber(i))
+                            let frameIndex = nextServerFrame % this.frameBufferMaxCount
+                            let mutable predictedInfo = this.predictionsByFrame[frameIndex]
+
+                            if (predictedInfo.IsValid && predictedInfo.Frame == nextServerFrame)
+                                let playerInput = this.inputsByFrame[frameIndex]
+                                this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
+                                this.BaseUpdate(time)
+                                db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
+                                    (entId, physInfo, transform, physId, predictiveInfo) ->
+                                        if (predictiveInfo.IsPredicting || predictiveInfo.PredictToLerpTransitionTime > 0)
+                                            predictiveInfo.Position <- transform.Position
+                                            predictiveInfo.Rotation <- transform.Rotation
+                                        else
+                                            physics.Deactivate(physId)
                                 )
-                                result
+                                // predictedInfo.Position <- transform.Position
+                                // predictedInfo.LinearVelocity <- linearVelocity
+                                // this.predictionsByFrame[frameIndex] <- predictedInfo
+                                // LogClient("rollback frame: " + nextServerFrame.ToString())
+                                // LogClient("\tposition: " + physCharacter.Position.ToString())
+                                // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+                            else
+                                i <- frameUpdateCount
 
-                            if (logPredictionErrors)
-                                if (predictedInfo.Position != transform.Position)
-                                    LogClient("predicted frame: " + serverFrame.ToString() + " - position - predicted: " + predictedInfo.Position.ToString() + " - actual: " + transform.Position.ToString())
-                                if (predictedInfo.LinearVelocity != linearVelocity)
-                                    LogClient("predicted frame: " + serverFrame.ToString() + " - linear velocity - predicted: " + predictedInfo.LinearVelocity.ToString() + " - actual: " + linearVelocity.ToString())
-                                if (predictedInfo.Sequence != transform.Sequence)
-                                    let mutable predictedSeq = predictedInfo.Sequence
-                                    let mutable seq = transform.Sequence
-                                    LogClient("predicted frame: "  + serverFrame.ToString() + " - teleport - predicted: " + predictedSeq.ToString() + " - actual: " + seq.ToString())
+                            i <- i + 1
 
-                            this.predictionsByFrame[serverFrameIndex] <- EntityPredictionInfo(serverFrame, transform.Position, linearVelocity, transform.Sequence)
+                        this.ContactListeningEnabled <- true
 
-                            // LogClient("rollback before frame: " + (serverFrame).ToString())
-                            // LogClient("\tposition: " + physCharacter.Position.ToString())
-                            // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
-
-                            this.ContactListeningEnabled <- false
-                            let mutable i = 1
-                            while (i < (frameUpdateCount + 1))
-                                let nextServerFrame = (serverFrame + FrameNumber(i))
-                                let frameIndex = nextServerFrame % this.frameBufferMaxCount
-                                let mutable predictedInfo = this.predictionsByFrame[frameIndex]
-
-                                if (predictedInfo.IsValid && predictedInfo.Frame == nextServerFrame)
-                                    let playerInput = this.inputsByFrame[frameIndex]
-                                    this.UpdatePlayer(time.DeltaTime, entId, &playerInput)
-                                    this.BaseUpdate(time)
-                                    db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
-                                        (entId, physInfo, transform, physId, predictiveInfo) ->
-                                            if (predictiveInfo.IsPredicting || predictiveInfo.PredictToLerpTransitionTime > 0)
-                                                predictiveInfo.Position <- transform.Position
-                                                predictiveInfo.Rotation <- transform.Rotation
-                                            else
-                                                physics.Deactivate(physId)
-                                    )
-                                    // predictedInfo.Position <- transform.Position
-                                    // predictedInfo.LinearVelocity <- linearVelocity
-                                    // this.predictionsByFrame[frameIndex] <- predictedInfo
-                                    // LogClient("rollback frame: " + nextServerFrame.ToString())
-                                    // LogClient("\tposition: " + physCharacter.Position.ToString())
-                                    // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
-                                else
-                                    i <- frameUpdateCount
-
-                                i <- i + 1
-
-                            this.ContactListeningEnabled <- true
-
-                            // LogClient("rollback after frame: " + (currentFrame).ToString())
-                            // LogClient("\tposition: " + physCharacter.Position.ToString())
-                            // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
-                                
-                        db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
-                            (entId, physInfo, transform, physId, predictiveInfo) ->
+                        // LogClient("rollback after frame: " + (currentFrame).ToString())
+                        // LogClient("\tposition: " + physCharacter.Position.ToString())
+                        // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+                            
+                    db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
+                        (entId, physInfo, transform, physId, predictiveInfo) ->
 #if DEBUG
-                                if (predictiveInfo.EntityId.Index != entId.Index || predictiveInfo.EntityId.Version != entId.Version)
-                                    fail("Entity ids do not match. There is a bug in copying database state over.")
+                            if (predictiveInfo.EntityId.Index != entId.Index || predictiveInfo.EntityId.Version != entId.Version)
+                                fail("Entity ids do not match. There is a bug in copying database state over.")
 #end
 
-                                if (predictiveInfo.PredictToLerpTransitionTime > 0)
-                                    transform.Position <- Vector3.Lerp(predictiveInfo.Position, predictiveInfo.ServerPosition, predictiveInfo.PredictToLerpAlpha)
-                                    transform.Rotation <- Quaternion.Lerp(predictiveInfo.Rotation, predictiveInfo.ServerRotation, predictiveInfo.PredictToLerpAlpha)
-                                    predictiveInfo.PredictToLerpTransitionTime <- predictiveInfo.PredictToLerpTransitionTime - time.DeltaTime
+                            if (predictiveInfo.PredictToLerpTransitionTime > 0)
+                                transform.Position <- Vector3.Lerp(predictiveInfo.Position, predictiveInfo.ServerPosition, predictiveInfo.PredictToLerpAlpha)
+                                transform.Rotation <- Quaternion.Lerp(predictiveInfo.Rotation, predictiveInfo.ServerRotation, predictiveInfo.PredictToLerpAlpha)
+                                predictiveInfo.PredictToLerpTransitionTime <- predictiveInfo.PredictToLerpTransitionTime - time.DeltaTime
 
-                                if (predictiveInfo.LerpToPredictTransitionTime > 0)
-                                    transform.Position <- Vector3.Lerp(transform.Position, predictiveInfo.Position, predictiveInfo.LerpToPredictAlpha)
-                                    transform.Rotation <- Quaternion.Lerp(transform.Rotation, predictiveInfo.Rotation, predictiveInfo.LerpToPredictAlpha)
-                                    predictiveInfo.LerpToPredictTransitionTime <- predictiveInfo.LerpToPredictTransitionTime - time.DeltaTime
-                        )
+                            if (predictiveInfo.LerpToPredictTransitionTime > 0)
+                                transform.Position <- Vector3.Lerp(transform.Position, predictiveInfo.Position, predictiveInfo.LerpToPredictAlpha)
+                                transform.Rotation <- Quaternion.Lerp(transform.Rotation, predictiveInfo.Rotation, predictiveInfo.LerpToPredictAlpha)
+                                predictiveInfo.LerpToPredictTransitionTime <- predictiveInfo.LerpToPredictTransitionTime - time.DeltaTime
+                    )
             )

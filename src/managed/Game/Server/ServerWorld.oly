@@ -192,7 +192,7 @@ class ServerWorld =
         transform.Position <- vec3.Zero
         transform.Scale <- vec3.One
 
-        camera.Offset <- Vector3(0, 0, 1.75) // 1.75 is the default character standing height
+        camera.Offset <- Vector3(0, 0, 1.75f / 2) // 1.75 is the default character standing height
 
         this.Database.CreateQuery<Transform, PlayerSpawnPoint>().ForEach(
             (spawnPointId, spawnPointTransform, _) ->
@@ -213,7 +213,7 @@ class ServerWorld =
     SetPlayerInput(entId: EntityId, playerInput: CharacterInput): () =
         this.UnlockedDatabase.AddOrUpdate(entId, playerInput)
 
-    TryUpdatePlayer(time: GameTime, playerId: EntityId, outTransform: byref<Transform>): bool =
+    TryUpdatePlayer(time: GameTime, playerId: EntityId, outTransform: byref<Transform>, outCameraId: byref<EntityId>): bool =
         let db = this.UnlockedDatabase
         db.TryGet<CharacterInput>(playerId,
             input ->
@@ -225,12 +225,19 @@ class ServerWorld =
                             db.TryGet<Transform>(editor.CameraId,
                                 transform ->
                                     outTransform <- transform
+                                    outCameraId <- editor.CameraId
                             )
                 )
                 if (!hasEditor)
                     db.IfHas<Transform>(playerId,
                         transform ->
                             outTransform <- transform
+                            db.IfHas<VirtualCharacterId>(playerId,
+                                physId ->
+                                    // UpdatePlayerTransform
+                                    outTransform.Position <- this.PhysicsSystem.physics.GetCenterOfMassPosition(physId)
+                                    outCameraId <- playerId
+                            )
                     )
         )
 

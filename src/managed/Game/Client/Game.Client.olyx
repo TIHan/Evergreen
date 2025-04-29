@@ -186,13 +186,13 @@ class ClientGame =
             ()
         this.Executing <- false
 
-    UpdateInput(time: GameTime, input: CharacterInput): () =
+    UpdateLocalPlayer(time: GameTime, input: CharacterInput): () =
         this.CheckExecuting()
         this.Executing <- true
 
         match (this.Scene)
         | Some(scene) when (this.HasBegun) =>
-            match (scene.UpdateInput(time, input))
+            match (scene.UpdateLocalPlayer(time, input))
             | SomeStruct(clientInput) =>
                 this.Env.Connection.SendInput(clientInput)
             | _ =>
@@ -592,7 +592,7 @@ class ClientGameProxy =
 
         let mutable input = default
         if (this.R.TryGetCharacterInput(this.CL.LocalPlayerId, &input))
-            this.CL.UpdateInput(time, input)
+            this.CL.UpdateLocalPlayer(time, input)
 
         this.R.SwapState()
 
@@ -639,12 +639,12 @@ class ClientGameProxy =
         this.R.TryGetCharacterInput(this.LocalPlayerId, &outInput)
 
     /// Main-thread only
-    SetPlayerTransform(previousTransform: inref<Transform>, newTransform: inref<Transform>): () =
+    SetPlayerTransform(newPrevTransform: inref<Transform>, newTransform: inref<Transform>): () =
         match (this.R.RenderingWorld)
         | Some(world) =>
             world.Database.IfHas<Player, TransformLerp, Transform>(this.LocalPlayerId,
                 (_, transformLerp, transform) -> 
-                    transformLerp.Value <- previousTransform
+                    transformLerp.Value <- newPrevTransform
                     transform <- newTransform
             )
         | _ =>
