@@ -228,8 +228,9 @@ struct CharacterInput =
     public field mutable BackwardMovementFactor: float32 = 0
     public field mutable LeftMovementFactor: float32 = 0
     public field mutable RightMovementFactor: float32 = 0
-    public field mutable Yaw: float32 = 0
-    public field mutable Pitch: float32 = 0
+    public field mutable CameraId: EntityId = EntityId.Nil
+    public field mutable CameraYaw: float32 = 0
+    public field mutable CameraPitch: float32 = 0
 
     mutable SetForward(value: bool): () =
         if (value)

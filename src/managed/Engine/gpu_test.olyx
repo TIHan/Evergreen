@@ -43,6 +43,18 @@ struct VertexPositionColor =
             Color = color
         }
 
+#[export]
+struct TestData =
+    public Value: float32 get, set = 0
+
+#[export]
+struct TestData2 =
+    public Value: TestData get, set = TestData()
+
+#[export]
+struct TestData3 =
+    public Value: TestData2 get, set = TestData2()
+
 module Shader =
 
     public field mutable r: Rendering = unchecked default
@@ -222,6 +234,7 @@ class ShaderCommand =
 
     overrides Execute(context: CommandContext, settings: Settings): int32 =
         let options = JsonSerializerOptions()
+        options.IncludeFields <- true
         try
             let input = JsonSerializer.Deserialize<Input>(settings.Input, options)
             let path = settings.ShaderFile
@@ -231,7 +244,28 @@ class ShaderCommand =
                 let input = JsonSerializer.Deserialize<Input<float32>>(settings.Input, options)
                 printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
             | "int32" =>
-                let input = JsonSerializer.Deserialize<Input<int32>>(settings.Input, JsonSerializerOptions())
+                let input = JsonSerializer.Deserialize<Input<int32>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "vec2" =>
+                let input = JsonSerializer.Deserialize<Input<Vector2>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "vec3" =>
+                let input = JsonSerializer.Deserialize<Input<Vector3>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "vec4" =>
+                let input = JsonSerializer.Deserialize<Input<Vector4>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "mat4" =>
+                let input = JsonSerializer.Deserialize<Input<Matrix4x4>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "TestData" =>
+                let input = JsonSerializer.Deserialize<Input<TestData>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "TestData2" =>
+                let input = JsonSerializer.Deserialize<Input<TestData2>>(settings.Input, options)
+                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
+            | "TestData3" =>
+                let input = JsonSerializer.Deserialize<Input<TestData3>>(settings.Input, options)
                 printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
             | _ =>
                 fail("Invalid data kind: " + input.DataKind)

@@ -80,8 +80,13 @@ internal class ClientScene =
 
                     // Always update the camera.
                     db.IfHasCamera(playerId,
-                        (_, _, _, _, camera) ->
-                            camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+                        (cameraId, prevTransform, transform, _, camera) ->
+                            playerInput.CameraId <- cameraId
+                            if (transform.Sequence.IsNewerThan(prevTransform.Sequence))
+                                playerInput.CameraYaw <- camera.Yaw
+                                playerInput.CameraPitch <- camera.Pitch
+                            else
+                                camera.SetYawPitch(playerInput.CameraYaw, playerInput.CameraPitch)
                     )
                     
                     this.World.PredictPlayer(time.DeltaTime, playerId, &playerInput)

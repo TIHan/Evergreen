@@ -80,14 +80,7 @@ class RenderGame =
         | Some(scene) =>
             scene.TryGetCharacterInput(characterEntId, &outInput)
         | _ =>
-            false
-
-    SyncTeleportedCharacterInput(entId: EntityId): () =
-        match (this.Scene)
-        | Some(scene) =>
-            scene.SyncTeleportedCharacterInput(entId)
-        | _ =>
-            ()     
+            false 
 
     SwapState(): () =
         match (this.Scene)

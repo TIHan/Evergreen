@@ -146,7 +146,6 @@ class ClientPhysicsSystem =
                         hasEditor <-
                             db.TryGet<Transform>(editor.CameraId,
                                 transform ->
-                                    // TODO: Need to record the cameraId.
                                     this.RecordPlayerPrediction(&playerInput, &transform, vec3.Zero)
                             )
                 )
@@ -225,12 +224,60 @@ class ClientPhysicsSystem =
         // --------------------------------------------------
 
         let _ =
-            db.TryGet<Player, CharacterInput, Transform>(entId,
-                (player, playerInput, transform) ->
+            db.TryGet<Player, CharacterInput>(entId,
+                (player, playerInput) ->
                     let mutable currentFrame = playerInput.Frame
                     // --------------------------------------------------
 
-                    let position = transform.Position
+                    let position =
+                        let mutable result = vec3.Zero
+                        let mutable hasEditor = false
+                        db.IfHas<Editor>(entId,
+                            editor ->
+                                hasEditor <-
+                                    db.TryGet<Transform>(editor.CameraId,
+                                        transform ->
+                                            result <- transform.Position
+                                    )
+                        )
+                        if (!hasEditor)
+                            db.IfHas<Transform>(entId,
+                                transform ->
+                                    result <- transform.Position
+                            )
+                        result
+
+                    let linearVelocity =
+                        let mutable result = vec3.Zero
+                        let mutable hasEditor = false
+                        db.IfHas<Editor>(entId,
+                            editor ->
+                                hasEditor <- db.Has<Transform>(editor.CameraId)
+                        )
+                        if (!hasEditor)
+                            db.IfHas<VirtualCharacter>(entId,
+                                c ->
+                                    result <- c.LinearVelocity
+                            )
+                        result
+
+                    let sequence =
+                        let mutable result = ByteSequence.Zero
+                        let mutable hasEditor = false
+                        db.IfHas<Editor>(entId,
+                            editor ->
+                                hasEditor <-
+                                    db.TryGet<Transform>(editor.CameraId,
+                                        transform ->
+                                            result <- transform.Sequence
+                                    )
+                        )
+                        if (!hasEditor)
+                            db.IfHas<Transform>(entId,
+                                transform ->
+                                    result <- transform.Sequence
+                            )
+                        result
 
                     // --------------------------------------------------
 
@@ -310,29 +357,17 @@ class ClientPhysicsSystem =
 
                         // --------------------------------------------------
 
-                        let linearVelocity =
-                            let mutable result = vec3.Zero
-                            db.IfHas<VirtualCharacter>(entId,
-                                (vcharacter) ->
-                                    result <- vcharacter.LinearVelocity
-                            )
-                            result
-
                         if (logPredictionErrors)
-                            if (predictedInfo.Position != transform.Position)
-                                LogClient("predicted frame: " + serverFrame.ToString() + " - position - predicted: " + predictedInfo.Position.ToString() + " - actual: " + transform.Position.ToString())
+                            if (predictedInfo.Position != position)
+                                LogClient("predicted frame: " + serverFrame.ToString() + " - position - predicted: " + predictedInfo.Position.ToString() + " - actual: " + position.ToString())
                             if (predictedInfo.LinearVelocity != linearVelocity)
                                 LogClient("predicted frame: " + serverFrame.ToString() + " - linear velocity - predicted: " + predictedInfo.LinearVelocity.ToString() + " - actual: " + linearVelocity.ToString())
-                            if (predictedInfo.Sequence != transform.Sequence)
+                            if (predictedInfo.Sequence != sequence)
                                 let mutable predictedSeq = predictedInfo.Sequence
-                                let mutable seq = transform.Sequence
+                                let mutable seq = sequence
                                 LogClient("predicted frame: "  + serverFrame.ToString() + " - teleport - predicted: " + predictedSeq.ToString() + " - actual: " + seq.ToString())
 
-                        this.predictionsByFrame[serverFrameIndex] <- EntityPredictionInfo(serverFrame, transform.Position, linearVelocity, transform.Sequence)
-
-                        // LogClient("rollback before frame: " + (serverFrame).ToString())
-                        // LogClient("\tposition: " + physCharacter.Position.ToString())
-                        // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
+                        this.predictionsByFrame[serverFrameIndex] <- EntityPredictionInfo(serverFrame, position, linearVelocity, sequence)
 
                         this.ContactListeningEnabled <- false
                         let mutable i = 1
@@ -353,22 +388,12 @@ class ClientPhysicsSystem =
                                         else
                                             physics.Deactivate(physId)
                                 )
-                                // predictedInfo.Position <- transform.Position
-                                // predictedInfo.LinearVelocity <- linearVelocity
-                                // this.predictionsByFrame[frameIndex] <- predictedInfo
-                                // LogClient("rollback frame: " + nextServerFrame.ToString())
-                                // LogClient("\tposition: " + physCharacter.Position.ToString())
-                                // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
                             else
                                 i <- frameUpdateCount
 
                             i <- i + 1
 
                         this.ContactListeningEnabled <- true
-
-                        // LogClient("rollback after frame: " + (currentFrame).ToString())
-                        // LogClient("\tposition: " + physCharacter.Position.ToString())
-                        // LogClient("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
                             
                     db.CreateQuery<RigidBody, Transform, DynamicObjectId, PredictiveInfo>().ForEach(
                         (entId, physInfo, transform, physId, predictiveInfo) ->

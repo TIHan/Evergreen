@@ -478,8 +478,8 @@ class LocalPlayer =
                 let yawAcc = value.X * 0.001 * 2
                 let pitchAcc = value.Y * 0.001 * 2
             
-                input.Yaw <- input.Yaw - yawAcc
-                input.Pitch <- Math.Clamp(input.Pitch - pitchAcc, radians(-85), radians(85))
+                input.CameraYaw <- input.CameraYaw - yawAcc
+                input.CameraPitch <- Math.Clamp(input.CameraPitch - pitchAcc, radians(-85), radians(85))
         )
 
 class ClientGameProxy =
@@ -577,7 +577,7 @@ class ClientGameProxy =
 
     /// Main-thread only
     /// These need to be fast operations since this where we sync the main and background threads.
-    Sync(time: GameTime): () =
+    Sync(time: GameTime, beforeSwap: () -> ()): () =
         // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
         // Background is halted at this point.
         // So this is where we dispose the render scene.
@@ -588,11 +588,11 @@ class ClientGameProxy =
         else
             this.R.DisposeSceneIfPossible()
 
-        this.R.SyncTeleportedCharacterInput(this.CL.LocalPlayerId)
-
         let mutable input = default
         if (this.R.TryGetCharacterInput(this.CL.LocalPlayerId, &input))
             this.CL.UpdateLocalPlayer(time, input)
+
+        beforeSwap()
 
         this.R.SwapState()
 
@@ -640,11 +640,11 @@ class ClientGameProxy =
 
     /// Main-thread only
     SetPlayerTransform(newPrevTransform: inref<Transform>, newTransform: inref<Transform>): () =
-        match (this.R.RenderingWorld)
+        match (this.CL.ClientWorld)
         | Some(world) =>
-            world.Database.IfHas<Player, TransformLerp, Transform>(this.LocalPlayerId,
-                (_, transformLerp, transform) -> 
-                    transformLerp.Value <- newPrevTransform
+            world.Database.IfHasCamera(this.LocalPlayerId,
+                (_, prevTransform, transform, _, _) ->
+                    prevTransform <- newPrevTransform
                     transform <- newTransform
             )
         | _ =>

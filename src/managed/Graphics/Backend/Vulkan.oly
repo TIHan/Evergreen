@@ -1649,23 +1649,33 @@ module Vk =
         deviceFeaturesVulkan13.synchronization2 <- VkBool32.TRUE
        // deviceFeaturesVulkan13.samplerMirrorClampToEdge <- VkBool32.TRUE
 
+        let mutable deviceFeaturesVulkan12 = default: VkPhysicalDeviceVulkan12Features
+        deviceFeaturesVulkan12.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
+
+        // Enable non-uniform indexing
+        deviceFeaturesVulkan12.shaderSampledImageArrayNonUniformIndexing <- VkBool32.TRUE
+        deviceFeaturesVulkan12.runtimeDescriptorArray <- VkBool32.TRUE
+        deviceFeaturesVulkan12.descriptorBindingVariableDescriptorCount <- VkBool32.TRUE
+        deviceFeaturesVulkan12.descriptorBindingPartiallyBound <- VkBool32.TRUE
+
         let mutable deviceFeaturesVulkan11 = default: VkPhysicalDeviceVulkan11Features
         deviceFeaturesVulkan11.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
         //deviceFeaturesVulkan11.variablePointers <- VkBool32.TRUE
         //deviceFeaturesVulkan11.variablePointersStorageBuffer <- VkBool32.TRUE
 
-        let mutable descriptorIndexingFeatures = default: VkPhysicalDeviceDescriptorIndexingFeatures
-        descriptorIndexingFeatures.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES
+        // let mutable descriptorIndexingFeatures = default: VkPhysicalDeviceDescriptorIndexingFeatures
+        // descriptorIndexingFeatures.sType <- VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES
 
-        // Enable non-uniform indexing
-        descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing <- VkBool32.TRUE
-        descriptorIndexingFeatures.runtimeDescriptorArray <- VkBool32.TRUE
-        descriptorIndexingFeatures.descriptorBindingVariableDescriptorCount <- VkBool32.TRUE
-        descriptorIndexingFeatures.descriptorBindingPartiallyBound <- VkBool32.TRUE
+        // // Enable non-uniform indexing
+        // descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing <- VkBool32.TRUE
+        // descriptorIndexingFeatures.runtimeDescriptorArray <- VkBool32.TRUE
+        // descriptorIndexingFeatures.descriptorBindingVariableDescriptorCount <- VkBool32.TRUE
+        // descriptorIndexingFeatures.descriptorBindingPartiallyBound <- VkBool32.TRUE
 
         deviceFeatures.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan11)
-        deviceFeaturesVulkan11.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan13)
-        deviceFeaturesVulkan13.pNext <- Unsafe.Cast(&&descriptorIndexingFeatures)
+        deviceFeaturesVulkan11.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan12)
+        deviceFeaturesVulkan12.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan13)
+        //deviceFeaturesVulkan13.pNext <- Unsafe.Cast(&&descriptorIndexingFeatures)
 
         let mutable createInfo = default: VkDeviceCreateInfo
         createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO

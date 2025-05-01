@@ -41,9 +41,9 @@ module Logic =
 
         match (motionKind)
         | CharacterMotionKind.Fly =>
-            movementCamera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+            movementCamera.SetYawPitch(playerInput.CameraYaw, playerInput.CameraPitch)
         | _ =>
-            movementCamera.SetYawPitch(playerInput.Yaw, 0)
+            movementCamera.SetYawPitch(playerInput.CameraYaw, 0)
 
         let movementCameraTransform = movementCamera.GetTransform(vec3.Zero) // TODO-language-bug: should be able to see error for 'movementCamera.GetTransform(transform)' as no overload exists, inref might be causing the error range issue.
     
@@ -73,7 +73,7 @@ module Logic =
             acc
 
     playerVirtualTick(physics: Physics, deltaTime: float32, playerInput: inref<CharacterInput>, characterId: inref<VirtualCharacterId>, transform: byref<Transform>, physCharacter: byref<VirtualCharacter>, camera: byref<Camera>): () =
-        camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+        camera.SetYawPitch(playerInput.CameraYaw, playerInput.CameraPitch)
 
         let layer =
             if (physCharacter.Flags.HasFlag(VirtualCharacterFlags.Noclip))
@@ -112,7 +112,7 @@ module Logic =
         SyncPhysicsInfo(physics, characterId, &transform, &physCharacter)
 
     playerEditorTick(deltaTime: float32, playerInput: inref<CharacterInput>, transform: byref<Transform>, camera: byref<Camera>): () =
-        camera.SetYawPitch(playerInput.Yaw, playerInput.Pitch)
+        camera.SetYawPitch(playerInput.CameraYaw, playerInput.CameraPitch)
 
         let motion = playerInputToMotion(&playerInput, &camera, 1, CharacterMotionKind.Fly)
 
@@ -466,32 +466,25 @@ abstract class PhysicsSystem =
                 let mutable hasEditor = false
                 db.IfHas<Editor>(entId,
                     editor ->
-                        db.IfHas<Transform, Camera>(editor.CameraId,
-                            (transform, camera) ->
-                                hasEditor <- true
-                                Logic.playerEditorTick(deltaTime, &characterInput, &transform, &camera)
-                        )
+                        hasEditor <-
+                            db.TryGet<Transform, Camera>(editor.CameraId,
+                                (transform, camera) ->
+                                    let mutable characterInput = characterInput
+                                    if (editor.CameraId != characterInput.CameraId)
+                                        characterInput.Actions <- CharacterActions.None
+                                        characterInput.CameraYaw <- camera.Yaw
+                                        characterInput.CameraPitch <- camera.Pitch
+                                    Logic.playerEditorTick(deltaTime, &characterInput, &transform, &camera)
+                            )
                 )
                 db.IfHas<VirtualCharacter, VirtualCharacterId>(entId,
                     (character, characterId) ->
-                        // let log(msg: string) =
-                        //     if (this.kind == PhysicsSystemKind.Client)
-                        //         LogClient(msg)
-                        //     else
-                        //         LogServer(msg)
-                        // log("before frame: " + playerInput.Frame.ToString())
-                        // log("\tposition: " + transform.Position.ToString())
-                        // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
                         let mutable characterInput = characterInput
-                        if (hasEditor)
+                        if (hasEditor || entId != characterInput.CameraId)
                             characterInput.Actions <- CharacterActions.None
-                            characterInput.Yaw <- camera.Yaw
-                            characterInput.Pitch <- camera.Pitch
+                            characterInput.CameraYaw <- camera.Yaw
+                            characterInput.CameraPitch <- camera.Pitch
                         Logic.playerVirtualTick(physics, deltaTime, &characterInput, &characterId, &transform, &character, &camera)
-                        // log("Frame " + playerInput.Frame.ToString() + " - " + transform.Position.ToString())
-                        // log("frame: " + playerInput.Frame.ToString())
-                        // log("\tposition: " + transform.Position.ToString())
-                        // log("\tlinear velocity: " + physCharacter.LinearVelocity.ToString())
                 )                  
         )
 

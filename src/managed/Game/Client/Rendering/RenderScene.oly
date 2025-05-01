@@ -39,33 +39,6 @@ class RenderScene =
             WorldBack = RenderingWorld(renv)
         }
 
-    SyncTeleportedCharacterInput(entId: EntityId): () =
-        let frontDb = this.WorldFront.Database
-        let backDb = this.WorldBack.Database
-
-        let mutable yaw = 0: float32
-        let mutable pitch = 0: float32
-        let mutable didTeleport = false
-
-        backDb.IfHasCamera(entId,
-            (_, prevTransform, transform, prevCamera, camera) ->
-                let seq = transform.Sequence
-                let prevSeq = prevTransform.Sequence
-                if (seq.IsNewerThan(prevSeq))
-                    yaw <- camera.Yaw
-                    pitch <- camera.Pitch
-                    prevCamera.Yaw <- yaw
-                    prevCamera.Pitch <- pitch
-                    didTeleport <- true
-        )
-
-        if (didTeleport)
-            frontDb.IfHas<CharacterInput>(entId,
-                input ->
-                    input.Yaw <- yaw
-                    input.Pitch <- pitch
-            )
-
     ResetCharacterInputActions(characterEntId: EntityId): () =
         this.RenderingWorld.ResetCharacterInputActions(characterEntId)
 

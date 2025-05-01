@@ -74,8 +74,8 @@ class RenderingWorld =
                     transformLerp.Value.Sequence <- prevSeq
                     db.IfHas<CharacterInput, CameraLerp, Camera>(entId,
                         (input, cameraLerp, camera) ->
-                            camera.SetYawPitch(input.Yaw, input.Pitch)
-                            cameraLerp.Value.SetYawPitch(input.Yaw, input.Pitch)
+                            camera.SetYawPitch(input.CameraYaw, input.CameraPitch)
+                            cameraLerp.Value.SetYawPitch(input.CameraYaw, input.CameraPitch)
                     )
         )
 
@@ -91,9 +91,9 @@ class RenderingWorld =
             input ->
                 input <- newInput
                 db.IfHasCamera(entId,
-                    (_, _, _, prevCamera, _) ->
-                        // Immediately update the previous camera rotation.
-                        prevCamera.SetYawPitch(input.Yaw, input.Pitch)
+                    (_, _, _, prevCamera, camera) ->
+                        camera.SetYawPitch(input.CameraYaw, input.CameraPitch)
+                        prevCamera.SetYawPitch(input.CameraYaw, input.CameraPitch)
                 )
         )
 

@@ -386,20 +386,23 @@ class ClientServerGame =
 
     /// Main-thread only
     Sync(time: GameTime): () =
-        this.CL.Sync(time) // Updating the client first is intentional.
-        if (this.IsListenServer)
-            let mutable input = default
-            let mutable outTransform = default
-            let mutable outCameraId = default
-            if (this.CL.TryGetPlayerInput(&input) && this.SV.TrySyncPlayer(time, this.ClientEntityId, &input, &outTransform, &outCameraId))
-                let previousTransform = 
-                    if (outTransform.Sequence.IsNewerThan(this.PreviousPlayerTransform.Sequence) || this.PreviousPlayerCameraId != outCameraId)
-                        outTransform
-                    else
-                        this.PreviousPlayerTransform
-                this.CL.SetPlayerTransform(&previousTransform, &outTransform)
-                this.PreviousPlayerTransform <- outTransform
-                this.PreviousPlayerCameraId <- outCameraId
+        // Updating the client first is intentional.
+        this.CL.Sync(time,
+            () ->
+                if (this.IsListenServer)
+                    let mutable input = default
+                    let mutable outTransform = default
+                    let mutable outCameraId = default
+                    if (this.CL.TryGetPlayerInput(&input) && this.SV.TrySyncPlayer(time, this.ClientEntityId, &input, &outTransform, &outCameraId))
+                        let previousTransform = 
+                            if (outTransform.Sequence.IsNewerThan(this.PreviousPlayerTransform.Sequence) || this.PreviousPlayerCameraId != outCameraId)
+                                outTransform
+                            else
+                                this.PreviousPlayerTransform
+                        this.CL.SetPlayerTransform(&previousTransform, &outTransform)
+                        this.PreviousPlayerTransform <- outTransform
+                        this.PreviousPlayerCameraId <- outCameraId
+        )
         this.SV.Sync(time)
 
     /// Main-thread only

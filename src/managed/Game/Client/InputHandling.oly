@@ -77,8 +77,8 @@ UpdateCharacterInput(deltaTime: float32, inputSnapshot: InputSnapshot, input: by
     let yawAcc = deltaPosition.X * 0.001 * 2
     let pitchAcc = deltaPosition.Y * 0.001 * 2
 
-    input.Yaw <- input.Yaw - yawAcc
-    input.Pitch <- Math.Clamp(input.Pitch - pitchAcc, radians(-85), radians(85))
+    input.CameraYaw <- input.CameraYaw - yawAcc
+    input.CameraPitch <- Math.Clamp(input.CameraPitch - pitchAcc, radians(-85), radians(85))
 
     let gamepadAxisMotionEvents = inputSnapshot.GamepadAxisMotionEvents
     ForEach(gamepadAxisMotionEvents,
@@ -148,5 +148,5 @@ UpdateCharacterInput(deltaTime: float32, inputSnapshot: InputSnapshot, input: by
             | _ =>
                 ()
     )
-    input.Yaw <- input.Yaw + gamepadYawIncrement
-    input.Pitch <- Math.Clamp(input.Pitch + gamepadPitchIncrement, radians(-85), radians(85))
+    input.CameraYaw <- input.CameraYaw + gamepadYawIncrement
+    input.CameraPitch <- Math.Clamp(input.CameraPitch + gamepadPitchIncrement, radians(-85), radians(85))
