@@ -240,10 +240,10 @@ class ShaderCommand =
             let path = settings.ShaderFile
             let shaderKind = input.ShaderKind
             match (input.DataKind)
-            | "float32" =>
+            | "float" =>
                 let input = JsonSerializer.Deserialize<Input<float32>>(settings.Input, options)
                 printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "int32" =>
+            | "int" =>
                 let input = JsonSerializer.Deserialize<Input<int32>>(settings.Input, options)
                 printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
             | "vec2" =>
