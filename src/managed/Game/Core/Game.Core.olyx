@@ -50,22 +50,22 @@ struct Transform =
             scaleMatrix * rotationMatrix * positionMatrix
 
     Forward: vec3
-        get() = vec3.Transform(vec3.Forward, this.Rotation)
+        get() = transform(vec3.Forward, this.Rotation)
 
     Backward: vec3
-        get() = vec3.Transform(vec3.Backward, this.Rotation)
+        get() = transform(vec3.Backward, this.Rotation)
 
     Left: vec3
-        get() = vec3.Transform(vec3.Left, this.Rotation)
+        get() = transform(vec3.Left, this.Rotation)
 
     Right: vec3
-        get() = vec3.Transform(vec3.Right, this.Rotation)
+        get() = transform(vec3.Right, this.Rotation)
 
     Up: vec3
-        get() = vec3.Transform(vec3.Up, this.Rotation)
+        get() = transform(vec3.Up, this.Rotation)
 
     Down: vec3
-        get() = vec3.Transform(vec3.Down, this.Rotation)
+        get() = transform(vec3.Down, this.Rotation)
 
     WorldToLocalMatrix: mat4
         get() =
@@ -131,8 +131,8 @@ struct Camera =
         let m = mat4.CreateLookAt(cameraPosition, targetPosition, vec3.Down)
         let q = quat.CreateFromRotationMatrix(m)
         let angles = q.ToEulerAngles()
-        this.Yaw <- radians(90) + angles.X
-        this.Pitch <- angles.Y
+        this.Yaw <- radians(90) + angles.x
+        this.Pitch <- angles.y
         this.Roll <- 0
 
     Direction: vec3

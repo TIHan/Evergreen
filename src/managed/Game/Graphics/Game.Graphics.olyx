@@ -119,7 +119,7 @@ struct LightShaderData =
     public field mutable ViewInverse: mat4 = mat4.Identity
     public field mutable Projection: mat4 = mat4.Identity
     public field mutable ViewProjection: mat4 = mat4.Identity
-    public field mutable Direction: vec4 = Vector4(Vector3.Forward, 0)
+    public field mutable Direction: vec4 = vec4(vec3.Forward, 0)
 
 struct LightArrayShaderData =
     static MaxCount: int32 get = 8 // TODO: make this a constant
@@ -269,11 +269,11 @@ class RenderFrameEnv =
         }
 
 struct Vertex =
-    public field Position: Vector3
-    public field Normal: Vector3
-    public field TexCoord: Vector2
+    public field Position: vec3
+    public field Normal: vec3
+    public field TexCoord: vec2
 
-    new(position: Vector3, normal: Vector3, texCoord: Vector2) =
+    new(position: vec3, normal: vec3, texCoord: vec2) =
         {
             Position = position
             Normal = normal
@@ -435,7 +435,7 @@ class RenderEnv =
         let screenMesh = meshManager.Get(meshManager.FindId("plane.obj")).Meshes[0]
         let screenFrameId = frameManager.FindId("screen")
     
-        let screenTransform = Transform(Vector3.Zero, Quaternion.Identity, Vector3.One)
+        let screenTransform = Transform(vec3.Zero, Quaternion.Identity, vec3.One)
         let screenTransform = GpuBuffer.Initialize<Matrix4x4>(GpuBufferKind.Storage, GpuMemoryKind.Local, 1, i -> screenTransform.Matrix)
 
         {
@@ -592,7 +592,7 @@ module DrawHelpers =
     CreateSpriteDrawInfoUncached(key: RenderKey, width: int32, height: int32, drawCmds: mutable VkDrawIndexedIndirectCommand[], nextDrawCmdIndex: byref<int32>): DrawInfo =
         let aabb =
             let value = float32(Math.Max(width, height))
-            let v = Vector3(value, value, value)
+            let v = vec3(value, value, value)
             AABB(-v, v)
 
         let result = DrawInfo(aabb, nextDrawCmdIndex)

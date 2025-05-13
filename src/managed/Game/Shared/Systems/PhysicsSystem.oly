@@ -51,7 +51,7 @@ module Logic =
         let backwardMovementFactor = clamp(0, 1, playerInput.BackwardMovementFactor)
         let leftMovementFactor = clamp(0, 1, playerInput.LeftMovementFactor)
         let rightMovementFactor = clamp(0, 1, playerInput.RightMovementFactor)
-        let mutable acc = Vector3.Zero
+        let mutable acc = vec3.Zero
             
         if (playerInput.Actions & CharacterActions.Forward != CharacterActions.None && playerInput.Actions & CharacterActions.Backward == CharacterActions.None)
             acc <- movementCameraTransform.Forward * forwardMovementFactor
@@ -65,8 +65,8 @@ module Logic =
         if (playerInput.Actions & CharacterActions.Right != CharacterActions.None && playerInput.Actions & CharacterActions.Left == CharacterActions.None)
             acc <- acc + movementCameraTransform.Right * rightMovementFactor
 
-        if (acc != Vector3.Zero)
-            let normAcc = Vector3.Normalize(acc)
+        if (acc != vec3.Zero)
+            let normAcc = normalize(acc)
             let factor = clamp(0, 1, Vector3.Dot(normAcc, acc))
             normAcc * speed * factor
         else
@@ -262,7 +262,7 @@ abstract class PhysicsSystem =
                             #[inline]
                             let mapVertex(i: int32) =
                                 let v = mesh.Vertices[i]
-                                Vector3(v.X * scale.X, v.Y * scale.Y, v.Z * scale.Z)
+                                vec3(v.x * scale.x, v.y * scale.y, v.z * scale.z)
                 
                             let vertices = ReadOnlyMemory(initMutableArray(mesh.Vertices.Length, mapVertex))
                             let indices = ReadOnlyMemory(mesh.Indices)

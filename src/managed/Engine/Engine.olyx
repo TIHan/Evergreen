@@ -55,7 +55,7 @@ BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
                 material.Flags <- MaterialFlags.None
 
                 let mutable transform = Transform()
-                transform.Position <- Vector3(x, y, 0)
+                transform.Position <- vec3(x, y, 0)
                 if (x >= 300: float32)
                     y <- y + 3
                     x <- 0
@@ -76,8 +76,8 @@ BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
     material.Flags <- MaterialFlags.None
 
     let mutable transform = Transform()
-    transform.Position <- Vector3(0, 0, -10)
-    transform.Scale <- Vector3(100, 100, 1)
+    transform.Position <- vec3(0, 0, -10)
+    transform.Scale <- vec3(100, 100, 1)
 
     let meshRef = MeshReference(resx.RenderMeshes.FindId("cube.obj"))
 

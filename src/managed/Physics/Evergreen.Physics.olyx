@@ -62,9 +62,9 @@ struct PhysicsObject =
         StaticObjectId(obj.objId)
 
 struct PhysicsMesh =
-    public field mutable Vertices: ReadOnlyMemory<Vector3>
+    public field mutable Vertices: ReadOnlyMemory<vec3>
     public field mutable Indices: ReadOnlyMemory<uint32>
-    new(vertices: ReadOnlyMemory<Vector3>, indices: ReadOnlyMemory<uint32>) =
+    new(vertices: ReadOnlyMemory<vec3>, indices: ReadOnlyMemory<uint32>) =
         {
             Vertices = vertices
             Indices = indices
@@ -76,13 +76,13 @@ class Physics =
     static field InitCountLockObj: object = Object()
     static field mutable InitCount: int32 = 0
 
-    static IsNearZero(v: Vector3): bool =
+    static IsNearZero(v: vec3): bool =
         egJolt_Vector3_IsNearZero(v) != 0
 
-    static Normalize(q: Quaternion): Quaternion =
+    static Normalize(q: quat): quat =
         egJolt_Quaternion_Normalize(q)
 
-    static IsNormalized(q: Quaternion): bool =
+    static IsNormalized(q: quat): bool =
         egJolt_Quaternion_IsNormalized(q) != 0
 
     internal static CreateDefaultEgJoltCharacterVirtualUpdateSettings(): EgJoltCharacterVirtualUpdateSettings =
@@ -643,7 +643,7 @@ class Physics =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
         egJolt_CharacterVirtual_GetGroundState(this.Instance, instance.Jolt) == EgJolt_GroundState.OnSteepGround
 
-    GetCenterOfMassPosition(virtualCharacterId: VirtualCharacterId): Vector3 =
+    GetCenterOfMassPosition(virtualCharacterId: VirtualCharacterId): vec3 =
         let instance = this.GetVirtualCharacter(virtualCharacterId.Value)
         egJoltGetCharacterVirtualCenterOfMassPosition(this.Instance, instance.Jolt)
 

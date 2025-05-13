@@ -12,7 +12,6 @@ open System
 open System.IO
 open System.Text
 open System.Text.Json
-open System.Numerics
 open System.Diagnostics
 open System.Management
 open System.Security.Cryptography
@@ -976,15 +975,11 @@ struct OptionStruct<T> =
 
 // Math -----------------------------------------------------------------------------
 
-alias vec2 = Vector2
-alias vec3 = Vector3
-alias vec4 = Vector4
-alias quat = Quaternion
-alias mat4 = Matrix4x4
+alias mat4 = System.Numerics.Matrix4x4
 
 #[open]
-extension Vector3Extensions =
-    inherits Vector3
+extension vec3Extensions =
+    inherits System.Numerics.Vector3
 
     static Forward: vec3 get() = -vec3.UnitZ
     static Backward: vec3 get() = vec3.UnitZ
@@ -993,7 +988,7 @@ extension Vector3Extensions =
     static Up: vec3 get() = -vec3.UnitY
     static Down: vec3 get() = vec3.UnitY
 
-    XY: vec2 get() = Vector2(this.X, this.Y)
+    XY: vec2 get() = vec2(this.x, this.y)
 
 #[open]
 module MathHelpers =
@@ -1025,9 +1020,6 @@ module MathHelpers =
         else
             value
 
-    (*)(v1: vec3, v2: vec3): vec3 = vec3.Multiply(v1, v2)
-    (*)(v: vec3, s: float32): vec3 = vec3.Multiply(v, s)
-
     lerp(x: int64, y: int64, a: float32): int64 =
         int64(float64(x) * (float64(1 - a)) + float64(y) * float64(a))
 
@@ -1039,40 +1031,40 @@ module MathHelpers =
 
 #[open]
 extension QuaternionExtensions =
-    inherits Quaternion
+    inherits System.Numerics.Quaternion
 
     Direction: vec3
         get() =
-            Vector3.Normalize(Vector3.Transform(Vector3.Forward, this))
+            normalize(transform(vec3.Forward, this))
 
-    ToEulerAngles(): Vector3 =
+    ToEulerAngles(): vec3 =
         let q = this
 
-        let mutable angles = default: Vector3
+        let mutable angles = default: vec3
 
-        let sinr_cosp = 2 * (q.W * q.X + q.Y * q.Z)
-        let cosr_cosp = 1 - 2 * (q.X * q.X + q.Y * q.Y)
-        angles.X <- MathF.Atan2(sinr_cosp, cosr_cosp)
+        let sinr_cosp = 2 * (q.W * q.X + q.Y * q.Z): float32 // TODO-language-bug: should not need ': float32'
+        let cosr_cosp = 1 - 2 * (q.X * q.X + q.Y * q.Y): float32 // TODO-language-bug: should not need ': float32'
+        angles.x <- MathF.Atan2(sinr_cosp, cosr_cosp)
 
         let sinp = 2 * (q.W * q.Y - q.Z * q.X)
         if (MathF.Abs(sinp) >= 1)
-            angles.Y <- MathF.CopySign(MathF.PI / 2, sinp)
+            angles.y <- MathF.CopySign(MathF.PI / 2, sinp)
         else
-            angles.Y <- MathF.Asin(sinp)
+            angles.y <- MathF.Asin(sinp)
 
-        let siny_cosp = 2 * (q.W * q.Z + q.X * q.Y)
-        let cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z)
-        angles.Z <- MathF.Atan2(siny_cosp, cosy_cosp)
+        let siny_cosp = 2 * (q.W * q.Z + q.X * q.Y): float32 // TODO-language-bug: should not need ': float32'
+        let cosy_cosp = 1 - 2 * (q.Y * q.Y + q.Z * q.Z): float32 // TODO-language-bug: should not need ': float32'
+        angles.z <- MathF.Atan2(siny_cosp, cosy_cosp)
 
         angles
 
 struct AABB =
-    public field mutable Min: Vector3
+    public field mutable Min: vec3
     field Padding0: float32
-    public field mutable Max: Vector3
+    public field mutable Max: vec3
     field Padding1: float32
 
-    new(min: Vector3, max: Vector3) =
+    new(min: vec3, max: vec3) =
         {
             Min = min
             Max = max
@@ -1081,14 +1073,14 @@ struct AABB =
         }
 
 struct FrustumPlanes =
-    Left: Vector4 get
-    Right: Vector4 get
-    Top: Vector4 get
-    Bottom: Vector4 get
-    Near: Vector4 get
-    Far: Vector4 get
+    Left: vec4 get
+    Right: vec4 get
+    Top: vec4 get
+    Bottom: vec4 get
+    Near: vec4 get
+    Far: vec4 get
 
-    new(left: Vector4, right: Vector4, top: Vector4, bottom: Vector4, near: Vector4, far: Vector4) =
+    new(left: vec4, right: vec4, top: vec4, bottom: vec4, near: vec4, far: vec4) =
         {
             Left = left
             Right = right
@@ -1100,7 +1092,7 @@ struct FrustumPlanes =
 
     Length: int32 get() = 6
 
-    get_Item(index: int32): Vector4 =
+    get_Item(index: int32): vec4 =
         match (index)
         | 0 => this.Left
         | 1 => this.Right
@@ -1113,13 +1105,13 @@ struct FrustumPlanes =
 
 #[open]
 extension Matrix4x4Extensions =
-    inherits Matrix4x4
+    inherits System.Numerics.Matrix4x4
 
     GetFrustumPlanes(): FrustumPlanes =
         let m = this
             
         let leftPlane =
-            Vector4(
+            vec4(
                 m.M14 + m.M11,
                 m.M24 + m.M21,
                 m.M34 + m.M31,
@@ -1127,7 +1119,7 @@ extension Matrix4x4Extensions =
             )
 
         let rightPlane =
-            Vector4(
+            vec4(
                 m.M14 - m.M11,
                 m.M24 - m.M21,
                 m.M34 - m.M31,
@@ -1135,7 +1127,7 @@ extension Matrix4x4Extensions =
             )
 
         let topPlane =
-            Vector4(
+            vec4(
                 m.M14 - m.M12,
                 m.M24 - m.M22,
                 m.M34 - m.M32,
@@ -1143,7 +1135,7 @@ extension Matrix4x4Extensions =
             )
 
         let bottomPlane =
-            Vector4(
+            vec4(
                 m.M14 + m.M12,
                 m.M24 + m.M22,
                 m.M34 + m.M32,
@@ -1151,7 +1143,7 @@ extension Matrix4x4Extensions =
             )
 
         let nearPlane =
-            Vector4(
+            vec4(
                 m.M13,
                 m.M23,
                 m.M33,
@@ -1159,7 +1151,7 @@ extension Matrix4x4Extensions =
             )
 
         let farPlane =
-            Vector4(
+            vec4(
                 m.M14 - m.M13,
                 m.M24 - m.M23,
                 m.M34 - m.M33,
@@ -1179,12 +1171,12 @@ extension Matrix4x4Extensions =
         let mutable i = 0
         while (i < 6)
             let plane = &planes[i]
-            let length = MathF.Sqrt((plane.X * plane.X) + (plane.Y * plane.Y) + (plane.Z * plane.Z))
+            let length = MathF.Sqrt((plane.x * plane.x) + (plane.y * plane.y) + (plane.z * plane.z))
             
-            plane.X <- plane.X / length
-            plane.Y <- plane.Y / length
-            plane.Z <- plane.Z / length
-            plane.W <- plane.W / length
+            plane.x <- plane.x / length
+            plane.y <- plane.y / length
+            plane.z <- plane.z / length
+            plane.w <- plane.w / length
             i <- i + 1
 
         FrustumPlanes(
@@ -1496,14 +1488,14 @@ module BenchmarkModule =
 module Geometry =
 
     class Mesh =
-        Vertices:   mutable Vector3[] get
+        Vertices:   mutable vec3[] get
         Indices:    mutable uint32[] get
-        Normals:    mutable Vector3[] get
-        TexCoords:  mutable Vector2[] get
+        Normals:    mutable vec3[] get
+        TexCoords:  mutable vec2[] get
         AABB:       AABB get
         MaterialIndex: int32 get
     
-        new(vertices: mutable Vector3[], indices: mutable uint32[], normals: mutable Vector3[], texCoords: mutable Vector2[], aabb: AABB, materialIndex: int32) =
+        new(vertices: mutable vec3[], indices: mutable uint32[], normals: mutable vec3[], texCoords: mutable vec2[], aabb: AABB, materialIndex: int32) =
             {
                 Vertices = vertices;
                 Indices = indices;

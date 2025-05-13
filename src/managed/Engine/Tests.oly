@@ -85,8 +85,8 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
         clientWorld.CopyTo(clientWorldCopy)
         clientSnapshotWorld.DeserializeReplication(replicationStream, clientWorldCopy, clientWorld, false)
 
-    serverWorld.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
-    serverWorld.SpawnStaticBox(Vector3.Zero, Quaternion.Identity, Vector3.One, Material())
+    serverWorld.SpawnBox(vec3.Zero, Quaternion.Identity, vec3.One, 1, Material())
+    serverWorld.SpawnStaticBox(vec3.Zero, Quaternion.Identity, vec3.One, Material())
     let entId = serverWorld.SpawnPlayer(1, /* isHost = */ false)
 
     serverWorld.UnlockedDatabase.AddOrUpdate(entId, Health())
@@ -109,7 +109,7 @@ SerializeDeserializePlayer2(genv: GameEnv): () =
     let serverWorld2 = ServerWorld(genv)
     let serverStagingWorld2 = World(EntityDatabaseKind.Server)
 
-    serverWorld2.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    serverWorld2.SpawnBox(vec3.Zero, Quaternion.Identity, vec3.One, 1, Material())
     let entId2 = serverWorld2.SpawnPlayer(1, /* isHost = */ false)
 
     serverWorld2.CopyTo(serverStagingWorld2)
@@ -166,7 +166,7 @@ SerializeDeserializePlayer3(genv: GameEnv): () =
     let serverWorld2 = ServerWorld(genv)
     let serverStagingWorld2 = World(EntityDatabaseKind.Server)
 
-    serverWorld2.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    serverWorld2.SpawnBox(vec3.Zero, Quaternion.Identity, vec3.One, 1, Material())
     let entId2 = serverWorld2.SpawnPlayer(1, /* isHost = */ false)
 
     serverWorld2.CopyTo(serverStagingWorld2)
@@ -227,7 +227,7 @@ SerializeDeserializePlayer4(genv: GameEnv): () =
     EntityDatabase.SyncArchetypesIfNeccessary(serverSnapshotWorld.Database, serverWorld2.Database)
     EntityDatabase.SyncArchetypesIfNeccessary(serverSnapshotWorld.Database, serverStagingWorld2.Database)
 
-    serverWorld2.SpawnBox(Vector3.Zero, Quaternion.Identity, Vector3.One, 1, Material())
+    serverWorld2.SpawnBox(vec3.Zero, Quaternion.Identity, vec3.One, 1, Material())
     let entId2 = serverWorld2.SpawnPlayer(1, /* isHost = */ false)
 
     serverWorld2.CopyTo(serverStagingWorld2)

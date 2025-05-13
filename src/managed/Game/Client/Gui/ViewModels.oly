@@ -104,11 +104,11 @@ class DiagnosticsViewModel =
 class EntityInfoOverlayViewModel =
 
     Id: Var<EntityId> get = Var(EntityId.Nil)
-    Position: Var<Vector2> get = Var(Vector2.Zero)
-    InfoPosition: Var<Vector3> get = Var(Vector3.Zero)
+    Position: Var<vec2> get = Var(vec2.Zero)
+    InfoPosition: Var<vec3> get = Var(vec3.Zero)
     InfoRotation: Var<Quaternion> get = Var(Quaternion.Identity)
-    InfoLinearVelocity: Var<Vector3> get = Var(Vector3.Zero)
-    InfoAngularVelocity: Var<Vector3> get = Var(Vector3.Zero)
+    InfoLinearVelocity: Var<vec3> get = Var(vec3.Zero)
+    InfoAngularVelocity: Var<vec3> get = Var(vec3.Zero)
 
 class ConsoleViewModel =
 

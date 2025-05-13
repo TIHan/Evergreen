@@ -304,8 +304,8 @@ private module Rendering =
                     let position = curr.Position - item.Camera.Direction * (item.Camera.FarPlaneDistance / 2)
 
                     // We round to stabilize the shadows when the target camera is moving.
-                    let roundedPrevPosition = Vector3(MathF.Round(prevPosition.X), MathF.Round(prevPosition.Y), MathF.Round(prevPosition.Z))
-                    let roundedPosition = Vector3(MathF.Round(position.X), MathF.Round(position.Y), MathF.Round(position.Z))
+                    let roundedPrevPosition = round(prevPosition)
+                    let roundedPosition = round(position)
 
                     item.PreviousCameraTransform <- item.PreviousCamera.GetTransform(roundedPrevPosition)
                     item.CameraTransform <- item.Camera.GetTransform(roundedPosition)
@@ -338,7 +338,7 @@ private module Rendering =
                         LogClientWarning("Unable to invert view")
 
                     let lerpTransform = Transform.FromMatrix(Matrix4x4.Lerp(prevTransform.Matrix, transform.Matrix, alpha))
-                    sLight.Direction <- Vector4(lerpTransform.Direction, 0)
+                    sLight.Direction <- vec4(lerpTransform.Direction, 0)
 
                     lightCount <- lightCount + 1
         )

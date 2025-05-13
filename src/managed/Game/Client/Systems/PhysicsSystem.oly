@@ -59,10 +59,10 @@ class ClientPhysicsSystem =
     private struct EntityPredictionInfo =
         public field IsValid: bool
         public field Frame: FrameNumber
-        public field mutable Position: Vector3
-        public field mutable LinearVelocity: Vector3
+        public field mutable Position: vec3
+        public field mutable LinearVelocity: vec3
         public field mutable Sequence: ByteSequence
-        new(frame: FrameNumber, position: Vector3, linearVelocity: Vector3, seq: ByteSequence) =
+        new(frame: FrameNumber, position: vec3, linearVelocity: vec3, seq: ByteSequence) =
             {
                 IsValid = frame.IsValid
                 Frame = frame

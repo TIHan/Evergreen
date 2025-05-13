@@ -534,10 +534,10 @@ module AssetHelpers =
     
         let callbackMesh(egMesh: EgAssetMesh) = 
             let meshDesc =
-                let vertices = zeroArray<Vector3>(int32(egMesh.vertexCount))
-                let normals = zeroArray<Vector3>(int32(egMesh.vertexCount))
+                let vertices = zeroArray<vec3>(int32(egMesh.vertexCount))
+                let normals = zeroArray<vec3>(int32(egMesh.vertexCount))
                 let indices = zeroArray<uint32>(int32(egMesh.indexCount))
-                let texCoords = zeroArray<Vector2>(int32(egMesh.vertexCount))
+                let texCoords = zeroArray<vec2>(int32(egMesh.vertexCount))
     
                 Span(Unsafe.Cast<void*>(egMesh.vertices), vertices.Length).CopyTo(Span(vertices))
                 Span(Unsafe.Cast<void*>(egMesh.normals), normals.Length).CopyTo(Span(normals))

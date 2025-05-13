@@ -186,10 +186,10 @@ WorldToClip(viewProjection: Matrix4x4, worldPosition: Vector3): Vector3 =
     let postProjPos = Vector4.Transform(Vector4(worldPosition, 1), viewProjection)
     Vector3(postProjPos.X / postProjPos.W, postProjPos.Y / postProjPos.W, postProjPos.Z / postProjPos.W)
 
-ClipToScreen(screenSize: Vector2, clipPosition: Vector3): Vector2 =
-    Vector2(
-        (1 + clipPosition.X) * (screenSize.X / 2), 
-        (1 - clipPosition.Y) * (screenSize.Y / 2)
+ClipToScreen(screenSize: vec2, clipPosition: vec3): vec2 =
+    vec2(
+        (1 + clipPosition.x) * (screenSize.x / 2), 
+        (1 - clipPosition.y) * (screenSize.y / 2)
     )
 
 struct Editor =
@@ -292,14 +292,14 @@ struct StaticRigidBody =
     IsSensor: bool get() = this.Flags.HasFlag(StaticRigidBodyFlags.IsSensor)
 
 struct Character =
-    public field mutable LinearVelocity: Vector3 = Vector3.Zero
+    public field mutable LinearVelocity: vec3 = vec3.Zero
 
 enum VirtualCharacterFlags =
     | None   = 0b000
     | Noclip = 0b001
 
 struct VirtualCharacter =
-    public field mutable LinearVelocity: Vector3 = Vector3.Zero
+    public field mutable LinearVelocity: vec3 = vec3.Zero
     public field mutable Speed: float32 = 1
     public field mutable Flags: VirtualCharacterFlags = VirtualCharacterFlags.None
 
