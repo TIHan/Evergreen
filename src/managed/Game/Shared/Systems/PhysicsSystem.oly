@@ -262,7 +262,7 @@ abstract class PhysicsSystem =
                             #[inline]
                             let mapVertex(i: int32) =
                                 let v = mesh.Vertices[i]
-                                vec3(v.x * scale.x, v.y * scale.y, v.z * scale.z)
+                                vec3(v.X * scale.X, v.Y * scale.Y, v.Z * scale.Z)
                 
                             let vertices = ReadOnlyMemory(initMutableArray(mesh.Vertices.Length, mapVertex))
                             let indices = ReadOnlyMemory(mesh.Indices)

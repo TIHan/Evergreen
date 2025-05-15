@@ -131,8 +131,8 @@ struct Camera =
         let m = mat4.CreateLookAt(cameraPosition, targetPosition, vec3.Down)
         let q = quat.CreateFromRotationMatrix(m)
         let angles = q.ToEulerAngles()
-        this.Yaw <- radians(90) + angles.x
-        this.Pitch <- angles.y
+        this.Yaw <- radians(90) + angles.X
+        this.Pitch <- angles.Y
         this.Roll <- 0
 
     Direction: vec3
