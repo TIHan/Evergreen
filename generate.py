@@ -41,7 +41,7 @@ run('msbuild /p:Configuration=Release src/native/libs/Evergreen.Physics/Evergree
 run("""
 ClangSharpPInvokeGenerator 
     -n Evergreen.Physics.Backend.Jolt.Interop 
-    -l Evergreen.Physics.Backend.Jolt.Native.dll 
+    -l Evergreen.Physics.Native.dll 
     --file src/native/libs/Evergreen.Physics/egJolt.h 
     -o src/managed/Physics/Backend/Jolt/Interop/api 
     -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators

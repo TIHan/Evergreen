@@ -7,12 +7,12 @@
 #reference "Backend/Jolt/Interop/Evergreen.Physics.Backend.Jolt.Interop.csproj"
 
 #if DEBUG
-#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.dll"
-#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Backend.Jolt.Native.pdb"
+#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Native.dll"
+#copy "../../native/libs/Evergreen.Physics/x64/Debug/Evergreen.Physics.Native.pdb"
 #end
 
 #if RELEASE
-#copy "../../native/libs/Evergreen.Physics/x64/Release/Evergreen.Physics.Backend.Jolt.Native.dll"
+#copy "../../native/libs/Evergreen.Physics/x64/Release/Evergreen.Physics.Native.dll"
 #end
 
 namespace Evergreen.Physics
