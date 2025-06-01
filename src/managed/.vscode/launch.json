@@ -1,20 +1,11 @@
 {
     "version": "0.2.0",
-    "compounds": [
-        {
-        "name": "Oly Interpreter Launch",
-        "configurations": [""],
-        "preLaunchTask": "oly",
-        "stopAll": true
-        }
-    ],
     "configurations": [
         {
             "name": ".NET Core Launch (console)",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "oly-compile",
-            "program": "${fileDirname}/bin/dotnet/${fileBasenameNoExtension}/${fileBasenameNoExtension}.dll",
+            "program": "${command:oly.compile}",
             "args": ["../../data/base"],
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",
