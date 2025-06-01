@@ -1,4 +1,5 @@
 #target "dotnet: net8"
+#library
 
 #load "*.oly"
 
