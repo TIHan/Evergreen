@@ -4,6 +4,7 @@
 #load "*.oly"
 #load "Systems/*.oly"
 #load "Rendering/*.oly"
+#load "Rendering/Renderer/*.oly"
 #load "Gui/*.oly"
 
 #reference "../Shared/Game.Shared.olyx"
