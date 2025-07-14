@@ -76,7 +76,7 @@ class NetworkServer =
         onMessageReceived: (IPEndPoint, ByteStream, channel: byte) -> ()) = 
         if (desiredPort <= 0)
             throw ArgumentOutOfRangeException("desiredPort")
-        { 
+        this { 
             iv = Encryption.IV.Create()
             endPointsToDisconnect = HashSet()
             socket =

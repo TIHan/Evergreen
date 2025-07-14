@@ -15,7 +15,7 @@ open static Evergreen.Graphics.UI.Backend.ImGui.Interop.Methods
 private alias Unsafe = OlyPrelude.Unsafe
 
 #[blittable]
-#[UnmanagedCallersOnly(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+#[UnmanagedCallersOnly() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
 private CheckIntializeVulkan(result: VkResult): () =
     if (result != VkResult.VK_SUCCESS)
         fail("Failed to intialize ImGui.")
@@ -228,7 +228,7 @@ LabelText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable text
     egImGuiLabelText(context.Context, Unsafe.Cast(labelPtr), Unsafe.Cast(textPtr))
 
 #[blittable]
-#[UnmanagedCallersOnly(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+#[UnmanagedCallersOnly() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
 private InputTextCallbackNop(x: EgImGui_InputTextCallbackData*): int32 =
     0
 

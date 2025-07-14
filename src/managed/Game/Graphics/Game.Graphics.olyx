@@ -37,7 +37,7 @@ struct DrawInfo =
     DrawQueue: DrawQueue get
 
     new(aabb: AABB, drawCmdIndex: int32) =
-        {
+        this {
             Transforms = List()
             AABB = aabb
             DrawCommandIndex = drawCmdIndex
@@ -59,7 +59,7 @@ struct RenderFrame =
     FrameData: GpuBuffer<GlobalShaderData> get
     FrameDataDescriptorSet: GpuDescriptorSet get
     new(frame: GpuFrame, frameData: GpuBuffer<GlobalShaderData>, frameDataDS: GpuDescriptorSet) =
-        {
+        this {
             Frame = frame
             FrameData = frameData
             FrameDataDescriptorSet = frameDataDS
@@ -191,7 +191,7 @@ class RenderLighting =
         let createGlobalBuffer() =
             GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1, (_) -> GlobalShaderData())
         
-        {
+        this {
             MeshShadowMapsFrameLayer = createFrameLayer()
             SpriteShadowMapsFrameLayer = createFrameLayer()
             CountBuffer = GpuBuffer.Initialize(GpuBufferKind.Uniform, GpuMemoryKind.Shared, 1, (_) -> 0)
@@ -263,7 +263,7 @@ class RenderFrameEnv =
     Textures: ShaderTextures get
 
     new(renv: RenderEnv) =
-        {
+        this {
             RenderEnvironment = renv
             Textures = ShaderTextures()
         }
@@ -274,7 +274,7 @@ struct Vertex =
     public field TexCoord: vec2
 
     new(position: vec3, normal: vec3, texCoord: vec2) =
-        {
+        this {
             Position = position
             Normal = normal
             TexCoord = texCoord
@@ -291,7 +291,7 @@ class RenderMesh =
     MaterialIndex: int32 get
 
     new(vertices: GpuBuffer<Vertex>, indices: GpuBuffer<uint32>, aabb: AABB, materialIndex: int32) =
-        {
+        this {
             Vertices = vertices
             Indices = indices
             AABB = aabb
@@ -300,7 +300,7 @@ class RenderMesh =
 
 class RenderMeshGroup =
     Meshes: RenderMesh[] get
-    new(meshes: RenderMesh[]) = { Meshes = meshes }
+    new(meshes: RenderMesh[]) = this { Meshes = meshes }
 
 class RenderEnv =
     Window: Evergreen.Window.IWindow get
@@ -438,7 +438,7 @@ class RenderEnv =
         let screenTransform = Transform(vec3.Zero, Quaternion.Identity, vec3.One)
         let screenTransform = GpuBuffer.Initialize<Matrix4x4>(GpuBufferKind.Storage, GpuMemoryKind.Local, 1, i -> screenTransform.Matrix)
 
-        {
+        this {
             Window = r.Window
             Gpu = r.Gpu
             PipelineUI = gpuPipelineUI
@@ -496,7 +496,7 @@ struct MeshKey =
     public field MaterialIndex: int32
 
     new(id: Int32Id, offset: int32, materialIndex: int32) =
-        {
+        this {
             Id = id
             Offset = offset
             MaterialIndex = materialIndex         
@@ -508,7 +508,7 @@ struct RenderKey =
     public field MeshKey: MeshKey
     public field Order: byte
     new(pipelineId: Int32Id, meshKey: MeshKey, material: Material, order: byte) =
-        {
+        this {
             PipelineId = pipelineId
             Material = material
             MeshKey = meshKey
@@ -534,7 +534,7 @@ struct DrawBatchShaderData =
     public field Index: int32
     public field BaseOffset: int32
     new(index: int32, baseOffset: int32) =
-        {
+        this {
             Index = index
             BaseOffset = baseOffset
         }
@@ -799,7 +799,7 @@ class InstanceOutputs =
     LightCamerasComputeDescriptorSets: GpuDescriptorSet[] get
     
     new(maxLightCount: int32) =
-        {
+        this {
             PlayerCamera = GpuBuffer.ZeroCreate(GpuBufferKind.Storage, GpuMemoryKind.Local, 65536)
             PlayerCameraDrawCommands = GpuBuffer.ZeroCreate<VkDrawIndexedIndirectCommand>(GpuBufferKind.IndirectStorage, GpuMemoryKind.Local, 65536)
             PlayerCameraComputeDescriptorSet =

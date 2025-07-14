@@ -30,7 +30,7 @@ internal class LoopStream =
     EnableLooping: bool get, set
 
     new(sourceStream: WaveStream) =
-        base(sourceStream) with {
+        base(sourceStream) {
             sourceStream = sourceStream
             EnableLooping = true
         }
@@ -77,7 +77,7 @@ internal class NAudioPlaybackEngine =
         mixer.ReadFully <- true
         outputDevice.Init(SampleToWaveProvider(mixer))
         outputDevice.Play()
-        {
+        this {
             outputDevice = outputDevice
             mixer = mixer
         }
@@ -112,7 +112,7 @@ internal class SoundToSampleProvider =
     internal Position: int64 get, set
 
     new(floatData: mutable float32[], waveFormat: WaveFormat) =
-        {
+        this {
             floatData = floatData
             Position = 0
             volume = 1
@@ -165,7 +165,7 @@ internal class SoundToSampleExtendedProvider =
             else
                 throw NotImplementedException("Not yet implemented this channel count conversion")
         
-        {
+        this {
             SoundToSampleProvider = soundToSamplerProvider
             PitchShiftingProvider = pitchShiftingProvider
             OutputProvider = outputProvider
@@ -207,7 +207,7 @@ internal class SoundToSampleExtendedProvider =
 struct SoundPlayback =
     internal Provider: SoundToSampleExtendedProvider get
     internal new(provider: SoundToSampleExtendedProvider) =
-        {
+        this {
             Provider = provider
         }
 
@@ -286,7 +286,7 @@ class Sound =
 
             let floatData = wholeFile.ToArray()   
             
-            {
+            this {
                 FloatData = floatData
                 WaveFormat = waveFormat
                 Audio = audio
@@ -313,7 +313,7 @@ class Sound =
                 
             let floatData = wholeFile.ToArray()    
             
-            {
+            this {
                 FloatData = floatData
                 WaveFormat = waveFormat
                 Audio = audio
@@ -341,7 +341,7 @@ class Audio =
             throw ObjectDisposedException(this.GetType().Name)
 
     new(latency: int32) =
-        {
+        this {
             isDisposed = 0
             Engine = NAudioPlaybackEngine(latency)
         }

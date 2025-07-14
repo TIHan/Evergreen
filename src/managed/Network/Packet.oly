@@ -38,7 +38,7 @@ internal struct PacketSmallMessageHeader =
         match (kind)
         | PacketKind.SmallUnreliable => ()
         | _ => fail("Invalid packet kind")
-        { Kind = kind; Channel = channel }
+        this { Kind = kind; Channel = channel }
 
 internal struct PacketMessageHeader =
     public field Kind: PacketKind
@@ -48,7 +48,7 @@ internal struct PacketMessageHeader =
     public field FragmentCount: uint16
     public field TotalDataSize: int32
     new(kind: PacketKind, channel: byte, seqId: uint16, fragIndex: uint16, fragCount: uint16, totalDataSize: int32) =
-        {
+        this {
             Kind = kind
             Channel = channel
             SequenceId = seqId
@@ -248,7 +248,7 @@ internal class PacketPool =
                 packet.IsInPool <- true
                 pool.Push(packet)
         )
-        {
+        this {
             pool = pool
         }
 

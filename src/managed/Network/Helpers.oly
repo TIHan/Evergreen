@@ -23,7 +23,7 @@ internal struct LagSimulatedPacket =
     Time: float32 get
     new(packet: Packet, time: float32) =
         packet.Stream.ResetPosition()
-        {
+        this {
             Packet = packet
             Time = time
         }

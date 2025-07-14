@@ -126,7 +126,7 @@ class Renderer =
                 [aabbs: IGpuInput]
             )
 
-        {
+        this {
             FrustumCullingPipelineId = frustumCullingPipelineId
             Behavior = behavior
             NoOutlineLookup = noOutlineLookup

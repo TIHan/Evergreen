@@ -18,7 +18,7 @@ class ImGuiContext =
     internal DestroyTextureQueue: System.Collections.Concurrent.ConcurrentQueue<VkDescriptorSet> get
 
     internal new(vk: Evergreen.Graphics.Backend.Vulkan.VulkanApplication, context: EgImGuiContext, hwnd: nint) =
-        {
+        this {
             vk = vk
             Context = context
             isFirstFrame = true
@@ -39,7 +39,7 @@ class ImGuiInputTextCallback =
     new(
             callback: byref<EgImGui_InputTextCallbackData> -> int32
         ) =
-        {
+        this {
             callback = callback
             CallbackDelegate = DotNet.CreateDelegate(this, &&this.Callback)
         }

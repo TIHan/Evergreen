@@ -111,7 +111,7 @@ class ClientWorld =
 
     new(genv: GameEnv, isListenServer: bool) =
         let db = UnlockedEntityDatabase(EntityDatabaseKind.Client, ClientWorld.CreateRegistry(genv))
-        base(db) with {
+        base(db) {
             PredictionEnabled = true
             IsListenServer = isListenServer
             Physics = 

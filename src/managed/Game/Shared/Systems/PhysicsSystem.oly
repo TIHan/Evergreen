@@ -167,7 +167,7 @@ struct ContactAddedArgs =
     Point2: Vector3 get
 
     new(entId1: EntityId, point1: Vector3, entId2: EntityId, point2: Vector3) =
-        {
+        this {
             Entity1 = entId1
             Point1 = point1
             Entity2 = entId2
@@ -355,7 +355,7 @@ abstract class PhysicsSystem =
         )
 #end
 
-        { 
+        this { 
             kind = kind
             db = db
             physics = physics

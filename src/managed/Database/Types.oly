@@ -665,7 +665,7 @@ internal class ChunkedItemStore<MaxItemCount, ItemsPerChunk>
                 length
 
     new(itemSize: int32) =
-        {
+        this {
             ItemSize = itemSize
             chunks = zeroArray(MaxItemCount / ItemsPerChunk)
             chunkCount = 0
@@ -773,7 +773,7 @@ internal class ComponentBuffer =
     DeserializeDeltaForNetwork: DeserializeDeltaForNetworkFunction get
 
     new(typeId: ComponentId, index: int32, typeSize: int32, ty: Type, compName: string, serializeDeltaForNetwork: SerializeDeltaForNetworkFunction, deserializeDeltaForNetwork: DeserializeDeltaForNetworkFunction) =
-        {          
+        this {          
             Store = ChunkedItemStore(typeSize)
             ComponentId = typeId
             ComponentIndex = index

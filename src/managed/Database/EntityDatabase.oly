@@ -24,7 +24,7 @@ internal struct RegistryEntry =
     DeserializeDeltaForNetwork: DeserializeDeltaForNetworkFunction get
 
     new(name: string, size: int32, ty: Type, index: int32, serializeDeltaForNetwork: SerializeDeltaForNetworkFunction, deserializeDeltaForNetwork: DeserializeDeltaForNetworkFunction) =
-        {
+        this {
             Name = name
             Size = size
             Type = ty
@@ -210,7 +210,7 @@ abstract default class EntityDatabase =
         let registryCopy = registry.Copy()
         registryCopy.RegisterInternal<BuiltInComponents.ServerSide>(false)
         registryCopy.RegisterInternal<BuiltInComponents.ClientSide>(false)
-        {
+        this {
             Kind = kind
             depth = 0
             parallelDepth = 0

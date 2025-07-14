@@ -29,7 +29,7 @@ class DoubleBuffer<T> =
     field buffer1: T
 
     new(buffer0: T, buffer1: T) =
-        {
+        this {
             currentIndex = 0
             buffer0 = buffer0
             buffer1 = buffer1
@@ -135,7 +135,7 @@ class GameTime =
     Now(): int64 = this.Stopwatch.ElapsedTicks
 
     new(stopwatch: Stopwatch, frame: FrameNumber, timeTicks: int64, deltaTimeTicks: int64) =
-        {
+        this {
             Stopwatch = stopwatch
             Frame = frame
 
@@ -290,7 +290,7 @@ struct ByteStreamPosition =
         if (bitCount > 8)
             throw ArgumentOutOfRangeException("bitCount")
 #end
-        {
+        this {
             Index = index
             BitIndex = bitIndex
             BitCount = bitCount
@@ -305,7 +305,7 @@ class ByteStream =
     field mutable deltaCount: int32
 
     new(capacity: int32) =
-        {
+        this {
             isResizeable = true
             buffer = zeroArray(capacity)
             position = 0
@@ -318,7 +318,7 @@ class ByteStream =
         ByteStream(8)
 
     new(buffer: mutable byte[]) =
-        {
+        this {
             isResizeable = false
             buffer = buffer
             position = 0
@@ -328,7 +328,7 @@ class ByteStream =
         }
 
     new(buffer: mutable byte[], length: int32) =
-        {
+        this {
             isResizeable = false
             buffer = buffer
             position = 0
@@ -338,7 +338,7 @@ class ByteStream =
         }
 
     new(buffer: mutable byte[], offset: int32, length: int32) =
-        {
+        this {
             isResizeable = false
             buffer = buffer
             position = offset
@@ -658,7 +658,7 @@ class ExternalProcess =
         startInfo.UseShellExecute <- false
         startInfo.CreateNoWindow <- true
 
-        {
+        this {
             p =
                 let p = Process()
                 p.StartInfo <- startInfo
@@ -670,7 +670,7 @@ class ExternalProcess =
 
             field f: DataReceivedEventArgs -> ()
             new(f: DataReceivedEventArgs -> ()) =
-                {
+                this {
                     f  = f
                 }
 
@@ -738,7 +738,7 @@ internal class Subscription =
     private Unsubscribe: () -> () get
 
     new(unsubscribe: () -> ()) =
-        {
+        this {
             Unsubscribe = unsubscribe
         }
 
@@ -749,7 +749,7 @@ internal class Observer<T> =
 
     field callback: T -> ()
 
-    new(callback: T -> ()) = { callback = callback }
+    new(callback: T -> ()) = this { callback = callback }
 
     OnCompleted(): () = ()
 
@@ -805,7 +805,7 @@ class Var<T> =
                     ForEach(this.subscribers, observer -> observer.OnNext(value))
             )
 
-    new(value: T) = { value = value; subscribers = List(); lockObj = Object() }
+    new(value: T) = this { value = value; subscribers = List(); lockObj = Object() }
 
 interface IEvent<T> =
     inherits IObservable<T>
@@ -822,7 +822,7 @@ class Event<T> =
 
         field event: Event<T>
         new(event: Event<T>) =
-            {
+            this {
                 event = event
             }
 
@@ -950,13 +950,13 @@ struct OptionStruct<T> =
     field Value: T
 
     private new() =
-        {
+        this {
             HasValue = false
             Value = unchecked default
         }
 
     private new(value: T) =
-        {
+        this {
             HasValue = true
             Value = value
         }
@@ -1065,7 +1065,7 @@ struct AABB =
     field Padding1: float32
 
     new(min: vec3, max: vec3) =
-        {
+        this {
             Min = min
             Max = max
             Padding0 = 0
@@ -1081,7 +1081,7 @@ struct FrustumPlanes =
     Far: vec4 get
 
     new(left: vec4, right: vec4, top: vec4, bottom: vec4, near: vec4, far: vec4) =
-        {
+        this {
             Left = left
             Right = right
             Top = top
@@ -1194,7 +1194,7 @@ module Machine =
         Name: string get
         Value: uint64 get
         new(name: string, value: object) = 
-            { Name = name; Value = Convert.ToUInt64(value) }
+            this { Name = name; Value = Convert.ToUInt64(value) }
 
     GetProcessorUsages(): ProcessorUsage[] =
         // windows only
@@ -1346,7 +1346,7 @@ module Json =
         RentedBuffer: mutable byte[] get
 
         new(stream: Stream, rentedBuffer: mutable byte[]) =
-            {
+            this {
                 Stream = stream
                 RentedBuffer = rentedBuffer
             }
@@ -1496,7 +1496,7 @@ module Geometry =
         MaterialIndex: int32 get
     
         new(vertices: mutable vec3[], indices: mutable uint32[], normals: mutable vec3[], texCoords: mutable vec2[], aabb: AABB, materialIndex: int32) =
-            {
+            this {
                 Vertices = vertices;
                 Indices = indices;
                 Normals = normals;
@@ -1507,4 +1507,4 @@ module Geometry =
     
     class MeshGroup =
         Meshes: Mesh[] get
-        new(meshes: Mesh[]) = { Meshes = meshes }
+        new(meshes: Mesh[]) = this { Meshes = meshes }

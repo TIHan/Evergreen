@@ -59,7 +59,7 @@ class ClientGame =
 
     new(genv: GameEnv, clientEventPublisher: ClientEventPublisher) =
         let env = ClientEnv(genv, clientEventPublisher) 
-        {
+        this {
             Executing = false
             Env = env
             SceneTask = None
@@ -320,7 +320,7 @@ struct ClientCommandReader =
     internal Tag: ClientCommandTag get
     internal Stream: ByteStream get
     new(stream: ByteStream) =
-        {
+        this {
             Tag = stream.Peek()
             Stream = stream
         }
@@ -377,7 +377,7 @@ internal struct ClientState =
     Password: string get
 
     new(connectionStatus: ConnectionStatus, clientEntId: EntityId, inputLatency: int64, ping: int64, address: string, port: int32, password: string) =
-        {
+        this {
             ConnectionStatus = connectionStatus
             LocalPlayerId = clientEntId
             InputLatency = inputLatency
@@ -414,7 +414,7 @@ class LocalPlayer =
     private R: RenderGame get
 
     internal new(clGame: ClientGameProxy, rGame: RenderGame) =
-        {
+        this {
             CL = clGame
             R = rGame
         }
@@ -498,7 +498,7 @@ class ClientGameProxy =
 
     new(genv: GameEnv, renv: RenderEnv, clientEventPublisher: ClientEventPublisher) =
         let backgroundClientEventStream = ByteStream()
-        {
+        this {
             ClientEventPublishers = DoubleBuffer(clientEventPublisher, ClientEventPublisher(backgroundClientEventStream))
             BackgroundClientEventStream = backgroundClientEventStream
             ClientCommandStreams = DoubleBuffer(ByteStream(), ByteStream())

@@ -17,7 +17,7 @@ internal class Encryption =
 
     class IV =
         field buffer: mutable byte[]
-        private new() = { buffer = zeroArray(128 / 8) }
+        private new() = this { buffer = zeroArray(128 / 8) }
 
         Regenerate(): () =
             let mutable guid = Guid.NewGuid()
@@ -37,7 +37,7 @@ internal class Encryption =
     private SendBuffer: mutable byte[] get
     private ReceiveBuffer: mutable byte[] get
     new() = 
-        { SendBuffer = zeroArray(NetworkMTU.Amount); ReceiveBuffer = zeroArray(NetworkMTU.Amount) }
+        this { SendBuffer = zeroArray(NetworkMTU.Amount); ReceiveBuffer = zeroArray(NetworkMTU.Amount) }
 
     SendPacket(socket: Socket, srcPacket: Packet, iv: IV): int32 =
         let numberOfBytesToSend = Encrypt(srcPacket, iv, this.SendBuffer.AsSpan())

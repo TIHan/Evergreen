@@ -50,7 +50,7 @@ struct PhysicsObject =
     internal HasInvalidTag: bool get() = this.tag == -1
 
     internal new (tag: int32, objId: uint32) =
-        {
+        this {
             tag = tag
             objId = objId
         }
@@ -65,7 +65,7 @@ struct PhysicsMesh =
     public field mutable Vertices: ReadOnlyMemory<vec3>
     public field mutable Indices: ReadOnlyMemory<uint32>
     new(vertices: ReadOnlyMemory<vec3>, indices: ReadOnlyMemory<uint32>) =
-        {
+        this {
             Vertices = vertices
             Indices = indices
         }
@@ -132,7 +132,7 @@ class Physics =
                 contactPersisted: (bodyId1: uint32, userData1: uint64, bodyId2: uint32, userData2: uint64) -> (),
                 shouldCollide: (layer1: byte, layer2: byte) -> bool
             ) =
-            {
+            this {
                 contactAdded = contactAdded
                 ContactAddedDelegate = DotNet.CreateDelegate(this, &&this.ContactAdded)
 
@@ -180,7 +180,7 @@ class Physics =
     internal new(callbacks: Callbacks, instance: EgJoltInstance, characterIdLookup: ConcurrentDictionary<void*, CharacterInfo>, virtualCharacterIdLookup: ConcurrentDictionary<void*, VirtualCharacterInfo>) =
         // Earth gravity by default
         egJoltSetGravity(instance, StandardGravity)
-        {
+        this {
             callbacks = callbacks
             Bodies = ConcurrentDictionary()
             dynamicCount = 0

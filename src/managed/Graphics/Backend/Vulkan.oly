@@ -175,7 +175,7 @@ class VulkanApplication =
         let computeCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, computeQueueFamilyIndex))
         let transferCommandPools = initArray(maxFramesInFlight, (_) -> Vk.createCommandPool(device, transferQueueFamilyIndex))
         let asyncGraphicsCommandPool = Vk.createCommandPool(device, transferQueueFamilyIndex)
-        {
+        this {
             ValidationLayersEnabled = validationLayersEnabled
             MaxFramesInFlight = maxFramesInFlight
             AsyncDrawEnabled = asyncDrawEnabled
@@ -218,7 +218,7 @@ class VulkanSwapChainSupportDetails =
     PresentModes: VkPresentModeKHR[] get
 
     new(capabilities: VkSurfaceCapabilitiesKHR, formats: VkSurfaceFormatKHR[], presentModes: VkPresentModeKHR[]) =
-        {
+        this {
             Capabilities = capabilities
             Formats = formats
             PresentModes = presentModes
@@ -238,7 +238,7 @@ class VulkanSwapChain =
     SupportDetails: VulkanSwapChainSupportDetails get
 
     new(swapChain: VkSwapchainKHR, images: VkImage[], imageViews: VkImageView[], depthImages: VulkanImage[], depthImageViews: VkImageView[], extent: VkExtent2D, viewport: VkViewport, scissor: VkRect2D, imageFormat: VkFormat, depthImageFormat: VkFormat, supportDetails: VulkanSwapChainSupportDetails) =
-        {
+        this {
             SwapChain = swapChain
             Images = images
             ImageViews = imageViews
@@ -268,7 +268,7 @@ class VulkanApplicationOptions =
         StageFlags: VkShaderStageFlags get
     
         new(binding: uint32, descriptorType: VkDescriptorType, stageFlags: VkShaderStageFlags) =
-            {
+            this {
                 Binding = binding
                 DescriptorType = descriptorType
                 StageFlags = stageFlags
@@ -281,7 +281,7 @@ struct VulkanDescriptorSetLayoutBinding =
     IsBindless: bool get
 
     new(descriptorType: VkDescriptorType, stageFlags: VkShaderStageFlags, count: uint32, isBindless: bool) =
-        {
+        this {
             DescriptorType = descriptorType
             StageFlags = stageFlags
             Count = count
@@ -296,7 +296,7 @@ class VulkanBuffer =
     Flags: VkMemoryPropertyFlags get
 
     new(buffer: VkBuffer, allocation: VmaAllocation, allocInfo: VmaAllocationInfo, size: uint64, flags: VkMemoryPropertyFlags) =
-        {
+        this {
             Buffer = buffer
             Allocation = allocation
             AllocationInfo = allocInfo
@@ -313,7 +313,7 @@ class VulkanImage =
     MipLevels: uint32 get
 
     new(image: VkImage, allocation: VmaAllocation, width: uint32, height: uint32, format: VkFormat, mipLevels: uint32) =
-        {
+        this {
             Image = image
             Allocation = allocation
             Width = width
@@ -513,7 +513,7 @@ struct VulkanImageCreateInfo =
     ArrayLayers: uint32 get, set
 
     new(width: uint32, height: uint32, format: VkFormat, usageFlags: VkImageUsageFlags) =
-        {
+        this {
             Width = width
             Height = height
             Format = format
@@ -534,7 +534,7 @@ struct VulkanImageViewCreateInfo =
     BaseArrayLayer: uint32 get, set
 
     new(image: VkImage, format: VkFormat, apsectMask: VkImageAspectFlags) =
-        {
+        this {
             Image = image
             Format = format
             AspectMask = apsectMask
@@ -544,7 +544,7 @@ struct VulkanImageViewCreateInfo =
         }
 
     new(vulkanImage: VulkanImage, aspectMask: VkImageAspectFlags) =
-        {
+        this {
             Image = vulkanImage.Image
             Format = vulkanImage.Format
             AspectMask = aspectMask
@@ -561,7 +561,7 @@ struct VulkanFramebufferCreateInfo =
     Layers: uint32 get, set
 
     new(renderPass: VkRenderPass, attachments: VkImageView[], width: uint32, height: uint32) =
-        {
+        this {
             RenderPass = renderPass
             Attachments = attachments
             Width = width
@@ -1467,7 +1467,7 @@ module Vk =
         ]
 
     #[blittable]
-    #[UnmanagedCallersOnly(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+    #[UnmanagedCallersOnly() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
     #[DebuggerHidden]
     private debugCallback(messageSeverity: VkDebugUtilsMessageSeverityFlagsEXT, messageType: VkDebugUtilsMessageTypeFlagsEXT, pCallbackData: VkDebugUtilsMessengerCallbackDataEXT*, pUserData: void*): VkBool32 =
         if ((messageSeverity & VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) == VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)

@@ -21,12 +21,12 @@ interface IUnlockedWorld =
 abstract default class World =
 
     new(db: EntityDatabase) =
-        {
+        this {
             Database = db
         }
 
     new(kind: EntityDatabaseKind) =
-        {
+        this {
             Database =
                 let registry = ComponentRegistry()
                 World.RegisterComponents(registry)

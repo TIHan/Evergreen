@@ -22,7 +22,7 @@ open Game.Graphics
 abstract class ShaderName =
 
     private Tag: int32 get
-    private new(tag: int32) = { Tag = tag }
+    private new(tag: int32) = this { Tag = tag }
 
     private class VertexFragmentShaderName =
         inherits ShaderName
@@ -31,7 +31,7 @@ abstract class ShaderName =
         FragmentName: string get
 
         new(vertexName: string, fragmentName: string) =
-            base(0) with {
+            base(0) {
                 VertexName = vertexName
                 FragmentName = fragmentName
             }
@@ -49,7 +49,7 @@ abstract class ShaderName =
         ComputeName: string get
 
         new(computeName: string) =
-            base(1) with {
+            base(1) {
                 ComputeName = computeName
             }
 
@@ -383,7 +383,7 @@ class Resources =
                         )
             )
         
-        {
+        this {
             Maps = maps
             Sounds = soundManager
             Frames = frameManager

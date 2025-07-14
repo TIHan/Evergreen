@@ -22,7 +22,7 @@ internal class ServerScene =
     field StagingWorld: World
 
     private new(sceneName: string, world: ServerWorld) =
-        {
+        this {
             Name = sceneName
             World = world
             StagingWorld = World(EntityDatabaseKind.Server)

@@ -42,7 +42,7 @@ class GpuDescriptorSet =
         if (gpuSetLayout.Bindings.Length != gpuResources.Length)
             throw ArgumentException("Descriptor set layout binding count does not match number of resources")
 
-        {
+        this {
             Name = name
             IsInitialized = false
             NeedsUpdate = true
@@ -212,7 +212,7 @@ internal class DescriptorSetLayoutManager =
     Count: int32 get() = this.setLayouts.Count
 
     new(vk: VulkanApplication) =
-        {
+        this {
             lockObj = System.Object()
             vk = vk
             setLayouts = ConcurrentDictionary(_Comparer())
@@ -298,7 +298,7 @@ abstract class GpuResource =
     NeedsUpdate: bool get, set
 
     new(kind: GpuResourceKind) =
-        {
+        this {
             IsInitialized = false
             FrameUpdates = mutable []
             ResourceKind = kind
@@ -474,7 +474,7 @@ class GpuBuffer<T> where T: unmanaged =
     internal new(kind: GpuBufferKind, memoryKind: GpuMemoryKind, array: mutable T[], length: int32) =
         if (length <= 0)
             throw ArgumentOutOfRangeException("length")
-        base(GpuResourceKind.Buffer) with {
+        base(GpuResourceKind.Buffer) {
             refCount = 0
             IsDirty = false
             DataSize = DotNet.SizeOf<T>
@@ -625,7 +625,7 @@ abstract default class GpuImage =
             fail("Invalid height.")
         if (bytes.IsEmpty)
             fail("Invalid bytes.")
-        {
+        this {
             Name = name
             refCount = 0
                 
@@ -696,7 +696,7 @@ internal class GpuFrameImage =
     
     
     new(frame: GpuFrame, frameImageKind: GpuFrameImageKind) =
-        {
+        this {
             refCount = 0
             frame = frame
             FrameImageKind = frameImageKind
@@ -776,7 +776,7 @@ internal class GpuFrameImageView =
                 int32(this.Frame.Height)
     
     new(frame: GpuFrame, frameImageKind: GpuFrameImageKind, layerIndex: int32) =
-        {
+        this {
             refCount = 0
             DescriptorSet = unchecked default
             Frame = frame
@@ -865,7 +865,7 @@ class GpuInputArray =
     new(descriptorKind: GpuDescriptorKind, elementKind: GpuResourceKind, capacity: int32) =
         if (capacity < 0)
             throw ArgumentOutOfRangeException("capacity")
-        {
+        this {
             refCount = 0
             IsDirty = true
 
@@ -950,7 +950,7 @@ internal class GpuFrameLayer =
     RenderPassFlags: GpuRenderPassFlags get() = this.Frame.RenderPassFlags
 
     new(frame: GpuFrame, layerIndex: int32) =
-        {
+        this {
             Frame = frame
             LayerIndex = layerIndex
 
@@ -1028,7 +1028,7 @@ class GpuFrame =
     new(options: GpuFrameOptions) =
         if (options.SizeMode == GpuFrameSizeMode.Custom)
             fail("SizeMode must not be 'Custom'.")
-        {
+        this {
             IsDirty = true
             Width = 0
             Height = 0
@@ -1075,7 +1075,7 @@ class GpuFrame =
         if (options.SizeMode != GpuFrameSizeMode.Custom)
             fail("SizeMode must be 'Custom'.")
 
-        {
+        this {
             IsDirty = true
             Width = uint32(width)
             Height = uint32(height)
@@ -1158,7 +1158,7 @@ struct GpuStencilOpState =
     Reference:   uint32 get, set
 
     private new() =
-        {
+        this {
             CompareOp   = default
             FailOp      = default
             DepthFailOp = default
@@ -1258,7 +1258,7 @@ struct GpuDescriptorSetLayoutBinding =
     new(gpuDescriptorKind: GpuDescriptorKind, flags: GpuDescriptorSetLayoutBindingFlags, gpuStageFlags: GpuStageFlags, count: int32) =
         if (count <= 0)
             throw ArgumentOutOfRangeException("count")
-        {
+        this {
             VulkanDescriptorSetLayoutBinding = Helpers.CreateVulkanDescriptorSetLayoutBinding(gpuDescriptorKind, flags, gpuStageFlags, uint32(count))
             DescriptorKind = gpuDescriptorKind
             Flags = flags
@@ -1275,7 +1275,7 @@ class GpuDescriptorSetLayout =
     new(bindings: GpuDescriptorSetLayoutBinding[]) =
         if (bindings.Length <= 0)
             throw ArgumentOutOfRangeException("bindings")
-        {
+        this {
             Bindings = bindings
         }
 
@@ -1294,7 +1294,7 @@ class GpuShaderCode =
     new(mutable code:byte[]) =
         if (code.Length <= 0)
             throw ArgumentOutOfRangeException("code")
-        {
+        this {
             IsDirty = true
             RefCount = 0
             VkShaderModule = VkShaderModule.NULL
@@ -1313,7 +1313,7 @@ abstract class GpuShader =
     Kind: GpuShaderKind get
 
     private new(gpuShaderKind: GpuShaderKind) =
-        {
+        this {
             IsDirty = true
             CanFree = false
             Kind = gpuShaderKind
@@ -1325,7 +1325,7 @@ abstract class GpuShader =
         VertexCode: GpuShaderCode get
 
         new(vertexCode: GpuShaderCode) = 
-            base(GpuShaderKind.Vertex) with { VertexCode = vertexCode }
+            base(GpuShaderKind.Vertex) { VertexCode = vertexCode }
 
     class VertexFragment =
         inherits GpuShader
@@ -1334,7 +1334,7 @@ abstract class GpuShader =
         FragmentCode: GpuShaderCode get
 
         new(vertexCode: GpuShaderCode, fragmentCode: GpuShaderCode) = 
-            base(GpuShaderKind.VertexFragment) with { VertexCode = vertexCode; FragmentCode = fragmentCode }
+            base(GpuShaderKind.VertexFragment) { VertexCode = vertexCode; FragmentCode = fragmentCode }
 
     class Compute =
         inherits GpuShader
@@ -1342,7 +1342,7 @@ abstract class GpuShader =
         ComputeCode: GpuShaderCode get
 
         new(computeCode: GpuShaderCode) = 
-            base(GpuShaderKind.Compute) with { ComputeCode = computeCode }
+            base(GpuShaderKind.Compute) { ComputeCode = computeCode }
 
     internal pattern Vertex(gpuShader: GpuShader): Vertex when (gpuShader.Kind == GpuShaderKind.Vertex) =>
         Unsafe.Cast(gpuShader)
@@ -1378,7 +1378,7 @@ class GpuPipeline =
     Description: string get
 
     new(description: string, options: GpuPipelineOptions, gpuShader: GpuShader, gpuDescriptorSetLayouts: GpuDescriptorSetLayout[]) =
-        {
+        this {
             Description = description
             IsDirty = true
 
@@ -1449,7 +1449,7 @@ class GpuPipelineUI =
         GpuPipelineUI(unchecked default, fontPath)
 
     internal new(gpuFrame: IGpuFrame, fontPath: string) =
-        {
+        this {
             DeltaTime = 0
             FontPath = fontPath
             CanShowImGuiDemo = false
@@ -1537,7 +1537,7 @@ internal abstract class GpuCommand = // TODO-language-bug: 'internal' doesn't wo
         Frame: IGpuFrame get, set
 
         new() = 
-            {
+            this {
                 Frame = unchecked default
             }
 
@@ -1757,7 +1757,7 @@ class GpuCommandList =
         if (!this.HasBegun)
             fail("Command list has not begun.")
 
-    new(capacity: int32) = { Commands = List(capacity); HasBegun = false }
+    new(capacity: int32) = this { Commands = List(capacity); HasBegun = false }
 
     DrawIndexed(vertices: IGpuBuffer, indices: IGpuBuffer, indexCount: int32, instanceCount: int32): () =
         this.Validate()
@@ -1841,7 +1841,7 @@ class Gpu =
                 vkCmdBuffers[i] <- Vk.CreateGraphicsCommandBuffer(vk, i)
                 i <- i + 1
             vkCmdBuffers
-        {
+        this {
             setLayoutManager = DescriptorSetLayoutManager(vk)
 
             window = window       
@@ -3292,7 +3292,7 @@ class Rendering =
         let gpu = Gpu(window, vulkanApp)
         window.DisplayChanged.Add(x -> gpu.OnDisplayChanged())
         
-        {
+        this {
             Window = window
             Gpu = gpu
         }

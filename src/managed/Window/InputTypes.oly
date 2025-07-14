@@ -81,7 +81,7 @@ class InputSnapshot =
     GamepadEvents: GamepadEvent[] get
 
     new(keyEvents: KeyEvent[], mouseButtonEvents: MouseButtonEvent[], mouseWheelEvents: MouseWheelEvent[], mouseInfo: MouseInfo, gamepadAxisMotionEvents: GamepadAxisMotionEvent[], gamepadButtonEvents: GamepadButtonEvent[], gamepadEvents: GamepadEvent[]) =
-        {
+        this {
             KeyEvents = keyEvents
             MouseButtonEvents = mouseButtonEvents
             MouseWheelEvents = mouseWheelEvents

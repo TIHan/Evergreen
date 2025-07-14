@@ -49,7 +49,7 @@ class DisplayMode =
     RefreshRate: float32 get
 
     new(width: int32, height: int32, refreshRate: float32) =
-        {
+        this {
             Width = width
             Height = height
             RefreshRate = refreshRate
@@ -200,12 +200,12 @@ class WindowVulkan =
         gamepadEvents.Clear()
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callback1(egKeyEvent: EgWindowKeyEvent) = 
             keyEvents.Add(egKeyEvent)
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callback2(egMouseInfo: EgWindowMouseInfo): () = 
             mouseInfo <-
                 let mutable newMouseInfo = MouseInfo()
@@ -214,32 +214,32 @@ class WindowVulkan =
                 newMouseInfo
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackMouseButtonEvent(egMouseButtonEvent: EgWindowMouseButtonEvent) =
             mouseButtonEvents.Add(egMouseButtonEvent)
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackMouseWheelEvent(egMouseWheelEvent: EgWindowMouseWheelEvent) =
             mouseWheelEvents.Add(egMouseWheelEvent)
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackGamepadAxisMotionEvent(egGamepadAxisMotionEvent: EgWindowGamepadAxisMotionEvent) =
             gamepadAxisMotionEvents.Add(egGamepadAxisMotionEvent)
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackGamepadButtonEvent(egGamepadButtonEvent: EgWindowGamepadButtonEvent) =
             gamepadButtonEvents.Add(egGamepadButtonEvent)
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackGamepadEvent(egGamepadEvent: EgWindowGamepadEvent) =
             gamepadEvents.Add(egGamepadEvent)
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackQuit(): () = 
             quit <- true
 
@@ -299,7 +299,7 @@ class WindowVulkan =
         this.CheckDisposed()
 
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callbackDisplayMode(egDisplayMode: EgWindowDisplayMode) =
             displayModes.Add(DisplayMode(egDisplayMode.width, egDisplayMode.height, egDisplayMode.refreshRate))
 
@@ -334,7 +334,7 @@ class WindowVulkan =
         let window = egWindowCreateVulkan(Unsafe.AsPointer(titleHandle.AddrOfPinnedObject()))
         titleHandle.Free()
 
-        {
+        this {
             displayChanged = Event()
             window = window
             isDisposed = false

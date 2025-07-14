@@ -52,7 +52,7 @@ class RenderingWorld =
 
         let maxLightCount = LightArrayShaderData.MaxCount
 
-        base(EntityDatabase(EntityDatabaseKind.Client, registry)) with {
+        base(EntityDatabase(EntityDatabaseKind.Client, registry)) {
             rfenv = RenderFrameEnv(renv)
             lights = List()
             renderers =

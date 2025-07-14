@@ -63,7 +63,7 @@ class ClientPhysicsSystem =
         public field mutable LinearVelocity: vec3
         public field mutable Sequence: ByteSequence
         new(frame: FrameNumber, position: vec3, linearVelocity: vec3, seq: ByteSequence) =
-            {
+            this {
                 IsValid = frame.IsValid
                 Frame = frame
                 Position = position
@@ -79,7 +79,7 @@ class ClientPhysicsSystem =
 
     new(db: UnlockedEntityDatabase, genv: GameEnv) =
         let frameBufferMaxCount = 30
-        base(PhysicsSystemKind.Client, db, genv) with {
+        base(PhysicsSystemKind.Client, db, genv) {
             frameBufferMaxCount = frameBufferMaxCount
             inputsByFrame = zeroArray(frameBufferMaxCount)
             predictionsByFrame = zeroArray(frameBufferMaxCount)

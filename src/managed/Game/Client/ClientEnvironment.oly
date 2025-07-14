@@ -32,7 +32,7 @@ internal class ClientEnv =
     ClientEventPublisher: ClientEventPublisher get
     Connection: ServerConnection get
     new(genv: GameEnv, clientEventPublisher: ClientEventPublisher) =
-        {
+        this {
             GameEnv = genv
             ClientEventPublisher = clientEventPublisher
             Connection = ServerConnection(genv, clientEventPublisher)

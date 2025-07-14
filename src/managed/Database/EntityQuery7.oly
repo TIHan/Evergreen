@@ -71,7 +71,7 @@ class EntityQuery<T1
         containsArchetypeId: ArchetypeId,
         notContainsArchetypeId: ArchetypeId
     ) =
-        {
+        this {
             ArchetypeCount = -1
             GetArchetypeIndices = getArchetypeIndices
             ComponentIds = componentIds

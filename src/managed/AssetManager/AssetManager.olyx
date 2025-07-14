@@ -88,7 +88,7 @@ internal class CallbackFileChanged =
     field fs: IVirtualFileSystem
     field lookup: Dictionary<string, DateTime>
     field callback: string -> ()
-    new(fs: IVirtualFileSystem, callback: string -> ()) = { fs = fs; callback = callback; lookup = Dictionary() }
+    new(fs: IVirtualFileSystem, callback: string -> ()) = this { fs = fs; callback = callback; lookup = Dictionary() }
 
     Invoke(sender: object, args: FileSystemEventArgs): () =
         AssetManager.Queue.Enqueue(      
@@ -115,7 +115,7 @@ struct Asset<T> where T: not struct =
     public field Data: T
 
     new(id: Int32Id, groupName: string, fileName: string, dat: T) =
-        {
+        this {
             Id = id
             GroupName = groupName
             FileName = fileName
@@ -149,7 +149,7 @@ class AssetManager<T> where T: not struct =
         public field mutable Adaptive: Option<AVal<T>>
 
         new(name: string, groupName: string, fileName: string, info: Info, compute: bool -> AVal<T>) =
-            {
+            this {
                 References = HashSet()
                 LockObject = System.Object()
                 Name = name
@@ -173,7 +173,7 @@ class AssetManager<T> where T: not struct =
         public field RealLocation: string
 
         new(index: int32, realLocation: string) =
-            {
+            this {
                 Index = index
                 RealLocation = realLocation
             }
@@ -187,7 +187,7 @@ class AssetManager<T> where T: not struct =
     new(freeAsset: (string, T) -> ()) =
         let items = List<Item>()
         items.Add(unchecked default)
-        {
+        this {
             AsyncLock = Object()
             AsyncTasks = ConcurrentDictionary()
             itemsNextIndex = 1 // We start at 1 because 0 is a dummy placeholder
@@ -521,7 +521,7 @@ module AssetHelpers =
         new(
                 meshCallback: EgAssetMesh -> ()
             ) =
-            {
+            this {
                 meshCallback = meshCallback
                 MeshCallbackDelegate = DotNet.CreateDelegate(this, &&this.MeshCallback)
             }

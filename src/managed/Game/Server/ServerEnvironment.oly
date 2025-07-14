@@ -27,7 +27,7 @@ internal class ServerEnv =
     new() =
         let eventStream = ByteStream()
         let serverEventPublisher = ServerEventPublisher(eventStream)
-        {
+        this {
             Host = ServerHost(serverEventPublisher)
             EventStream = eventStream
             Publisher = serverEventPublisher

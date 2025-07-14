@@ -34,7 +34,7 @@ internal class ClientScene =
     ClientWorld: ClientWorld get() = this.World
 
     new(name: string, genv: GameEnv, isListenServer: bool) =
-        {
+        this {
             Name = name
             World = ClientWorld(genv, isListenServer)
             WorldCopy = ClientStagingWorld(genv)

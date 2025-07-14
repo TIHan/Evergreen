@@ -157,7 +157,7 @@ internal class ServerConnection =
                         netClient.DisconnectIfPossible(ClientDisconnectReason.Other)
             )
 
-        {
+        this {
             NetworkClient = netClient
             InputStream = ByteStream()
             Snapshots = clientSnapshots

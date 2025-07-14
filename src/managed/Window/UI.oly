@@ -39,7 +39,7 @@ class Font =
     Size2: float32 get
 
     new(filePath: string, size: float32) =
-        {
+        this {
             FilePath = filePath
             Size = size
 
@@ -50,7 +50,7 @@ class Font =
         }
 
     new(filePath: string, size: float32, filePath2: string, size2: float32) =
-        {
+        this {
             FilePath = filePath
             Size = size
 
@@ -110,7 +110,7 @@ abstract class View =
     internal WillFocus: bool get, set
 
     internal new(tag: ViewTag) = 
-        { 
+        this { 
             Tag = tag
 
             Id = Interlocked.Increment(&NextId)
@@ -184,7 +184,7 @@ abstract class AbstractLabelView =
     internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     internal new(tag: ViewTag) =
-        base(tag) with {
+        base(tag) {
             labelBuffer = zeroArray(256)
             labelBufferLength = 0
             label = ""
@@ -211,7 +211,7 @@ abstract class AbstractTextView =
     internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     internal new(tag: ViewTag) =
-        base(tag) with {
+        base(tag) {
             textBuffer = zeroArray(1024)
             textBufferLength = 0
             text = string.Empty
@@ -243,7 +243,7 @@ abstract class AbstractLabelTextView =
     internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     internal new(tag: ViewTag) =
-        base(tag) with {
+        base(tag) {
             textBuffer = zeroArray(1024)
             textBufferLength = 0
             text = string.Empty
@@ -289,7 +289,7 @@ class Style =
     WindowBackgroundColor: OptionStruct<Color> get, set
 
     new() =
-        {
+        this {
             Font = None
             TextColor = NoneStruct
             BackgroundColor = NoneStruct
@@ -314,7 +314,7 @@ class WindowView =
     internal WillBringToFront: bool get, set
 
     new() = 
-        base(ViewTag.Window) with {
+        base(ViewTag.Window) {
             isHovered = false
             WillBringToFront = false
             Children = List()
@@ -389,7 +389,7 @@ class ButtonView =
     internal isHovered: bool get, set
 
     new() =
-        base(ViewTag.Button) with {
+        base(ViewTag.Button) {
             isHovered = false
             OnClicked = () -> ()
             OnHovered = () -> ()
@@ -400,7 +400,7 @@ class ButtonView =
 
 class CompletionItem =
     Name: string get
-    new(name: string) = { Name = name }
+    new(name: string) = this { Name = name }
 
 class TextInputView =
     inherits AbstractLabelView
@@ -457,7 +457,7 @@ class TextInputView =
                     else
                         0
             )
-        base(ViewTag.TextInput) with {
+        base(ViewTag.TextInput) {
             Buffer = zeroArray(maxLength + 1)
 
             HistoryPosition = 0
@@ -536,7 +536,7 @@ class ImageView =
     Size: Vector2 get, set
 
     new() =
-        base(ViewTag.Image) with {
+        base(ViewTag.Image) {
             IsScaling = true
             descriptorSets = mutable []
             gpuImage = unchecked default
@@ -565,7 +565,7 @@ class CheckboxView =
     internal isHovered: bool get, set
 
     new() =
-        base(ViewTag.Checkbox) with {
+        base(ViewTag.Checkbox) {
             isHovered = false
             IsChecked = false
             OnChecked = (x: bool) -> ()
@@ -583,7 +583,7 @@ class ComboBoxView =
     internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     new() =
-        base(ViewTag.ComboBox) with {
+        base(ViewTag.ComboBox) {
             SelectedItemIndex = 0
             PopupMaxHeight = 8
             OnSelectedItemIndexChanged = (x: int32, y: int32) -> ()
@@ -634,7 +634,7 @@ class LinePlotView =
     internal overrides GetReadOnlyChildren(): IReadOnlyList<View> = System.Collections.Immutable.ImmutableList<_>.Empty
 
     new() =
-        base(ViewTag.LinePlot) with {
+        base(ViewTag.LinePlot) {
             Values = mutable []
             Offset = 0
             MinScale = float32.MaxValue
@@ -657,7 +657,7 @@ class TabBarView =
     Children: List<View> get
 
     new() =
-        base(ViewTag.TabBar) with {
+        base(ViewTag.TabBar) {
             SelectedTabId = 0
             Children = List()
         }
@@ -676,7 +676,7 @@ class TabItemView =
     OnClicked: () -> () get, set
 
     new() =
-        base(ViewTag.TabItem) with {
+        base(ViewTag.TabItem) {
             isHovered = false
             Children = List()
             IsOpen = true
@@ -694,7 +694,7 @@ class TextView =
     Experimental_IsSelectable: bool get, set
 
     new() =
-        base(ViewTag.Text) with {
+        base(ViewTag.Text) {
             isHovered = false
             Experimental_IsSelectable = false
             OnHovered = () -> ()
@@ -713,7 +713,7 @@ class GridView =
     Children: List<View> get
 
     new() =
-        base(ViewTag.Grid) with {
+        base(ViewTag.Grid) {
             CellPadding = Vector2.Zero
             ColumnCount = 0
             Children = List()
@@ -728,7 +728,7 @@ class StackPanelView =
     IsHorizontal: bool get, set
 
     new() =
-        base(ViewTag.StackPanel) with {
+        base(ViewTag.StackPanel) {
             Children = List()
             IsHorizontal = false
         }
@@ -742,7 +742,7 @@ class IntInputView =
     OnValueChanged: (previousInt: int32, int: int32) -> () get, set
 
     new() =
-        base(ViewTag.IntInput) with { 
+        base(ViewTag.IntInput) { 
             Value = 0
             OnValueChanged = (previousInt, int) -> () 
         }
@@ -758,7 +758,7 @@ class SliderFloatView =
     OnValueChanged: (prev: float32, curr: float32) -> () get, set
 
     new() =
-        base(ViewTag.SliderFloat) with {
+        base(ViewTag.SliderFloat) {
             Value = 0
             MaxValue = float32.MaxValue
             MinValue = float32.MinValue
@@ -778,7 +778,7 @@ class ScrollbarView =
     OnHovered: () -> () get, set
 
     new() =
-        base(ViewTag.Scrollbar) with {
+        base(ViewTag.Scrollbar) {
             isHovered = false
             Children = List()
             WillScrollToBottom = false
@@ -801,7 +801,7 @@ class DummyView =
     Size: Vector2 get, set
 
     new() =
-        base(ViewTag.Dummy) with {
+        base(ViewTag.Dummy) {
             Size = Vector2.Zero
         }
 
@@ -841,7 +841,7 @@ class UIContext =
     IsMouseDragging: bool get() = ImGui.IsMouseDragging(this.ImGuiContext)
 
     internal new(gpu: Gpu, gpuPipelineUI: GpuPipelineUI) =
-        {
+        this {
             DelayedWindows = Queue()
             Gpu = gpu
             GpuPipelineUI = gpuPipelineUI

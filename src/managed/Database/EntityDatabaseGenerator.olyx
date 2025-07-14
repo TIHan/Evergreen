@@ -22,7 +22,7 @@ extension _OlySyntaxTreeExtensions =
             field f: OlySyntaxNode -> bool
 
             new(f: OlySyntaxNode -> bool) =
-                base() with { f = f }
+                base() { f = f }
     
             overrides Invoke(node: OlySyntaxNode): bool =
                 this.f(node)

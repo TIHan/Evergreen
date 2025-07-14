@@ -19,7 +19,7 @@ internal class PacketEntry =
     public field Buffer: mutable byte[]
 
     new(buffer: mutable byte[]) =
-        {
+        this {
             Hash = HashSet()
             Buffer = buffer
         }

@@ -23,7 +23,7 @@ class GameEnv =
     ConsoleWriter: StringWriter get
 
     new(connectionKey: string, engineHash: string, maps: AssetManager<Stream>, meshManager: AssetManager<MeshGroup>, soundManager: AssetManager<Sound>, pipelines: AssetManager<GpuPipeline>, images: AssetManager<IGpuImage[]>) =
-        {
+        this {
             ConnectionKey = connectionKey
             EngineHash = engineHash
             Maps = maps

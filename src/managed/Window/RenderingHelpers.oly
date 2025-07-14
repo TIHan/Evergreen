@@ -30,13 +30,13 @@ module RenderingHelpers =
     private field mutable shaderBytes: mutable byte[] = mutable[]
     private compileShader(kind: EgShaderKind, glslSourceText: mutable byte[]): byte[] =
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         static let callback(binary: int8*, binaryLength: uint32) = 
             shaderBytes <- zeroArray(int32(binaryLength))
             Span(Unsafe.AsPointer(binary), int32(binaryLength)).CopyTo(Span(shaderBytes))
     
         #[blittable]
-        #[UnmanagedCallersOnlyAttribute(CallConvs = [DotNet.TypeOf<CallConvCdecl>])]
+        #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
         #[DebuggerHidden]
         static let callbackError(binary: int8*): () =
             throw System.Exception(String(binary))

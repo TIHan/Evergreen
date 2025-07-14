@@ -18,7 +18,7 @@ internal class Defragmenter =
     field mutable latestSequenceId: uint16
     
     new() =
-        {
+        this {
             seqBuf = SequenceBuffer()
             latestSequenceId = 0
         }

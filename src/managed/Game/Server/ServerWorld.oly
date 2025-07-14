@@ -56,7 +56,7 @@ class ServerWorld =
 
     new(genv: GameEnv) =
         let db = UnlockedEntityDatabase(EntityDatabaseKind.Server, ServerWorld.CreateRegistry(genv))
-        base(db) with {
+        base(db) {
             DestroyEntityQueue = ConcurrentQueue()
             EventStream = ByteStream()
             PhysicsSystem = 

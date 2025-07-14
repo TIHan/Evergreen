@@ -20,7 +20,7 @@ class ServerPhysicsSystem =
     field inputQueue: System.Collections.Generic.Queue<LogicInput> // TODO: Do this at the EntityDatabase level.
 
     new(db: UnlockedEntityDatabase, genv: GameEnv) =
-        base(PhysicsSystemKind.Server, db, genv) with {
+        base(PhysicsSystemKind.Server, db, genv) {
             inputQueue = System.Collections.Generic.Queue<LogicInput>()
         }
 

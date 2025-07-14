@@ -53,7 +53,7 @@ struct ServerEventReader =
     internal Tag: Tag get
     internal Stream: ByteStream get
     new(stream: ByteStream) =
-        {
+        this {
             Tag = stream.Peek()
             Stream = stream
         }

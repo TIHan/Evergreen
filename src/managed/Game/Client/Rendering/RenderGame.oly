@@ -51,7 +51,7 @@ class RenderGame =
     private Commands: GpuCommandList get
 
     new(renv: RenderEnv) =
-        {
+        this {
             Env = renv
             Scene = None
             Commands = GpuCommandList(1000000)

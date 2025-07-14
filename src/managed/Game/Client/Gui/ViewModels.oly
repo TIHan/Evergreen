@@ -25,7 +25,7 @@ struct DisplayModeItem =
     Height: int32 get
     RefreshRate: float32 get
     new(width: int32, height: int32, refreshRate: float32) =
-        {
+        this {
             Width = width
             Height = height
             RefreshRate = refreshRate

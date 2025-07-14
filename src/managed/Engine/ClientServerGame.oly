@@ -32,7 +32,7 @@ class ClientServerGameEnv =
     BackgroundTransition: Tween<float32> get, set
 
     new(musicPlayback: SoundPlayback, mainMenuCloseSound: Sound, buttonHoverSound: Sound, buttonClickSound: Sound, backgroundTransition: Tween<float32>) =
-        {
+        this {
             IsConnected = false
             IsHosting = false
             MusicPlayback = musicPlayback
@@ -357,7 +357,7 @@ class ClientServerGame =
         // REVIEW: Only checks at the start. We should keep checking it?
         guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- IO.FileExists(SpecialFile.QuickSave)
 
-        {
+        this {
             SV = svGame
             CL = ClientGameProxy(genv, renv, clientEventPublisher)
             GuiEnv = guiEnv

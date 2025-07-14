@@ -6,4 +6,19 @@
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <ItemGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Physics\x64\Debug\Evergreen.Physics.Native.dll" Link="Evergreen.Physics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Physics\x64\Debug\Evergreen.Physics.Native.pdb" Link="Evergreen.Physics.Native.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+	
+  <ItemGroup Condition=" '$(Configuration)' == 'Release' ">
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Physics\x64\Release\Evergreen.Graphics.Physics.dll" Link="Evergreen.Physics.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

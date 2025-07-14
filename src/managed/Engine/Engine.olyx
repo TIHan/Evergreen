@@ -4,7 +4,7 @@
 
 #reference "../Game/Server/Game.Server.olyx"
 #reference "../Game/Client/Game.Client.olyx"
-#reference "../Game/Shared/Game.Shared.olyx"
+#reference "../Game/Shared/*.olyx"
 
 open System
 open System.IO

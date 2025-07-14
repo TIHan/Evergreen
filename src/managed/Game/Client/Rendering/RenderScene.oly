@@ -32,7 +32,7 @@ class RenderScene =
     RenderingWorld: RenderingWorld get() = this.WorldFront
 
     new(renv: RenderEnv) =
-        {
+        this {
             Gpu = renv.Gpu
             renv = renv
             WorldFront = RenderingWorld(renv)

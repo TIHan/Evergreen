@@ -24,7 +24,7 @@ struct GameLoopEnv =
     IsCatchingUp: bool get
 
     new(stopwatch: Stopwatch, frame: FrameNumber, time: int64, deltaTime: int64, isCatchingUp: bool) =
-        {
+        this {
             Time = GameTime(stopwatch, frame, time, deltaTime)
             IsCatchingUp = isCatchingUp
         }
@@ -98,7 +98,7 @@ StartWithBackground(
         public field mutable quit: bool
     
         new(sv: ManualResetEvent, cl: ManualResetEvent, tick: GameLoopEnv -> ()) =
-            {
+            this {
                 quit = false
                 sv = sv
                 cl = cl

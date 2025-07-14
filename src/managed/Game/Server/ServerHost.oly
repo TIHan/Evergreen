@@ -58,7 +58,7 @@ internal class ConnectedClient =
     IsListenServer: bool get
 
     new(index: byte, endPoint: System.Net.IPEndPoint, isListenServer: bool) =
-        {
+        this {
             Index = index
             EndPoint = endPoint
             InputBuffer = 
@@ -253,7 +253,7 @@ internal class ServerHost =
                     else
                         netServer.Disconnect(endPoint, ClientDisconnectReason.Other)
             )
-        {
+        this {
             NetworkServer = netServer
             MaxNumberOfClients = maxNumberOfClients
             ConnectedClientIndices = connectedClientIndices

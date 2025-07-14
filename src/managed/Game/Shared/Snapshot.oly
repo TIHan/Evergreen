@@ -24,7 +24,7 @@ struct Snapshot =
     public field Sequence: ByteSequence
 
     new(serverFrame: FrameNumber, clientIndex: byte, clientInputFrame: FrameNumber, clientInputTimeStamp: int64, serverPing: int64, serverTimeStamp: int64, speedOffset: float32, world: World, sequence: ByteSequence) = 
-        { ServerFrame = serverFrame; ClientIndex = clientIndex; ClientInputFrame = clientInputFrame; ClientInputTimeStamp = clientInputTimeStamp; ServerPing = serverPing; ServerTimeStamp = serverTimeStamp; SpeedOffset = speedOffset; World = world; Sequence = sequence }
+        this { ServerFrame = serverFrame; ClientIndex = clientIndex; ClientInputFrame = clientInputFrame; ClientInputTimeStamp = clientInputTimeStamp; ServerPing = serverPing; ServerTimeStamp = serverTimeStamp; SpeedOffset = speedOffset; World = world; Sequence = sequence }
 
     WithWorld(world: World): Snapshot =
         Snapshot(

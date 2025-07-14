@@ -54,7 +54,7 @@ class NetworkClient =
             onConnected: NetworkClient -> (),
             onDisconnected: (NetworkClient, ClientDisconnectReason) -> (),
             onMessageReceived: (NetworkClient, ByteStream, channel: byte) -> ()) = 
-        { 
+        this { 
             lockObj = System.Object()
             iv = Encryption.IV.Create()
             socket = null

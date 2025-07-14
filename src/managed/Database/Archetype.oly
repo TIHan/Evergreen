@@ -32,7 +32,7 @@ internal class Archetype =
                 nonAttachmentBuffers.Add(buffer)
             i <- i + 1
 
-        {
+        this {
             IsServerSide = archetypeId.IsSet(BuiltInComponents.ServerSide.GetIndex())
             IsClientSide = archetypeId.IsSet(BuiltInComponents.ClientSide.GetIndex())
             Id = archetypeId

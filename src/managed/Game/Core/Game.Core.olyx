@@ -22,7 +22,7 @@ struct Transform =
     public field mutable Rotation: quat
     public field mutable Scale: vec3
 
-    new(position: vec3, rotation: quat, scale: vec3) = { Position = position; Rotation = rotation; Scale = scale; Sequence = ByteSequence.Zero }
+    new(position: vec3, rotation: quat, scale: vec3) = this { Position = position; Rotation = rotation; Scale = scale; Sequence = ByteSequence.Zero }
     new(position: vec3, rotation: quat) = Transform(position, rotation, vec3.One)
     new(position: vec3) = Transform(position, quat.Identity)
     new() = Transform(vec3.Zero)
@@ -98,7 +98,7 @@ struct Camera =
     public field mutable ProjectionKind: CameraProjectionKind
 
     new(fov: float32, width: int32, height: int32, nearPlaneDistance: float32, farPlaneDistance: float32, projectionKind: CameraProjectionKind) =
-        {
+        this {
             Offset = vec3.Zero
             Yaw = 0
             Pitch = 0
@@ -165,7 +165,7 @@ struct Camera =
 
 struct MeshReference =
     public field mutable MeshId: Int32Id
-    new(meshId: Int32Id) = { MeshId = meshId }
+    new(meshId: Int32Id) = this { MeshId = meshId }
     new() = MeshReference(Int32Id(0))
 
 #[Flags]

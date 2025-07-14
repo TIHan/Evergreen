@@ -102,7 +102,7 @@ struct ServerCommandReader =
     internal Tag: ServerCommandTag get
     internal Stream: ByteStream get
     new(stream: ByteStream) =
-        {
+        this {
             Tag = stream.Peek()
             Stream = stream
         }
@@ -145,7 +145,7 @@ internal struct ServerState =
     Port: int32 get
     Password: string get
     new(bandwidth: uint64, port: int32, password: string) =
-        {
+        this {
             Bandwidth = bandwidth
             Port = port
             Password = password
@@ -172,7 +172,7 @@ class ServerGameProxy =
     Password: string get() = this.State.Password
 
     new() =
-        {
+        this {
             ServerCommandStreams = DoubleBuffer(ByteStream(), ByteStream())
             SV = ServerGame()
             State = ServerState(0, -1, String.Empty)

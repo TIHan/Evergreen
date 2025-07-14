@@ -51,7 +51,7 @@ class EntityInfoOverlayPool =
             uiOverlayPool.Add((vm, v))
             i <- i + 1
 
-        {
+        this {
             uiOverlayPool = uiOverlayPool
             uiOverlayPoolCount = 0
         }
@@ -116,7 +116,7 @@ class GuiEnv =
         let loadingModel = LoadingViewModel()
         let messageDialogModel = MessageDialogViewModel()
 
-        {
+        this {
             DisplayModes = displayModes
 
             NavigationStack = Stack()
