@@ -16,7 +16,7 @@
   </ItemGroup>
 	
   <ItemGroup Condition=" '$(Configuration)' == 'Release' ">
-    <None Include="..\..\..\..\..\native\libs\Evergreen.Physics\x64\Release\Evergreen.Graphics.Physics.dll" Link="Evergreen.Physics.Native.dll">
+    <None Include="..\..\..\..\..\native\libs\Evergreen.Physics\x64\Release\Evergreen.Physics.Native.dll" Link="Evergreen.Physics.Native.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
