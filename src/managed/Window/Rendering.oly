@@ -456,7 +456,7 @@ class GpuBuffer<T> where T: unmanaged =
     field mutable refCount: int32
     internal RefCount: byref<int32> get() = &this.refCount
 
-    new ResourceKind: GpuResourceKind get() = base.ResourceKind
+    ResourceKind: GpuResourceKind new get() = base.ResourceKind
 
     internal Buffers: mutable VulkanBuffer[] get, set  
     DataSize: int32 get
