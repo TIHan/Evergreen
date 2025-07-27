@@ -2,6 +2,7 @@
 \x64
 *.vcxproj.user
 \.vs
+.oly
 
 src/native/external/lunasvg/build/
 src/native/external/assimp/ALL_BUILD.vcxproj
