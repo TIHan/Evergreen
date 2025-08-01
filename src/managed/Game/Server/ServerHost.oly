@@ -150,6 +150,25 @@ internal class ServerHost =
     field mutable IsListenServer: bool
 
     new(publisher: ServerEventPublisher) =
+        static let readSnapshotAck(bstream: ByteStream, connectedClient: ConnectedClient): () =
+            let snapshotAckFrame = FrameNumber(bstream.Read<int32>())
+
+            // Only accept snapshot acks if the client's scene is loaded.
+            if (connectedClient.SceneState == ClientSceneState.Loaded)
+                if (connectedClient.IsAwaitingFullSnapshot)
+                    if (connectedClient.AwaitingFullSnapshotFrame == snapshotAckFrame)
+                        connectedClient.IsAwaitingFullSnapshot <- false
+                        connectedClient.LatestSnapshotFrameAck <- snapshotAckFrame
+                        connectedClient.LatestSnapshotFrameAckTimeStamp <- connectedClient.AwaitingFullSnapshotTimeStamp
+                        connectedClient.HasRecentlyReceivedFullSnapshot <- true
+
+                else if (snapshotAckFrame > connectedClient.LatestSnapshotFrameAck)
+                    connectedClient.IsAwaitingFirstDeltaSnapshot <- false
+                    connectedClient.LatestSnapshotFrameAck <- snapshotAckFrame
+                    connectedClient.LatestSnapshotFrameAckTimeStamp <- connectedClient.DeltaSnapshotTimeStamps[snapshotAckFrame % connectedClient.DeltaSnapshots.Length]
+                    //let mutable snapshotFrame = snapshotFrame
+                    //LogServer("client '" + clientIndex.ToString() + "' acked snapshot '" + snapshotFrame.ToString() + "'")
+                    
         let maxNumberOfClients = 8
         let connectedClientIndices = zeroArray<ConnectedClient>(maxNumberOfClients + 1) // index 0 is always empty
         let connectedClientIndexStack = Stack<byte>(Cast(initArray(maxNumberOfClients, i -> byte(maxNumberOfClients - i))): IEnumerable<_>)
@@ -212,7 +231,7 @@ internal class ServerHost =
                         let mutable clientIndex = default
                         if (connectedClients.TryGetValue(endPoint, &clientIndex))
                             let connectedClient = connectedClientIndices[int32(clientIndex)]
-                            ReadSnapshotAck(bstream, connectedClient)
+                            readSnapshotAck(bstream, connectedClient)
                             let playerInput = bstream.Read<CharacterInput>()
                             let prevPlayerInput = bstream.Read<CharacterInput>()
                             let prevPlayerInput2 = bstream.Read<CharacterInput>()
@@ -232,7 +251,7 @@ internal class ServerHost =
                         let mutable clientIndex = default
                         if (connectedClients.TryGetValue(endPoint, &clientIndex))
                             let connectedClient = connectedClientIndices[int32(clientIndex)]
-                            ReadSnapshotAck(bstream, connectedClient)
+                            readSnapshotAck(bstream, connectedClient)
                             
                     else if (channel == NetworkChannels.SceneLoadedChannel)
                         let snapshotSequence = ByteSequence(bstream.ReadByte())
@@ -353,27 +372,6 @@ internal class ServerHost =
 
         let clientIndex = connectedClients[endPoint]
         connectedClientIndices[int32(clientIndex)]
-
-    // TODO: This could have been 'static let readSnapshotAck(bstream: ByteStream, connectedClient: ConnectedClient): () =' in 'Start',
-    //       But we have a language-bug.
-    private static ReadSnapshotAck(bstream: ByteStream, connectedClient: ConnectedClient): () =
-        let snapshotAckFrame = FrameNumber(bstream.Read<int32>())
-
-        // Only accept snapshot acks if the client's scene is loaded.
-        if (connectedClient.SceneState == ClientSceneState.Loaded)
-            if (connectedClient.IsAwaitingFullSnapshot)
-                if (connectedClient.AwaitingFullSnapshotFrame == snapshotAckFrame)
-                    connectedClient.IsAwaitingFullSnapshot <- false
-                    connectedClient.LatestSnapshotFrameAck <- snapshotAckFrame
-                    connectedClient.LatestSnapshotFrameAckTimeStamp <- connectedClient.AwaitingFullSnapshotTimeStamp
-                    connectedClient.HasRecentlyReceivedFullSnapshot <- true
-
-            else if (snapshotAckFrame > connectedClient.LatestSnapshotFrameAck)
-                connectedClient.IsAwaitingFirstDeltaSnapshot <- false
-                connectedClient.LatestSnapshotFrameAck <- snapshotAckFrame
-                connectedClient.LatestSnapshotFrameAckTimeStamp <- connectedClient.DeltaSnapshotTimeStamps[snapshotAckFrame % connectedClient.DeltaSnapshots.Length]
-                //let mutable snapshotFrame = snapshotFrame
-                //LogServer("client '" + clientIndex.ToString() + "' acked snapshot '" + snapshotFrame.ToString() + "'")
 
     private SendSnapshot(time: GameTime, mainSnapshot: Snapshot, connectedClient: ConnectedClient): () =
         let netServer = this.NetworkServer

@@ -63,7 +63,7 @@ module FieldCommand<T> =
 
 class CommandProcessor =
 
-    private Initialize(svGame: ServerGameProxy, gameOpt: Option<ClientServerGame>, appendEvent: (scoped ClientEventPublisher -> ()) -> ()): string[] = // TODO-language-bug: returning 'IEnumerable<Command>' crashes in runtime emitter.
+    private Initialize(svGame: ServerGameProxy, gameOpt: Option<ClientServerGame>, appendEvent: (scoped ClientEventPublisher -> ()) -> ()): IEnumerable<Command> =
         this.AddDef(ActionCommand(             "quit",                           () -> appendEvent(x -> x.QuitGameRequested())))
         this.AddDef(ActionCommand<string>.Impl("echo", "value",                  x  -> Log(x)))
         this.AddDef(ActionCommand(             "quick_save",                     () -> appendEvent(x -> x.SaveGameRequested(SpecialFile.QuickSave))))
@@ -128,12 +128,12 @@ class CommandProcessor =
         | _ =>
             ()
 
-        map(Unsafe.AsImmutable(System.Linq.Enumerable.ToArray(this.Defs.Values)), x -> x.Name)
+        this.Defs.Values
 
     new(svGame: ServerGameProxy, gameOpt: Option<ClientServerGame>, appendEvent: (scoped ClientEventPublisher -> ()) -> ()) =
         this {
             Defs = Dictionary()
-            AvailableCommands = this.Initialize(svGame, gameOpt, appendEvent)
+            AvailableCommands = map(Unsafe.AsImmutable(System.Linq.Enumerable.ToArray(this.Initialize(svGame, gameOpt, appendEvent))), x -> x.Name)
         }
 
     AvailableCommands: string[] get

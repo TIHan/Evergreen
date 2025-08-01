@@ -487,7 +487,6 @@ extension EntityDatabaseQuery1Extension8 =
             where T8: blittable, struct, ValueType, { new() }, trait IComponent
             =
         let mutable result = false
-        // TODO-language-bug: 'condition(x)' should give a proper range for error message.
         let _ = this.TryGet<T1
                            , T2
                            , T3

@@ -397,7 +397,7 @@ class Renderer =
                             renderer ->
                                 let frustumCullingPipeline = renv.PipelineManager.Get(renderer.FrustumCullingPipelineId)
                                 gpuCommands.BindPipeline(frustumCullingPipeline)
-                                gpuCommands.BindDescriptorSet(0, lightGlobalsDescriptorSet) // TODO-language-bug: renv.GlobalsComputeDescriptorSet() should not be called like a function
+                                gpuCommands.BindDescriptorSet(0, lightGlobalsDescriptorSet)
                                 gpuCommands.BindDescriptorSet(1, renderer.FrustumCullingComputeDescriptorSet)
                                 gpuCommands.BindDescriptorSet(2, renderer.AABBComputeDescriptorSet)
                                 gpuCommands.BindDescriptorSet(3, renderer.InstanceOutputs.LightCamerasComputeDescriptorSets[i])

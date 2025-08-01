@@ -299,12 +299,12 @@ class AssetManager<T> where T: not struct =
             throw IndexOutOfRangeException("index")
         let item = this.items[index]
         if (item.Observable.IsSome && !item.Reload)
-            this.items[index] // TODO-language-bug: just return 'item'
+            item
         else
             lock(item.LockObject,
                 () -> this.ComputeItem(item, isAsync)
             )
-            this.items[index] // TODO-language-bug: just return 'item'
+            item
 
     private GetComputedItem(assetId: Int32Id, isAsync: bool): T =
         let index = assetId.Value

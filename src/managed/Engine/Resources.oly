@@ -119,7 +119,7 @@ private module Helpers =
                     )
                 )
             else
-                NoneStruct // TODO-language-bug: 'None' should error.
+                NoneStruct
 
         let shaderName =
             if (reader.IsNextReadProperty("Compute"))
@@ -162,7 +162,7 @@ class Resources =
             (filePath, _) -> 
                 let result = File.OpenRead(filePath): Stream
                 result
-        ) // TODO-language-bug: Should not have to annotate ': Stream'.
+        ) // TODO-language-bug: Should not have to annotate ': Stream'.??? maybe??
     
         let audio = Audio(int32(GameLoop.FixedUpdateDeltaTimeInMilliseconds * 2))
         let soundManager = AssetManager<Sound>((_, sound) -> ())

@@ -78,7 +78,7 @@ module Orchestration =
                 genv.SoundManager.Get("Effects/Freedoom/dspstop.wav"),
                 genv.SoundManager.Get("Effects/Freedoom/dsmetal.wav"),
                 genv.SoundManager.Get("Effects/Freedoom/dspistol.wav"),
-                (Tween.From(0: float32).To(1, 2).WithAlpha(1)) // TODO-language-bug: Should not need '(' ')' around 'Tween.From'.
+                Tween.From(0: float32).To(1, 2).WithAlpha(1)
             )
 
         guiEnv.SettingsMenuModel.MusicVolume.Add(

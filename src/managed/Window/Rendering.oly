@@ -1479,7 +1479,7 @@ enum GpuRenderPassFlags =
     | ClearDepthStencil = 0b010
     | ClearAll          = 0b011
 
-internal abstract class GpuCommand = // TODO-language-bug: 'internal' doesn't work; we can still access GpuCommand elsewhere down the stack
+abstract class GpuCommand =
     internal Tag: int32 get, set
     
     private class DrawIndexed =

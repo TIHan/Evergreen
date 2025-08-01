@@ -1435,7 +1435,7 @@ extension Utf8JsonReaderExtensions =
                     fail("Expected 'String' token")
 
                 let valueObj = Enum.Parse(DotNet.TypeOf<T>, reader.ReadString())
-                Unsafe.Cast<T>(valueObj) // TODO-language-bug: Should we use just Cast and not Unsafe.Cast?
+                Unsafe.Cast<T>(valueObj) // TODO-language-bug: Should we use just Cast and not Unsafe.Cast? we need an upcast. Is Cast a downcast or upcast? Or both?
         )
 
     mutable ReadPropertyOfEnumOrDefault<T>(expectedName: string, defaultValue: T): T where T: Enum =

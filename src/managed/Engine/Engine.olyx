@@ -97,7 +97,7 @@ main(args: string[]): () =
         r.Gpu.RecreateSwapChainIfNecessary()
 
         // TODO: What do we do for server-only?
-        let resx = Resources(r) // TODO-language-bug: crashes when doing 'Resources.Initialize(r)'. note: 'Initialize' doesn't exist.
+        let resx = Resources(r)
 
         let connectionKey = "oly" + engineHash
         let genv = GameEnv(connectionKey, engineHash, resx.Maps, resx.Meshes, resx.Sounds, resx.Pipelines, resx.Images)
@@ -114,5 +114,5 @@ main(args: string[]): () =
             (_) -> return BenchmarkMap(resx, genv)
         )
 
-       // Console.SetOut(genv.ConsoleWriter)
+        Console.SetOut(genv.ConsoleWriter)
         Game.Orchestration.Run(genv, renv)
