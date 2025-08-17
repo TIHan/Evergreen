@@ -276,10 +276,9 @@ abstract default class EntityDatabase =
 
         Unsafe.AsImmutable(indices.ToArray())
 
-    /* TODO-language-bug: cannot make this 'protected' as 'Archetype' is internal, but this should be allowed */
     internal AddCore(entId: EntityId, typeId: ComponentId, diff: byref<ArchetypeId>): Archetype =
         this.Check(entId)
-
+            
         let srcArchetypedIndex = this.entityArchetypeIndices[entId.Index]
         let srcArchetype = this.GetArchetype(srcArchetypedIndex)
         let srcArchetypeId = srcArchetype.Id
