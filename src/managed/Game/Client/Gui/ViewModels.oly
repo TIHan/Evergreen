@@ -50,15 +50,15 @@ class SettingsMenuViewModel =
     SimulateLatency: Var<bool> get = Var(false)
     SimulatePacketLoss: Var<bool> get = Var(false)
     AsyncServer: Var<bool> get = Var(false)
-    GameSpeedOffset: Var<float32> get = Var(0: float32)
+    GameSpeedOffset: Var<float32> get = Var(0)
     DisplayModes: Var<DisplayModeItem[]> get = Var([])
     SelectedDisplayModeIndex: Var<int32> get = Var(-1)
     OlyLogo: Var<Option<IGpuImage>> get = Var(None)
     DotNetLogo: Var<Option<IGpuImage>> get = Var(None)
 
     // Audio
-    MusicVolume: Var<float32> get = Var(0.1: float32) // TODO-language-bug: We should be able to write "Var(0.1)" as it should be inferred.
-    EffectsVolume: Var<float32> get = Var(1: float32)
+    MusicVolume: Var<float32> get = Var(0.1)
+    EffectsVolume: Var<float32> get = Var(1)
 
 class CpuCoreViewModel =
     Name: string get, set = ""
