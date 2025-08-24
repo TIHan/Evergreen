@@ -1021,9 +1021,7 @@ module UI =
         MakeChildrenAux(context, parent, false)
 
     private MakeChildrenAux<T>(context: UIContext, parent: T, isHorizontal: bool): () where T: View, { Children: List<View> get } =
-        let parentView = Unsafe.Cast(parent): View // TODO-language-bug: We should not have to do Unsafe.Cast here. Should be just 'let parentView = parent: View'
-    
-        context.ParentStack.Push(parentView)
+        context.ParentStack.Push(parent)
 
         let children = parent.Children
 
