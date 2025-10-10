@@ -88,7 +88,9 @@ void main()
 
         if (r === unchecked default)
             let options = RenderingOptions()
-            options.IsValidationEnabled <- true
+            let validationOptions = RenderingValidationOptions()
+            validationOptions.CanIgnoreWarnings <- true
+            options.ValidationOptions <- Some(validationOptions)
             r <- Rendering(options)
             r.Window.Size <- Vector2(256, 256)
 

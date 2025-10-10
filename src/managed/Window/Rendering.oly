@@ -3232,12 +3232,15 @@ class Gpu =
             Vk.DestroySwapChain(this.vk, this.swapChain)
             this.swapChain <- unchecked default
 
+class RenderingValidationOptions =
+    CanIgnoreWarnings: bool get, set = false
+
 class RenderingOptions =
     WindowTitle: string get, set = "Evergreen Engine"
     IsFullscreen: bool get, set = false
     IsBorderless: bool get, set = false
     DisplayMode: Option<DisplayMode> get, set = None
-    IsValidationEnabled: bool get, set = false
+    ValidationOptions: Option<RenderingValidationOptions> get, set = None
 
 // Graphics rendering for a window
 class Rendering =
@@ -3284,8 +3287,14 @@ class Rendering =
 #end
 
         let vulkanAppOptions = VulkanApplicationOptions()
-        if (options.IsValidationEnabled)
-            vulkanAppOptions.ValidationFlags <- VulkanValidationFlags.Standard
+        match (options.ValidationOptions)
+        | Some(validationOptions) =>
+            if (validationOptions.CanIgnoreWarnings)
+                vulkanAppOptions.ValidationFlags <- VulkanValidationFlags.Minimal
+            else
+                vulkanAppOptions.ValidationFlags <- VulkanValidationFlags.Standard
+        | _ =>
+            ()
 
         let vulkanApp = Vk.Initialize(window.HWND, nint(0), vulkanAppOptions)
 

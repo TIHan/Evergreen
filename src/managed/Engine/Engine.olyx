@@ -90,7 +90,7 @@ main(args: string[]): () =
         let options = RenderingOptions()
 #if DEBUG
         options.IsBorderless <- true
-        options.IsValidationEnabled <- true
+        options.ValidationOptions <- Some(RenderingValidationOptions())
 #end
         let r = Rendering(options)
         r.Window.Show()
