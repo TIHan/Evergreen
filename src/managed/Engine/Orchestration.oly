@@ -92,7 +92,7 @@ module Orchestration =
         let consoleCommandsList = List()
         ForEach(commandProcessor.AvailableCommands,
             consoleCommand ->
-                consoleCommandsList.Add(consoleCommand) // TODO-language-bug: crashes with 'consoleCommandsList.Add(consoleCommandsList)'
+                consoleCommandsList.Add(consoleCommand)
         )
         guiEnv.ConsoleModel.CompletionItems.Value <- Unsafe.AsImmutable(consoleCommandsList.ToArray())
 

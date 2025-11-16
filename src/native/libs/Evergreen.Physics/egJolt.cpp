@@ -376,6 +376,7 @@ inline unsigned int _egJoltAddBody(EgJoltInstance instance, EMotionType motionTy
 	bodySettings.mAngularVelocity = ConvertVector3(state->angularVelocity);
 	bodySettings.mAllowSleeping = true;
 	bodySettings.mGravityFactor = state->gravityFactor;
+	bodySettings.mEnhancedInternalEdgeRemoval = true;
 
 	Body* body; // Note that if we run out of bodies this can return nullptr
 	if (bodyId)
@@ -496,6 +497,7 @@ inline EgJoltCharacterVirtual _egJoltCreateCharacterVirtual(EgJoltInstance insta
 	virtualSettings->mUp = Vec3::sAxisZ();
 	virtualSettings->mMass = settings.mass;
 	virtualSettings->mInnerBodyLayer = settings.layer;
+	virtualSettings->mEnhancedInternalEdgeRemoval = true;
 
 	auto jCharacterVirtual = new CharacterVirtual(virtualSettings, ConvertVector3(position), Quat::sIdentity(), physics);
 	jCharacterVirtual->SetListener(internal->characterContactListener);
@@ -520,6 +522,7 @@ inline EgJoltCharacter _egJoltCreateCharacter(EgJoltInstance instance, EgJoltCha
 	jSettings->mLayer = layer;
 	jSettings->mUp = Vec3::sAxisZ();
 	jSettings->mSupportingVolume = Plane(Vec3::sAxisZ(), -settings.standingRadius); // Accept contacts that touch the lower sphere of the capsule
+	jSettings->mEnhancedInternalEdgeRemoval = true;
 
 	auto jCharacter = new Character(jSettings, ConvertVector3(position), Quat::sIdentity(), userData, physics);
 	jCharacter->AddToPhysicsSystem(EActivation::Activate);
