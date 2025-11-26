@@ -1890,7 +1890,7 @@ class Gpu =
             while (i < gpuDescriptorSetLayoutBindings.Length)
                 let gpuResource = gpuDescriptorSet.Resources[i]
                 let descriptorType = descriptorTypes[i]
-                let (offset, size) = gpuDescriptorSet.ResourceRanges[i] // TODO-language-bug: We should be able to do gpuDescriptorSet.ResourceRanges[i]
+                let (offset, size) = gpuDescriptorSet.ResourceRanges[i]
 
                 match (gpuResource.ResourceKind)
                 | GpuResourceKind.Buffer =>
