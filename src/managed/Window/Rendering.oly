@@ -1890,7 +1890,7 @@ class Gpu =
             while (i < gpuDescriptorSetLayoutBindings.Length)
                 let gpuResource = gpuDescriptorSet.Resources[i]
                 let descriptorType = descriptorTypes[i]
-                let (offset, size) = gpuDescriptorSet.ResourceRanges.get_Item(i) // TODO-language-bug: We should be able to do gpuDescriptorSet.ResourceRanges[i]
+                let (offset, size) = gpuDescriptorSet.ResourceRanges[i] // TODO-language-bug: We should be able to do gpuDescriptorSet.ResourceRanges[i]
 
                 match (gpuResource.ResourceKind)
                 | GpuResourceKind.Buffer =>
@@ -2109,8 +2109,7 @@ class Gpu =
             gpuImage.VkSampler <- sampler
             gpuImage.Bytes <- ReadOnlyMemory<_>.Empty
 
-            //this.gpuImages[gpuImage: IGpuImage] <- () // TODO-language-bug: We should be able to do gpuImages[gpuImage] without the annotation
-            this.gpuImages.set_Item(gpuImage, ())
+            this.gpuImages[gpuImage] <- ()
 
     private Upload(gpuFrame: IGpuFrame): () =
         match (gpuFrame.Kind)
