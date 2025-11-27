@@ -84,6 +84,5 @@ internal class Encryption =
             dstPacket.DataSize <- src.Length - dstPacket.HeaderSize
         | _ =>
             let length = aes.DecryptCbc(src.Slice(1), iv.AsReadOnlySpan(), dstPacket.ReceivingSpan.Slice(1), PaddingMode.PKCS7)
-            let b = src[0]
-            (dstPacket.ReceivingSpan[0]) <- b // TODO-language-bug: Cannot do 'bytes[0]' here.
+            (dstPacket.ReceivingSpan[0]) <- src[0]
             dstPacket.DataSize <- (length + 1) - dstPacket.HeaderSize

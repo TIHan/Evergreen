@@ -2507,12 +2507,9 @@ module Vk =
 
         let mutable i = 0
         while (i < poolSizes.Length)
-            let descriptorType = descriptorTypes[i]
-            let descriptorCount = descriptorCounts[i]
-
             let mutable poolSize = default: VkDescriptorPoolSize
-            poolSize.`type` <- descriptorType // TODO-language-bug: Should be able to use 'descriptorTypes[i]'
-            poolSize.descriptorCount <- maxFramesInFlight * descriptorCount
+            poolSize.`type` <- descriptorTypes[i]
+            poolSize.descriptorCount <- maxFramesInFlight * descriptorCounts[i]
 
             poolSizes[i] <- poolSize
             i <- i + 1
