@@ -3,7 +3,6 @@ module Evergreen.Utilities.GameLoop
 open System
 open System.Threading
 open System.Diagnostics
-open Evergreen.Utilities
 
 ConvertSecondsToTicks(seconds: float64): int64 = TimeSpan.FromSeconds(seconds).Ticks
 ConvertTicksToSeconds(ticks: int64): float64 = TimeSpan.FromTicks(ticks).TotalSeconds

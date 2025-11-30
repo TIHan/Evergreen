@@ -2,7 +2,6 @@ module Evergreen.ImGui.ImGui
 
 open System
 open Evergreen.Window
-open Evergreen.ImGui // TODO-language-bug: We should not need this as this module should include 'Evergreen.ImGui' automatically.
 open System.Numerics
 open System.Runtime.InteropServices
 open System.Runtime.CompilerServices

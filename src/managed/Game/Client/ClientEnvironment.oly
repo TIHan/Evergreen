@@ -12,7 +12,6 @@ open Evergreen.Network
 open Evergreen.Graphics.Rendering.UI
 open Evergreen.Window
 open Game.Shared
-open Game.Client.Internal
 open static Game.AssetManager
 open static Game.Shared.World
 open static Game.Shared.Types
