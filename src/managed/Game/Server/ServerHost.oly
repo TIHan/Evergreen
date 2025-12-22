@@ -347,7 +347,7 @@ internal class ServerHost =
             let connectedClient = connectedClientIndices[i]
             if (connectedClient !== null)
                 let isLoading = connectedClient.SceneState == ClientSceneState.Loading
-                if (isLoading && connectedClient.SceneLoadingTime.Ticks >= TimeSpan.FromMinutes(1).Ticks)
+                if (isLoading && connectedClient.SceneLoadingTime.Ticks >= TimeSpan.FromMinutes(1: int64).Ticks)
                     netServer.Disconnect(connectedClient.EndPoint, ClientDisconnectReason.OtherTimedOut)
                 else
                     ()
@@ -432,7 +432,7 @@ internal class ServerHost =
 
         // -----
 
-        if (connectedClient.AwaitingFullSnapshotTimeOut.Ticks > TimeSpan.FromSeconds(20).Ticks)
+        if (connectedClient.AwaitingFullSnapshotTimeOut.Ticks > TimeSpan.FromSeconds(20: int64).Ticks)
             netServer.Disconnect(connectedClient.EndPoint, ClientDisconnectReason.OtherAckTimedOut)       
 
         else if (connectedClient.IsAwaitingFullSnapshot)
