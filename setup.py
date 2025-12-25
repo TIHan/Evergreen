@@ -35,7 +35,7 @@ def print_setup_finished(title, delta_time):
 # Setup paths
 root_directory = get_current_working_directory()
 jolt_build_directory = absolute_path('src/native/external/JoltPhysics/Build/')
-jolt_vs_directory = absolute_path('src/native/external/JoltPhysics/Build/VS2022_CL/')
+jolt_vs_directory = absolute_path('src/native/external/JoltPhysics/Build/VS2026_CL/')
 vma_directory = absolute_path('src/native/external/VulkanMemoryAllocator/')
 sdl_directory = absolute_path('src/native/external/SDL/')
 sdl_vs_directory = absolute_path('src/native/external/SDL/VisualC/')
@@ -64,8 +64,8 @@ print_setup_finished(title, delta_time)
 title = 'JoltPhysics'
 print_setup_started(title)
 delta_time = run('cmake_vs2026_cl.bat', working_directory = jolt_build_directory)
-delta_time += run('msbuild JoltPhysics.sln', working_directory = jolt_vs_directory)
-delta_time += run('msbuild JoltPhysics.sln /p:Configuration=Release', working_directory = jolt_vs_directory)
+delta_time += run('msbuild JoltPhysics.slnx', working_directory = jolt_vs_directory)
+delta_time += run('msbuild JoltPhysics.slnx /p:Configuration=Release', working_directory = jolt_vs_directory)
 print_setup_finished(title, delta_time)
 
 # Setup VulkanMemoryAllocator
