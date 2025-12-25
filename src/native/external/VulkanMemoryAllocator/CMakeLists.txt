@@ -1,6 +1,28 @@
+#
+# Copyright (c) 2017-2025 Advanced Micro Devices, Inc. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
 cmake_minimum_required(VERSION 3.15...3.26)
 
-project(VMA LANGUAGES CXX)
+project(VMA VERSION 3.3.0 LANGUAGES CXX)
 
 add_library(VulkanMemoryAllocator INTERFACE)
 add_library(GPUOpen::VulkanMemoryAllocator ALIAS VulkanMemoryAllocator)
@@ -12,12 +34,17 @@ if (CMAKE_VERSION VERSION_LESS "3.21")
     string(COMPARE EQUAL ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR} PROJECT_IS_TOP_LEVEL)
 endif()
 
-if (PROJECT_IS_TOP_LEVEL)
+option(VMA_ENABLE_INSTALL "Install VulkanMemoryAllocator" ${PROJECT_IS_TOP_LEVEL})
+if (VMA_ENABLE_INSTALL)
     include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
 
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(TARGETS VulkanMemoryAllocator EXPORT VulkanMemoryAllocatorConfig INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(EXPORT VulkanMemoryAllocatorConfig NAMESPACE "GPUOpen::" DESTINATION "share/cmake/VulkanMemoryAllocator")
+
+    write_basic_package_version_file(VulkanMemoryAllocatorConfigVersion.cmake COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/VulkanMemoryAllocatorConfigVersion.cmake" DESTINATION "share/cmake/VulkanMemoryAllocator")
 
     option(VMA_BUILD_DOCUMENTATION "Create and install the HTML based API documentation")
     if(VMA_BUILD_DOCUMENTATION)
@@ -34,6 +61,7 @@ if (PROJECT_IS_TOP_LEVEL)
             COMMENT "Generating API documentation with Doxygen"
             VERBATIM
         )
+        install(DIRECTORY docs/ DESTINATION "${CMAKE_INSTALL_DATADIR}/doc/VulkanMemoryAllocator" PATTERN ".nojekyll" EXCLUDE)
     endif()
 
     option(VMA_BUILD_SAMPLES "Build samples")

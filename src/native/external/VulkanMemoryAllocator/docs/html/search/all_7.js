@@ -1,4 +1,6 @@
 var searchData=
 [
-  ['instance_0',['instance',['../struct_vma_allocator_create_info.html#a70dd42e29b1df1d1b9b61532ae0b370b',1,'VmaAllocatorCreateInfo::instance()'],['../struct_vma_allocator_info.html#a2ed6a4d2d3fea039d66a13f15d0ce5fe',1,'VmaAllocatorInfo::instance()']]]
+  ['handle_0',['Exporting Win32 handle',['../other_api_interop.html#other_api_interop_exporting_exporting_win32_handle',1,'']]],
+  ['heap_20memory_20limit_1',['Device heap memory limit',['../configuration.html#heap_memory_limit',1,'']]],
+  ['host_20memory_20allocator_2',['Custom host memory allocator',['../configuration.html#custom_memory_allocator',1,'']]]
 ];

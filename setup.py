@@ -72,8 +72,8 @@ print_setup_finished(title, delta_time)
 title = 'VulkanMemoryAllocator'
 print_setup_started(title)
 delta_time = run('cmake -S .  -B build -D VMA_BUILD_SAMPLES=ON', working_directory = vma_directory)
-delta_time += run('msbuild build\\VMA.sln', working_directory = vma_directory)
-delta_time += run('msbuild build\\VMA.sln /p:Configuration=Release', working_directory = vma_directory)
+delta_time += run('msbuild build\\VMA.slnx', working_directory = vma_directory)
+delta_time += run('msbuild build\\VMA.slnx /p:Configuration=Release', working_directory = vma_directory)
 print_setup_finished(title, delta_time)
 
 # Setup SDL
@@ -87,8 +87,8 @@ print_setup_finished(title, delta_time)
 title = 'assimp'
 print_setup_started(title)
 delta_time = run('cmake CMakeLists.txt', working_directory = assimp_directory)
-delta_time += run('msbuild assimp.sln', working_directory = assimp_directory)
-delta_time += run('msbuild assimp.sln /p:Configuration=Release', working_directory = assimp_directory)
+delta_time += run('msbuild assimp.slnx', working_directory = assimp_directory)
+delta_time += run('msbuild assimp.slnx /p:Configuration=Release', working_directory = assimp_directory)
 print_setup_finished(title, delta_time)
 
 # Setup glslang
