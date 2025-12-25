@@ -127,7 +127,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>..\..\external\lunasvg\build\Debug;..\..\external\freetype\objs\x64\Debug;..\..\external\glslang\build\glslang\OSDependent\Windows\Debug;..\..\external\glslang\build\OGLCompilersDLL\Debug;..\..\external\glslang\build\External\spirv-tools\source\opt\Debug;..\..\external\glslang\build\External\spirv-tools\source\Debug;..\..\external\glslang\build\SPIRV\Debug;..\..\external\glslang\build\glslang\Debug;..\..\external\assimp\lib\Debug;..\..\external\SDL\VisualC\x64\Debug;%(AdditionalLibraryDirectories);$(VULKAN_SDK)\Lib</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\external\lunasvg\build\;..\..\external\freetype\objs\x64\Debug;..\..\external\glslang\build\glslang\OSDependent\Windows\Debug;..\..\external\glslang\build\OGLCompilersDLL\Debug;..\..\external\glslang\build\External\spirv-tools\source\opt\Debug;..\..\external\glslang\build\External\spirv-tools\source\Debug;..\..\external\glslang\build\SPIRV\Debug;..\..\external\glslang\build\glslang\Debug;..\..\external\assimp\lib\Debug;..\..\external\SDL\VisualC\x64\Debug;%(AdditionalLibraryDirectories);$(VULKAN_SDK)\Lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>vulkan-1.lib;SDL3.lib;assimp-vc143-mtd.lib;glslangd.lib;GenericCodeGend.lib;glslang-default-resource-limitsd.lib;MachineIndependentd.lib;SPIRVd.lib;SPVRemapperd.lib;SPIRV-Toolsd.lib;SPIRV-Tools-optd.lib;OSDependentd.lib;OGLCompilerd.lib;freetype.lib;lunasvg.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ProjectReference>
@@ -158,7 +158,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalLibraryDirectories>..\..\external\lunasvg\build\Release;..\..\external\freetype\objs\x64\Release;..\..\external\glslang\build\glslang\OSDependent\Windows\Release;..\..\external\glslang\build\OGLCompilersDLL\Release;..\..\external\glslang\build\External\spirv-tools\source\opt\Release;..\..\external\glslang\build\External\spirv-tools\source\Release;..\..\external\glslang\build\SPIRV\Release;..\..\external\glslang\build\glslang\Release;..\..\external\assimp\lib\Release;..\..\external\SDL\VisualC\x64\Release;%(AdditionalLibraryDirectories);$(VULKAN_SDK)\Lib</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\external\lunasvg\build\;..\..\external\freetype\objs\x64\Release;..\..\external\glslang\build\glslang\OSDependent\Windows\Release;..\..\external\glslang\build\OGLCompilersDLL\Release;..\..\external\glslang\build\External\spirv-tools\source\opt\Release;..\..\external\glslang\build\External\spirv-tools\source\Release;..\..\external\glslang\build\SPIRV\Release;..\..\external\glslang\build\glslang\Release;..\..\external\assimp\lib\Release;..\..\external\SDL\VisualC\x64\Release;%(AdditionalLibraryDirectories);$(VULKAN_SDK)\Lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>vulkan-1.lib;SDL3.lib;assimp-vc143-mt.lib;glslang.lib;GenericCodeGen.lib;glslang-default-resource-limits.lib;MachineIndependent.lib;SPIRV.lib;SPVRemapper.lib;SPIRV-Tools.lib;SPIRV-Tools-opt.lib;OSDependent.lib;OGLCompiler.lib;freetype.lib;lunasvg.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ProjectReference>

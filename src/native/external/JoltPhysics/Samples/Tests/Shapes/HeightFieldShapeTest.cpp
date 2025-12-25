@@ -5,7 +5,7 @@
 #include <TestFramework.h>
 
 #include <Tests/Shapes/HeightFieldShapeTest.h>
-#include <Math/Perlin.h>
+#include <External/Perlin.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/PhysicsMaterialSimple.h>
@@ -90,7 +90,7 @@ void HeightFieldShapeTest::Initialize()
 		const float cell_size = 0.5f;
 
 		// Get height samples
-		Array<uint8> data = ReadData("Assets/heightfield1.bin");
+		Array<uint8> data = ReadData("heightfield1.bin");
 		if (data.size() != sizeof(float) * n * n)
 			FatalError("Invalid file size");
 		mTerrainSize = n;

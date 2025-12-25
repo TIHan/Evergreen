@@ -51,7 +51,7 @@ TEST_SUITE("GJKTests")
 		{
 			// Test sphere s1 and s2, they should not collide, verify their closest points
 			Vec3 pa, pb, v = Vec3::sZero();
-			float d = sqrt(gjk.GetClosestPoints(s1, s2, 1.0e-4f, FLT_MAX, v, pa, pb));
+			float d = sqrt(gjk.GetClosestPoints(s1, s2, 1.0e-4f, cLargeFloat, v, pa, pb));
 			CHECK_APPROX_EQUAL(c2.Length() - 2.0f, d, 1.0e-4f);
 			CHECK_APPROX_EQUAL(c2.Normalized(), pa, 1.0e-4f);
 			CHECK_APPROX_EQUAL(c2 - c2.Normalized(), pb, 1.0e-4f);
@@ -60,7 +60,7 @@ TEST_SUITE("GJKTests")
 		{
 			// Test sphere s1 and s3, they should touch exactly, verify their closest points
 			Vec3 pa, pb, v = Vec3::sZero();
-			float d = sqrt(gjk.GetClosestPoints(s1, s3, 1.0e-4f, FLT_MAX, v, pa, pb));
+			float d = sqrt(gjk.GetClosestPoints(s1, s3, 1.0e-4f, cLargeFloat, v, pa, pb));
 			CHECK_APPROX_EQUAL(0.0f, d, 1.0e-4f);
 			CHECK_APPROX_EQUAL(c2.Normalized(), pa, 1.0e-4f);
 			CHECK_APPROX_EQUAL(c2.Normalized(), pb, 1.0e-4f);
@@ -192,7 +192,7 @@ TEST_SUITE("GJKTests")
 	{
 		SphereShape sphere_shape(1.1f);
 		ConvexShape::SupportBuffer buffer;
-		const ConvexShape::Support *support = sphere_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sReplicate(1.0f));
+		const ConvexShape::Support *support = sphere_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sOne());
 		TestRay<ConvexShape::Support, SphereShape>(*support, sphere_shape, [](const SphereShape &inSphere, Vec3Arg inRayOrigin, Vec3Arg inRayDirection) {
 			return RaySphere(inRayOrigin, inRayDirection, Vec3::sZero(), inSphere.GetRadius());
 		});
@@ -211,7 +211,7 @@ TEST_SUITE("GJKTests")
 	{
 		BoxShape box_shape(Vec3(0.9f, 1.0f, 1.1f), 0.0f);
 		ConvexShape::SupportBuffer buffer;
-		const ConvexShape::Support *support = box_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sReplicate(1.0f));
+		const ConvexShape::Support *support = box_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sOne());
 		TestRay<ConvexShape::Support, BoxShape>(*support, box_shape, [](const BoxShape &inBox, Vec3Arg inRayOrigin, Vec3Arg inRayDirection) {
 			float fraction = RayAABox(inRayOrigin, RayInvDirection(inRayDirection), -inBox.GetHalfExtent(), inBox.GetHalfExtent());
 			return max(fraction, 0.0f);
@@ -222,7 +222,7 @@ TEST_SUITE("GJKTests")
 	{
 		CapsuleShape capsule_shape(1.1f, 0.6f);
 		ConvexShape::SupportBuffer buffer;
-		const ConvexShape::Support *support = capsule_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sReplicate(1.0f));
+		const ConvexShape::Support *support = capsule_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sOne());
 		TestRay<ConvexShape::Support, CapsuleShape>(*support, capsule_shape, [](const CapsuleShape &inCapsule, Vec3Arg inRayOrigin, Vec3Arg inRayDirection) {
 			return RayCapsule(inRayOrigin, inRayDirection, inCapsule.GetHalfHeightOfCylinder(), inCapsule.GetRadius());
 		});
@@ -232,7 +232,7 @@ TEST_SUITE("GJKTests")
 	{
 		CylinderShape cylinder_shape(1.5f, 0.6f, 0.0f);
 		ConvexShape::SupportBuffer buffer;
-		const ConvexShape::Support *support = cylinder_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sReplicate(1.0f));
+		const ConvexShape::Support *support = cylinder_shape.GetSupportFunction(ConvexShape::ESupportMode::IncludeConvexRadius, buffer, Vec3::sOne());
 		TestRay<ConvexShape::Support, CylinderShape>(*support, cylinder_shape, [](const CylinderShape &inCylinder, Vec3Arg inRayOrigin, Vec3Arg inRayDirection) {
 			return RayCylinder(inRayOrigin, inRayDirection, inCylinder.GetHalfHeight(), inCylinder.GetRadius());
 		});

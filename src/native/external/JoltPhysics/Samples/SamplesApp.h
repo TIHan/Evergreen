@@ -25,7 +25,7 @@ class SamplesApp : public Application
 {
 public:
 	// Constructor / destructor
-							SamplesApp();
+							SamplesApp(const String &inCommandLine);
 	virtual					~SamplesApp() override;
 
 	// Update the application
@@ -105,7 +105,7 @@ private:
 	bool					mDrawConstraints = false;									// If the constraints should be drawn
 	bool					mDrawConstraintLimits = false;								// If the constraint limits should be drawn
 	bool					mDrawConstraintReferenceFrame = false;						// If the constraint reference frames should be drawn
-	bool					mDrawPhysicsSystemBounds = false;							// If the bounds of the physics system should be drawn
+	bool					mDrawBroadPhaseBounds = false;								// If the bounds of the broadphase should be drawn
 	BodyManager::DrawSettings mBodyDrawSettings;										// Settings for how to draw bodies from the body manager
 	SkeletonPose::DrawSettings mPoseDrawSettings;										// Settings for drawing skeletal poses
 #endif // JPH_DEBUG_RENDERER
@@ -118,12 +118,12 @@ private:
 	const RTTI *			mTestClass = nullptr;										// RTTI information for the test we're currently running
 	Test *					mTest = nullptr;											// The test we're currently running
 	UITextButton *			mTestSettingsButton = nullptr;								// Button that activates the menu that the test uses to configure additional settings
+	int						mShowDescription = 0;										// If > 0, render the description of the test
 
 	// Automatic cycling through tests
-	Array<const RTTI *>		mTestsToRun;												// The list of tests that are still waiting to be run
+	bool					mIsRunningAllTests = false;									// If the user selected the 'Run All Tests' option
 	float					mTestTimeLeft = -1.0f;										// How many seconds the test is still supposed to run
 	bool					mExitAfterRunningTests = false;								// When true, the application will quit when mTestsToRun becomes empty
-	UITextButton *			mNextTestButton = nullptr;									// Button that activates the next test when we're running all tests
 
 	// Test settings
 	bool					mInstallContactListener = false;							// When true, the contact listener is installed the next time the test is reset
@@ -157,6 +157,7 @@ private:
 		RayCollector,
 		CollidePoint,
 		CollideShape,
+		CollideShapeWithInternalEdgeRemoval,
 		CastShape,
 		CollideSoftBody,
 		TransformedShape,
@@ -190,9 +191,9 @@ private:
 	EProbeMode				mProbeMode = EProbeMode::Pick;								// Mouse probe mode. Determines what happens under the crosshair.
 	EProbeShape				mProbeShape = EProbeShape::Sphere;							// Shape to use for the mouse probe.
 	bool					mScaleShape = false;										// If the shape is scaled or not. When true mShapeScale is taken into account.
-	Vec3					mShapeScale = Vec3::sReplicate(1.0f);						// Scale in local space for the probe shape.
+	Vec3					mShapeScale = Vec3::sOne();									// Scale in local space for the probe shape.
 	EBackFaceMode			mBackFaceModeTriangles = EBackFaceMode::CollideWithBackFaces; // How to handle back facing triangles when doing a collision probe check.
-	EBackFaceMode			mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces; // How to handle back facing convex shapes when doing a collision probe check.
+	EBackFaceMode			mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces;	// How to handle back facing convex shapes when doing a collision probe check.
 	EActiveEdgeMode			mActiveEdgeMode = EActiveEdgeMode::CollideOnlyWithActive;	// How to handle active edges when doing a collision probe check.
 	ECollectFacesMode		mCollectFacesMode = ECollectFacesMode::NoFaces;				// If we should collect colliding faces
 	float					mMaxSeparationDistance = 0.0f;								// Max separation distance for collide shape test
@@ -201,6 +202,7 @@ private:
 	bool					mUseShrunkenShapeAndConvexRadius = false;					// Shrink then expand the shape by the convex radius
 	bool					mDrawSupportingFace = false;								// Draw the result of GetSupportingFace
 	int						mMaxHits = 10;												// The maximum number of hits to request for a collision probe.
+	bool					mClosestHitPerBody = false;									// If we are only interested in the closest hit for every body
 
 	// Which object to shoot
 	enum class EShootObjectShape
@@ -218,7 +220,7 @@ private:
 	float					mShootObjectFriction = 0.2f;								// Friction for the object that is shot
 	float					mShootObjectRestitution = 0.0f;								// Restitution for the object that is shot
 	bool					mShootObjectScaleShape = false;								// If the shape should be scaled
-	Vec3					mShootObjectShapeScale = Vec3::sReplicate(1.0f);			// Scale of the object to shoot
+	Vec3					mShootObjectShapeScale = Vec3::sOne();						// Scale of the object to shoot
 	bool					mWasShootKeyPressed = false;								// Remembers if the shoot key was pressed last frame
 
 	// Mouse dragging

@@ -44,19 +44,13 @@ glslang_directory = absolute_path('src/native/external/glslang/')
 glslang_build_directory = absolute_path('src/native/external/glslang/build/')
 freetype_directory = absolute_path('src/native/external/freetype/')
 lunasvg_directory = absolute_path('src/native/external/lunasvg/')
-lunasvg_build_directory = absolute_path('src/native/external/lunasvg/build/')
+lunasvg_build_directory = absolute_path('src/native/external/lunasvg/')
 
 # Setup LunaSVG
 title = 'LunaSVG'
 print_setup_started(title)
-try:
-    shutil.rmtree(lunasvg_build_directory)
-except:
-    ()
-delta_time = run('mkdir build', working_directory = lunasvg_directory)
-delta_time += run('cmake ..', working_directory = lunasvg_build_directory)
-delta_time += run('msbuild lunasvg.sln /p:Configuration=Debug', working_directory = lunasvg_build_directory)
-delta_time += run('msbuild lunasvg.sln /p:Configuration=Release', working_directory = lunasvg_build_directory)
+delta_time = run('cmake -B build .', working_directory = lunasvg_directory)
+delta_time += run('cmake --build build', working_directory = lunasvg_build_directory)
 print_setup_finished(title, delta_time)
 
 # Setup Freetype
@@ -69,7 +63,7 @@ print_setup_finished(title, delta_time)
 # Setup JoltPhysics
 title = 'JoltPhysics'
 print_setup_started(title)
-delta_time = run('cmake_vs2022_cl.bat', working_directory = jolt_build_directory)
+delta_time = run('cmake_vs2026_cl.bat', working_directory = jolt_build_directory)
 delta_time += run('msbuild JoltPhysics.sln', working_directory = jolt_vs_directory)
 delta_time += run('msbuild JoltPhysics.sln /p:Configuration=Release', working_directory = jolt_vs_directory)
 print_setup_finished(title, delta_time)

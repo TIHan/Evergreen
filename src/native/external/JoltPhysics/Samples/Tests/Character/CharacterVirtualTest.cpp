@@ -8,8 +8,11 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Layers.h>
+#include <Utils/Log.h>
 #include <Renderer/DebugRendererImp.h>
 #include <Application/DebugUI.h>
+
+//#define CHARACTER_TRACE_CONTACTS
 
 JPH_IMPLEMENT_RTTI_VIRTUAL(CharacterVirtualTest)
 {
@@ -40,6 +43,10 @@ void CharacterVirtualTest::Initialize()
 	// Install contact listener for all characters
 	for (CharacterVirtual *character : mCharacterVsCharacterCollision.mCharacters)
 		character->SetListener(this);
+
+	// Draw labels on ramp blocks
+	for (size_t i = 0; i < mRampBlocks.size(); ++i)
+		SetBodyLabel(mRampBlocks[i], StringFormat("PushesPlayer: %s\nPushable: %s", (i & 1) != 0? "True" : "False", (i & 2) != 0? "True" : "False"));
 }
 
 void CharacterVirtualTest::PrePhysicsUpdate(const PreUpdateParams &inParams)
@@ -50,17 +57,10 @@ void CharacterVirtualTest::PrePhysicsUpdate(const PreUpdateParams &inParams)
 	RMat44 com = mCharacter->GetCenterOfMassTransform();
 	RMat44 world_transform = mCharacter->GetWorldTransform();
 #ifdef JPH_DEBUG_RENDERER
-	mCharacter->GetShape()->Draw(mDebugRenderer, com, Vec3::sReplicate(1.0f), Color::sGreen, false, true);
+	mCharacter->GetShape()->Draw(mDebugRenderer, com, Vec3::sOne(), Color::sGreen, false, true);
 #endif // JPH_DEBUG_RENDERER
 
-	// Draw shape including padding (only implemented for capsules right now)
-	if (static_cast<const RotatedTranslatedShape *>(mCharacter->GetShape())->GetInnerShape()->GetSubType() == EShapeSubType::Capsule)
-	{
-		if (mCharacter->GetShape() == mStandingShape)
-			mDebugRenderer->DrawCapsule(com, 0.5f * cCharacterHeightStanding, cCharacterRadiusStanding + mCharacter->GetCharacterPadding(), Color::sGrey, DebugRenderer::ECastShadow::Off, DebugRenderer::EDrawMode::Wireframe);
-		else
-			mDebugRenderer->DrawCapsule(com, 0.5f * cCharacterHeightCrouching, cCharacterRadiusCrouching + mCharacter->GetCharacterPadding(), Color::sGrey, DebugRenderer::ECastShadow::Off, DebugRenderer::EDrawMode::Wireframe);
-	}
+	DrawPaddedCharacter(mCharacter->GetShape(), mCharacter->GetCharacterPadding(), com);
 
 	// Remember old position
 	RVec3 old_position = mCharacter->GetPosition();
@@ -86,16 +86,27 @@ void CharacterVirtualTest::PrePhysicsUpdate(const PreUpdateParams &inParams)
 		{ },
 		*mTempAllocator);
 
+#ifdef JPH_ENABLE_ASSERTS
+	// Validate that our contact list is in sync with that of the character
+	// Note that compound shapes could be non convex so we may detect more contacts than have been reported by the character
+	// as the character only reports contacts as it is sliding through the world. If 2 sub shapes hit at the same time then
+	// most likely only one will be reported as it stops the character and prevents the 2nd one from being seen.
+	uint num_contacts = 0;
+	for (const CharacterVirtual::Contact &c : mCharacter->GetActiveContacts())
+		if (c.mHadCollision)
+		{
+			JPH_ASSERT(std::find(mActiveContacts.begin(), mActiveContacts.end(), c) != mActiveContacts.end());
+			num_contacts++;
+		}
+	JPH_ASSERT(sShapeType == EType::Compound? num_contacts >= mActiveContacts.size() : num_contacts == mActiveContacts.size());
+#endif
+
 	// Calculate effective velocity
 	RVec3 new_position = mCharacter->GetPosition();
 	Vec3 velocity = Vec3(new_position - old_position) / inParams.mDeltaTime;
 
 	// Draw state of character
 	DrawCharacterState(mCharacter, world_transform, velocity);
-
-	// Draw labels on ramp blocks
-	for (size_t i = 0; i < mRampBlocks.size(); ++i)
-		mDebugRenderer->DrawText3D(mBodyInterface->GetPosition(mRampBlocks[i]), StringFormat("PushesPlayer: %s\nPushable: %s", (i & 1) != 0? "True" : "False", (i & 2) != 0? "True" : "False"), Color::sWhite, 0.25f);
 }
 
 void CharacterVirtualTest::HandleInput(Vec3Arg inMovementDirection, bool inJump, bool inSwitchStance, float inDeltaTime)
@@ -209,6 +220,7 @@ void CharacterVirtualTest::SaveState(StateRecorder &inStream) const
 
 	inStream.Write(mAllowSliding);
 	inStream.Write(mDesiredVelocity);
+	inStream.Write(mActiveContacts);
 }
 
 void CharacterVirtualTest::RestoreState(StateRecorder &inStream)
@@ -226,6 +238,7 @@ void CharacterVirtualTest::RestoreState(StateRecorder &inStream)
 
 	inStream.Read(mAllowSliding);
 	inStream.Read(mDesiredVelocity);
+	inStream.Read(mActiveContacts);
 }
 
 void CharacterVirtualTest::OnAdjustBodyVelocity(const CharacterVirtual *inCharacter, const Body &inBody2, Vec3 &ioLinearVelocity, Vec3 &ioAngularVelocity)
@@ -235,12 +248,12 @@ void CharacterVirtualTest::OnAdjustBodyVelocity(const CharacterVirtual *inCharac
 		ioLinearVelocity += Vec3(0, 0, 2);
 }
 
-void CharacterVirtualTest::OnContactAdded(const CharacterVirtual *inCharacter, const BodyID &inBodyID2, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
+void CharacterVirtualTest::OnContactCommon(const CharacterVirtual *inCharacter, const BodyID &inBodyID2, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
 {
 	// Draw a box around the character when it enters the sensor
 	if (inBodyID2 == mSensorBody)
 	{
-		AABox box = inCharacter->GetShape()->GetWorldSpaceBounds(inCharacter->GetCenterOfMassTransform(), Vec3::sReplicate(1.0f));
+		AABox box = inCharacter->GetShape()->GetWorldSpaceBounds(inCharacter->GetCenterOfMassTransform(), Vec3::sOne());
 		mDebugRenderer->DrawBox(box, Color::sGreen, DebugRenderer::ECastShadow::Off, DebugRenderer::EDrawMode::Wireframe);
 	}
 
@@ -260,7 +273,51 @@ void CharacterVirtualTest::OnContactAdded(const CharacterVirtual *inCharacter, c
 		mAllowSliding = true;
 }
 
-void CharacterVirtualTest::OnCharacterContactAdded(const CharacterVirtual *inCharacter, const CharacterVirtual *inOtherCharacter, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
+void CharacterVirtualTest::OnContactAdded(const CharacterVirtual *inCharacter, const BodyID &inBodyID2, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
+{
+	OnContactCommon(inCharacter, inBodyID2, inSubShapeID2, inContactPosition, inContactNormal, ioSettings);
+
+	if (inCharacter == mCharacter)
+	{
+	#ifdef CHARACTER_TRACE_CONTACTS
+		Trace("Contact added with body %08x, sub shape %08x", inBodyID2.GetIndexAndSequenceNumber(), inSubShapeID2.GetValue());
+	#endif
+		CharacterVirtual::ContactKey c(inBodyID2, inSubShapeID2);
+		if (std::find(mActiveContacts.begin(), mActiveContacts.end(), c) != mActiveContacts.end())
+			FatalError("Got an add contact that should have been a persisted contact");
+		mActiveContacts.push_back(c);
+	}
+}
+
+void CharacterVirtualTest::OnContactPersisted(const CharacterVirtual *inCharacter, const BodyID &inBodyID2, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
+{
+	OnContactCommon(inCharacter, inBodyID2, inSubShapeID2, inContactPosition, inContactNormal, ioSettings);
+
+	if (inCharacter == mCharacter)
+	{
+	#ifdef CHARACTER_TRACE_CONTACTS
+		Trace("Contact persisted with body %08x, sub shape %08x", inBodyID2.GetIndexAndSequenceNumber(), inSubShapeID2.GetValue());
+	#endif
+		if (std::find(mActiveContacts.begin(), mActiveContacts.end(), CharacterVirtual::ContactKey(inBodyID2, inSubShapeID2)) == mActiveContacts.end())
+			FatalError("Got a persisted contact that should have been an add contact");
+	}
+}
+
+void CharacterVirtualTest::OnContactRemoved(const CharacterVirtual *inCharacter, const BodyID &inBodyID2, const SubShapeID &inSubShapeID2)
+{
+	if (inCharacter == mCharacter)
+	{
+	#ifdef CHARACTER_TRACE_CONTACTS
+		Trace("Contact removed with body %08x, sub shape %08x", inBodyID2.GetIndexAndSequenceNumber(), inSubShapeID2.GetValue());
+	#endif
+		ContactSet::iterator it = std::find(mActiveContacts.begin(), mActiveContacts.end(), CharacterVirtual::ContactKey(inBodyID2, inSubShapeID2));
+		if (it == mActiveContacts.end())
+			FatalError("Got a remove contact that has not been added");
+		mActiveContacts.erase(it);
+	}
+}
+
+void CharacterVirtualTest::OnCharacterContactCommon(const CharacterVirtual *inCharacter, const CharacterVirtual *inOtherCharacter, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
 {
 	// Characters can only be pushed in their own update
 	if (sPlayerCanPushOtherCharacters)
@@ -273,6 +330,50 @@ void CharacterVirtualTest::OnCharacterContactAdded(const CharacterVirtual *inCha
 	// If the player can be pushed by the other virtual character, we allow sliding
 	if (inCharacter == mCharacter && ioSettings.mCanPushCharacter)
 		mAllowSliding = true;
+}
+
+void CharacterVirtualTest::OnCharacterContactAdded(const CharacterVirtual *inCharacter, const CharacterVirtual *inOtherCharacter, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
+{
+	OnCharacterContactCommon(inCharacter, inOtherCharacter, inSubShapeID2, inContactPosition, inContactNormal, ioSettings);
+
+	if (inCharacter == mCharacter)
+	{
+	#ifdef CHARACTER_TRACE_CONTACTS
+		Trace("Contact added with character %08x, sub shape %08x", inOtherCharacter->GetID().GetValue(), inSubShapeID2.GetValue());
+	#endif
+		CharacterVirtual::ContactKey c(inOtherCharacter->GetID(), inSubShapeID2);
+		if (std::find(mActiveContacts.begin(), mActiveContacts.end(), c) != mActiveContacts.end())
+			FatalError("Got an add contact that should have been a persisted contact");
+		mActiveContacts.push_back(c);
+	}
+}
+
+void CharacterVirtualTest::OnCharacterContactPersisted(const CharacterVirtual *inCharacter, const CharacterVirtual *inOtherCharacter, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, CharacterContactSettings &ioSettings)
+{
+	OnCharacterContactCommon(inCharacter, inOtherCharacter, inSubShapeID2, inContactPosition, inContactNormal, ioSettings);
+
+	if (inCharacter == mCharacter)
+	{
+	#ifdef CHARACTER_TRACE_CONTACTS
+		Trace("Contact persisted with character %08x, sub shape %08x", inOtherCharacter->GetID().GetValue(), inSubShapeID2.GetValue());
+	#endif
+		if (std::find(mActiveContacts.begin(), mActiveContacts.end(), CharacterVirtual::ContactKey(inOtherCharacter->GetID(), inSubShapeID2)) == mActiveContacts.end())
+			FatalError("Got a persisted contact that should have been an add contact");
+	}
+}
+
+void CharacterVirtualTest::OnCharacterContactRemoved(const CharacterVirtual *inCharacter, const CharacterID &inOtherCharacterID, const SubShapeID &inSubShapeID2)
+{
+	if (inCharacter == mCharacter)
+	{
+	#ifdef CHARACTER_TRACE_CONTACTS
+		Trace("Contact removed with character %08x, sub shape %08x", inOtherCharacterID.GetValue(), inSubShapeID2.GetValue());
+	#endif
+		ContactSet::iterator it = std::find(mActiveContacts.begin(), mActiveContacts.end(), CharacterVirtual::ContactKey(inOtherCharacterID, inSubShapeID2));
+		if (it == mActiveContacts.end())
+			FatalError("Got a remove contact that has not been added");
+		mActiveContacts.erase(it);
+	}
 }
 
 void CharacterVirtualTest::OnContactSolve(const CharacterVirtual *inCharacter, const BodyID &inBodyID2, const SubShapeID &inSubShapeID2, RVec3Arg inContactPosition, Vec3Arg inContactNormal, Vec3Arg inContactVelocity, const PhysicsMaterial *inContactMaterial, Vec3Arg inCharacterVelocity, Vec3 &ioNewCharacterVelocity)

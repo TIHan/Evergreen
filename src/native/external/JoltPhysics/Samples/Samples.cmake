@@ -87,6 +87,10 @@ set(SAMPLES_SRC_FILES
 	${SAMPLES_ROOT}/Tests/General/EnhancedInternalEdgeRemovalTest.h
 	${SAMPLES_ROOT}/Tests/General/ShapeFilterTest.cpp
 	${SAMPLES_ROOT}/Tests/General/ShapeFilterTest.h
+	${SAMPLES_ROOT}/Tests/General/SimCollideBodyVsBodyTest.cpp
+	${SAMPLES_ROOT}/Tests/General/SimCollideBodyVsBodyTest.h
+	${SAMPLES_ROOT}/Tests/General/SimShapeFilterTest.cpp
+	${SAMPLES_ROOT}/Tests/General/SimShapeFilterTest.h
 	${SAMPLES_ROOT}/Tests/General/CenterOfMassTest.cpp
 	${SAMPLES_ROOT}/Tests/General/CenterOfMassTest.h
 	${SAMPLES_ROOT}/Tests/General/ChangeMotionQualityTest.cpp
@@ -157,6 +161,8 @@ set(SAMPLES_SRC_FILES
 	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyBendConstraintTest.h
 	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyContactListenerTest.cpp
 	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyContactListenerTest.h
+	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyCosseratRodConstraintTest.cpp
+	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyCosseratRodConstraintTest.h
 	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyCustomUpdateTest.cpp
 	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyCustomUpdateTest.h
 	${SAMPLES_ROOT}/Tests/SoftBody/SoftBodyForceTest.cpp
@@ -303,16 +309,58 @@ if (ENABLE_OBJECT_STREAM)
 		${SAMPLES_ROOT}/Tests/Rig/RigPileTest.h
 		${SAMPLES_ROOT}/Tests/Rig/SkeletonMapperTest.cpp
 		${SAMPLES_ROOT}/Tests/Rig/SkeletonMapperTest.h
+		${SAMPLES_ROOT}/Tests/Rig/SoftKeyframedRigTest.cpp
+		${SAMPLES_ROOT}/Tests/Rig/SoftKeyframedRigTest.h
 	)
 endif()
+
+# Assets used by the samples
+set(SAMPLES_ASSETS
+	${PHYSICS_REPO_ROOT}/Assets/convex_hulls.bin
+	${PHYSICS_REPO_ROOT}/Assets/heightfield1.bin
+	${PHYSICS_REPO_ROOT}/Assets/Human/dead_pose1.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/dead_pose2.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/dead_pose3.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/dead_pose4.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/jog_hd.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/neutral.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/neutral_hd.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/skeleton_hd.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/sprint.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human/walk.tof
+	${PHYSICS_REPO_ROOT}/Assets/Human.tof
+	${PHYSICS_REPO_ROOT}/Assets/Racetracks/Zandvoort.csv
+	${PHYSICS_REPO_ROOT}/Assets/terrain1.bof
+	${PHYSICS_REPO_ROOT}/Assets/terrain2.bof
+)
 
 # Group source files
 source_group(TREE ${SAMPLES_ROOT} FILES ${SAMPLES_SRC_FILES})
 
 # Create Samples executable
-add_executable(Samples ${SAMPLES_SRC_FILES})
+if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
+	# Icon
+	set(JPH_ICON "${CMAKE_CURRENT_SOURCE_DIR}/macOS/icon.icns")
+	set_source_files_properties(${JPH_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+
+	# macOS configuration
+	add_executable(Samples MACOSX_BUNDLE ${SAMPLES_SRC_FILES} ${TEST_FRAMEWORK_ASSETS} ${SAMPLES_ASSETS} ${JPH_ICON})
+
+	# Make sure that all samples assets move to the Resources folder in the package
+	foreach(ASSET_FILE ${SAMPLES_ASSETS})
+		string(REPLACE ${PHYSICS_REPO_ROOT}/Assets "Resources" ASSET_DST ${ASSET_FILE})
+		get_filename_component(ASSET_DST ${ASSET_DST} DIRECTORY)
+		set_source_files_properties(${ASSET_FILE} PROPERTIES MACOSX_PACKAGE_LOCATION ${ASSET_DST})
+	endforeach()
+
+	set_property(TARGET Samples PROPERTY MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/iOS/SamplesInfo.plist")
+	set_property(TARGET Samples PROPERTY XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.joltphysics.samples")
+	set_property(TARGET Samples PROPERTY BUILD_RPATH "/usr/local/lib" INSTALL_RPATH "/usr/local/lib") # to find the Vulkan shared lib
+else()
+	add_executable(Samples ${SAMPLES_SRC_FILES})
+endif()
 target_include_directories(Samples PUBLIC ${SAMPLES_ROOT})
-target_link_libraries(Samples LINK_PUBLIC TestFramework d3d12.lib shcore.lib)
+target_link_libraries(Samples LINK_PUBLIC TestFramework)
 
 # Set the correct working directory
 set_property(TARGET Samples PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${PHYSICS_REPO_ROOT}")

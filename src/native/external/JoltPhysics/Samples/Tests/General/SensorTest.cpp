@@ -11,6 +11,7 @@
 #include <Jolt/ObjectStream/ObjectStreamIn.h>
 #include <Utils/RagdollLoader.h>
 #include <Utils/Log.h>
+#include <Utils/AssetStream.h>
 #include <Layers.h>
 #include <Renderer/DebugRendererImp.h>
 
@@ -36,6 +37,7 @@ void SensorTest::Initialize()
 		BodyCreationSettings sensor_settings(new SphereShape(10.0f), RVec3(0, 10, 0), Quat::sIdentity(), EMotionType::Static, Layers::SENSOR);
 		sensor_settings.mIsSensor = true;
 		mSensorID[StaticAttractor] = mBodyInterface->CreateAndAddBody(sensor_settings, EActivation::DontActivate);
+		SetBodyLabel(mSensorID[StaticAttractor], "Static sensor that attracts dynamic bodies");
 	}
 
 	{
@@ -43,6 +45,7 @@ void SensorTest::Initialize()
 		BodyCreationSettings sensor_settings(new BoxShape(Vec3::sReplicate(5.0f)), RVec3(-10, 5.1f, 0), Quat::sIdentity(), EMotionType::Static, Layers::SENSOR);
 		sensor_settings.mIsSensor = true;
 		mSensorID[StaticSensor] = mBodyInterface->CreateAndAddBody(sensor_settings, EActivation::DontActivate);
+		SetBodyLabel(mSensorID[StaticSensor], "Static sensor that detects active dynamic bodies");
 	}
 
 	{
@@ -50,6 +53,7 @@ void SensorTest::Initialize()
 		BodyCreationSettings sensor_settings(new BoxShape(Vec3::sReplicate(5.0f)), RVec3(10, 5.1f, 0), Quat::sIdentity(), EMotionType::Kinematic, Layers::SENSOR);
 		sensor_settings.mIsSensor = true;
 		mSensorID[KinematicSensor] = mBodyInterface->CreateAndAddBody(sensor_settings, EActivation::Activate);
+		SetBodyLabel(mSensorID[KinematicSensor], "Kinematic sensor that also detects sleeping bodies");
 	}
 
 	{
@@ -58,6 +62,7 @@ void SensorTest::Initialize()
 		sensor_settings.mIsSensor = true;
 		sensor_settings.mCollideKinematicVsNonDynamic = true;
 		mSensorID[SensorDetectingStatic] = mBodyInterface->CreateAndAddBody(sensor_settings, EActivation::Activate);
+		SetBodyLabel(mSensorID[SensorDetectingStatic], "Kinematic sensor that also detects sleeping and static bodies");
 	}
 
 	// Dynamic bodies
@@ -71,7 +76,7 @@ void SensorTest::Initialize()
 
 #ifdef JPH_OBJECT_STREAM
 	// Load ragdoll
-	Ref<RagdollSettings> ragdoll_settings = RagdollLoader::sLoad("Assets/Human.tof", EMotionType::Dynamic);
+	Ref<RagdollSettings> ragdoll_settings = RagdollLoader::sLoad("Human.tof", EMotionType::Dynamic);
 	if (ragdoll_settings == nullptr)
 		FatalError("Could not load ragdoll");
 #else
@@ -84,7 +89,8 @@ void SensorTest::Initialize()
 	{
 #ifdef JPH_OBJECT_STREAM
 		Ref<SkeletalAnimation> animation;
-		if (!ObjectStreamIn::sReadObject("Assets/Human/Dead_Pose1.tof", animation))
+		AssetStream stream("Human/dead_pose1.tof", std::ios::in);
+		if (!ObjectStreamIn::sReadObject(stream.Get(), animation))
 			FatalError("Could not open animation");
 		animation->Sample(0.0f, ragdoll_pose);
 #else

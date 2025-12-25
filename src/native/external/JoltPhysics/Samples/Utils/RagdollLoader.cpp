@@ -17,6 +17,7 @@
 #include <Jolt/ObjectStream/ObjectStreamOut.h>
 #include <Layers.h>
 #include <Utils/Log.h>
+#include <Utils/AssetStream.h>
 
 #ifdef JPH_OBJECT_STREAM
 
@@ -24,7 +25,8 @@ RagdollSettings *RagdollLoader::sLoad(const char *inFileName, EMotionType inMoti
 {
 	// Read the ragdoll
 	RagdollSettings *ragdoll = nullptr;
-	if (!ObjectStreamIn::sReadObject(inFileName, ragdoll))
+	AssetStream stream(inFileName, std::ios::in);
+	if (!ObjectStreamIn::sReadObject(stream.Get(), ragdoll))
 		FatalError("Unable to read ragdoll");
 
 	for (RagdollSettings::Part &p : ragdoll->mParts)
@@ -68,6 +70,7 @@ RagdollSettings *RagdollLoader::sLoad(const char *inFileName, EMotionType inMoti
 					settings->mLimitsMin = -original->mNormalHalfConeAngle;
 					settings->mLimitsMax = original->mNormalHalfConeAngle;
 					settings->mMaxFrictionTorque = original->mMaxFrictionTorque;
+					settings->mMotorSettings = original->mSwingMotorSettings;
 					p.mToParent = settings;
 					break;
 				}
@@ -81,6 +84,7 @@ RagdollSettings *RagdollLoader::sLoad(const char *inFileName, EMotionType inMoti
 					settings->mLimitsMin = -1.0f;
 					settings->mLimitsMax = 1.0f;
 					settings->mMaxFrictionForce = original->mMaxFrictionTorque;
+					settings->mMotorSettings = original->mSwingMotorSettings;
 					p.mToParent = settings;
 					break;
 				}
@@ -107,6 +111,9 @@ RagdollSettings *RagdollLoader::sLoad(const char *inFileName, EMotionType inMoti
 
 	// Stabilize the constraints of the ragdoll
 	ragdoll->Stabilize();
+
+	// Optional: Calculate constraint priorities to give more priority to the root
+	ragdoll->CalculateConstraintPriorities();
 
 	// Calculate body <-> constraint map
 	ragdoll->CalculateBodyIndexToConstraintIndex();
@@ -291,6 +298,9 @@ RagdollSettings *RagdollLoader::sCreate()
 
 	// Optional: Stabilize the inertia of the limbs
 	settings->Stabilize();
+
+	// Optional: Calculate constraint priorities to give more priority to the root
+	settings->CalculateConstraintPriorities();
 
 	// Disable parent child collisions so that we don't get collisions between constrained bodies
 	settings->DisableParentChildCollisions();

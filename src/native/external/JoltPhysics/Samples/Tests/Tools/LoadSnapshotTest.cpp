@@ -12,7 +12,9 @@
 #include <Layers.h>
 
 JPH_SUPPRESS_WARNINGS_STD_BEGIN
+#ifdef JPH_PLATFORM_WINDOWS
 #include <commdlg.h>
+#endif
 #include <fstream>
 JPH_SUPPRESS_WARNINGS_STD_END
 
@@ -23,6 +25,7 @@ JPH_IMPLEMENT_RTTI_VIRTUAL(LoadSnapshotTest)
 
 void LoadSnapshotTest::Initialize()
 {
+#ifdef JPH_PLATFORM_WINDOWS
 	// Let user browse for a file
 	char file_name[MAX_PATH] = "";
 	OPENFILENAMEA ofn;
@@ -35,6 +38,10 @@ void LoadSnapshotTest::Initialize()
 	ofn.Flags = OFN_DONTADDTORECENT | OFN_FILEMUSTEXIST;
 	if (!GetOpenFileNameA(&ofn))
 		return;
+#else
+	// Can't browse for a file, use the default name
+	char file_name[] = "snapshot.bin";
+#endif
 
 	ifstream stream(file_name, ifstream::in | ifstream::binary);
 	if (!stream.is_open())
@@ -58,12 +65,20 @@ void LoadSnapshotTest::Initialize()
 	// Determine if we are forced to override the object layers because one of the bodies has a layer number that is invalid in the context of this application
 	bool override_layers = sOverrideLayers;
 	if (!override_layers)
-		for (BodyCreationSettings &settings : scene->GetBodies())
+	{
+		for (const BodyCreationSettings &settings : scene->GetBodies())
 			if (settings.mObjectLayer >= Layers::NUM_LAYERS)
 			{
 				override_layers = true;
 				break;
 			}
+		for (const SoftBodyCreationSettings &settings : scene->GetSoftBodies())
+			if (settings.mObjectLayer >= Layers::NUM_LAYERS)
+			{
+				override_layers = true;
+				break;
+			}
+	}
 
 	for (BodyCreationSettings &settings : scene->GetBodies())
 	{
@@ -75,6 +90,16 @@ void LoadSnapshotTest::Initialize()
 			else
 				settings.mObjectLayer = Layers::MOVING;
 		}
+
+		// Rotate the body so that it matches Y is up
+		settings.mPosition = RMat44::sRotation(up_rotation) * settings.mPosition;
+		settings.mRotation = up_rotation * settings.mRotation;
+	}
+
+	for (SoftBodyCreationSettings &settings : scene->GetSoftBodies())
+	{
+		if (override_layers)
+			settings.mObjectLayer = Layers::MOVING;
 
 		// Rotate the body so that it matches Y is up
 		settings.mPosition = RMat44::sRotation(up_rotation) * settings.mPosition;

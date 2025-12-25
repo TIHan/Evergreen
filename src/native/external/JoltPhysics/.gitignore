@@ -1,3 +1,7 @@
+.cache/
+.clangd/
+.fleet/
+.idea/
 .vs
 .vscode
 .DS_Store
@@ -6,3 +10,5 @@
 /snapshot.bin
 /*.jor
 /detlog.txt
+/Assets/Shaders/VK/*.spv
+/Assets/Shaders/MTL/*.metallib

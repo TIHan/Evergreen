@@ -76,11 +76,11 @@ public:
 	inline void				ClampLinearVelocity();
 	inline void				ClampAngularVelocity();
 
-	/// Get linear damping: dv/dt = -c * v. c must be between 0 and 1 but is usually close to 0.
+	/// Get linear damping: dv/dt = -c * v. c. Value should be zero or positive and is usually close to 0.
 	inline float			GetLinearDamping() const										{ return mLinearDamping; }
 	void					SetLinearDamping(float inLinearDamping)							{ JPH_ASSERT(inLinearDamping >= 0.0f); mLinearDamping = inLinearDamping; }
 
-	/// Get angular damping: dw/dt = -c * w. c must be between 0 and 1 but is usually close to 0.
+	/// Get angular damping: dw/dt = -c * w. c. Value should be zero or positive and is usually close to 0.
 	inline float			GetAngularDamping() const										{ return mAngularDamping; }
 	void					SetAngularDamping(float inAngularDamping)						{ JPH_ASSERT(inAngularDamping >= 0.0f); mAngularDamping = inAngularDamping; }
 
@@ -97,7 +97,7 @@ public:
 
 	/// Set the inverse mass (1 / mass).
 	/// Note that mass and inertia are linearly related (e.g. inertia of a sphere with mass m and radius r is \f$2/5 \: m \: r^2\f$).
-	/// If you change mass, inertia should probably change as well. See MassProperties::ScaleToMass.
+	/// If you change mass, inertia should probably change as well. You can use ScaleToMass to update mass and inertia at the same time.
 	/// If all your translation degrees of freedom are restricted, make sure this is zero (see EAllowedDOFs).
 	void					SetInverseMass(float inInverseMass)								{ mInvMass = inInverseMass; }
 
@@ -109,9 +109,13 @@ public:
 
 	/// Set the inverse inertia tensor in local space by setting the diagonal and the rotation: \f$I_{body}^{-1} = R \: D \: R^{-1}\f$.
 	/// Note that mass and inertia are linearly related (e.g. inertia of a sphere with mass m and radius r is \f$2/5 \: m \: r^2\f$).
-	/// If you change inertia, mass should probably change as well. See MassProperties::ScaleToMass.
+	/// If you change inertia, mass should probably change as well. You can use ScaleToMass to update mass and inertia at the same time.
 	/// If all your rotation degrees of freedom are restricted, make sure this is zero (see EAllowedDOFs).
 	void					SetInverseInertia(Vec3Arg inDiagonal, QuatArg inRot)			{ mInvInertiaDiagonal = inDiagonal; mInertiaRotation = inRot; }
+
+	/// Sets the mass to inMass and scale the inertia tensor based on the ratio between the old and new mass.
+	/// Note that this only works when the current mass is finite (i.e. the body is dynamic and translational degrees of freedom are not restricted).
+	void					ScaleToMass(float inMass);
 
 	/// Get inverse inertia matrix (\f$I_{body}^{-1}\f$). Will be a matrix of zeros for a static or kinematic object.
 	inline Mat44			GetLocalSpaceInverseInertia() const;
@@ -182,6 +186,28 @@ public:
 	void					SetNumPositionStepsOverride(uint inN)							{ JPH_ASSERT(inN < 256); mNumPositionStepsOverride = uint8(inN); }
 	uint					GetNumPositionStepsOverride() const								{ return mNumPositionStepsOverride; }
 
+#ifdef JPH_TRACK_SIMULATION_STATS
+	/// Stats for this body. These are average for the simulation island the body was part of.
+	struct SimulationStats
+	{
+		void				Reset()															{ mBroadPhaseTicks = 0; mNarrowPhaseTicks.store(0, memory_order_relaxed); mVelocityConstraintTicks = 0; mPositionConstraintTicks = 0; mUpdateBoundsTicks = 0; mCCDTicks.store(0, memory_order_relaxed); mNumContactConstraints.store(0, memory_order_relaxed); mNumVelocitySteps = 0; mNumPositionSteps = 0; mIsLargeIsland = false; }
+
+		uint64				mBroadPhaseTicks = 0;											///< Number of processor ticks spent doing broad phase collision detection
+		atomic<uint64>		mNarrowPhaseTicks = 0;											///< Number of ticks spent doing narrow phase collision detection
+		uint64				mVelocityConstraintTicks = 0;									///< Number of ticks spent solving velocity constraints
+		uint64				mPositionConstraintTicks = 0;									///< Number of ticks spent solving position constraints
+		uint64				mUpdateBoundsTicks = 0;											///< Number of ticks spent updating the broadphase and checking if the body should go to sleep
+		atomic<uint64>		mCCDTicks = 0;													///< Number of ticks spent doing CCD
+		atomic<uint32>		mNumContactConstraints = 0;										///< Number of contact constraints created for this body
+		uint8				mNumVelocitySteps = 0;											///< Number of velocity iterations performed
+		uint8				mNumPositionSteps = 0;											///< Number of position iterations performed
+		bool				mIsLargeIsland = false;											///< If this body was part of a large island
+	};
+
+	const SimulationStats &	GetSimulationStats() const										{ return mSimulationStats; }
+	SimulationStats &		GetSimulationStats()											{ return mSimulationStats; }
+#endif // JPH_TRACK_SIMULATION_STATS
+
 	////////////////////////////////////////////////////////////
 	// FUNCTIONS BELOW THIS LINE ARE FOR INTERNAL USE ONLY
 	////////////////////////////////////////////////////////////
@@ -244,8 +270,8 @@ private:
 	Float3					mForce { 0, 0, 0 };												///< Accumulated world space force (N). Note loaded through intrinsics so ensure that the 4 bytes after this are readable!
 	Float3					mTorque { 0, 0, 0 };											///< Accumulated world space torque (N m). Note loaded through intrinsics so ensure that the 4 bytes after this are readable!
 	float					mInvMass;														///< Inverse mass of the object (1/kg)
-	float					mLinearDamping;													///< Linear damping: dv/dt = -c * v. c must be between 0 and 1 but is usually close to 0.
-	float					mAngularDamping;												///< Angular damping: dw/dt = -c * w. c must be between 0 and 1 but is usually close to 0.
+	float					mLinearDamping;													///< Linear damping: dv/dt = -c * v. Value should be zero or positive and is usually close to 0.
+	float					mAngularDamping;												///< Angular damping: dw/dt = -c * w. Value should be zero or positive and is usually close to 0.
 	float					mMaxLinearVelocity;												///< Maximum linear velocity that this body can reach (m/s)
 	float					mMaxAngularVelocity;											///< Maximum angular velocity that this body can reach (rad/s)
 	float					mGravityFactor;													///< Factor to multiply gravity with
@@ -271,6 +297,10 @@ private:
 	EBodyType				mCachedBodyType;												///< Copied from Body::mBodyType and cached for asserting purposes
 	EMotionType				mCachedMotionType;												///< Copied from Body::mMotionType and cached for asserting purposes
 #endif
+
+#ifdef JPH_TRACK_SIMULATION_STATS
+	SimulationStats			mSimulationStats;
+#endif // JPH_TRACK_SIMULATION_STATS
 };
 
 JPH_NAMESPACE_END

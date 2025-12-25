@@ -8,6 +8,7 @@ Each platform supports multiple build targets
 - Release - Release version of the library, no asserts but includes profiling support and can draw the world and simulation properties
 - ReleaseASAN - As Release but turns on Address Sanitizer (clang only) to find bugs
 - ReleaseUBSAN - As Release but turns on Undefined Behavior Sanitizer (clang only) to find bugs
+- ReleaseTSAN - As Release but turns on the Thread Sanitizer (clang only) to find bugs
 - ReleaseCoverage - As Release but turns on Coverage reporting (clang only) to find which areas of the code are not executed
 - Distribution - Shippable version of the library, turns off all debugging support
 
@@ -24,7 +25,7 @@ There are a number of user configurable defines that turn on/off certain feature
 	<ul>
 		<li>JPH_SHARED_LIBRARY - Use the Jolt library as a shared library. Use JPH_BUILD_SHARED_LIBRARY to build Jolt as a shared library.</li>
 		<li>JPH_PROFILE_ENABLED - Turns on the internal profiler.</li>
-		<li>JPH_EXTERNAL_PROFILE - Turns on the internal profiler but forwards the information to a user defined external system (see Profiler.h).</li>
+		<li>JPH_EXTERNAL_PROFILE - Turns on the internal profiler but forwards the information to a user defined external system (see Profiler.h). Use JPH_USE_EXTERNAL_PROFILE option to enable this from CMake config.</li>
 		<li>JPH_DEBUG_RENDERER - Adds support to draw lines and triangles, used to be able to debug draw the state of the world.</li>
 		<li>JPH_DISABLE_TEMP_ALLOCATOR - Disables the temporary memory allocator, used mainly to allow ASAN to do its job.</li>
 		<li>JPH_DISABLE_CUSTOM_ALLOCATOR - Disables the ability to override the memory allocator.</li>
@@ -125,35 +126,16 @@ To implement your custom memory allocator override Allocate, Free, Reallocate, A
 </details>
 
 <details>
-	<summary>Linux</summary>
-	<ul style="list-style: none"><li>
-		<details>
-			<summary>Debian flavor, x64 or ARM64</summary>
-			<ul>
-				<li>Install clang (apt-get install clang)</li>
-				<li>Install cmake (apt-get install cmake)</li>
-				<li>Run: ./cmake_linux_clang_gcc.sh</li>
-				<li>Go to the Linux_Debug folder</li>
-				<li>Run: make -j$(nproc) && ./UnitTests</li>
-			</ul>
-		</details>
-		<details>
-			<summary>Debian flavor, MinGW Cross Compile</summary>
-			<ul>
-				<li>This setup can be used to run samples on Linux using wine and vkd3d. Tested on Ubuntu 22.04</li>
-				<li>Graphics card must support Vulkan and related drivers must be installed</li>
-				<li>Install mingw-w64 (apt-get install mingw-w64)</li>
-				<li>Run: update-alternatives --config x86_64-w64-mingw32-g++ (Select /usr/bin/x86_64-w64-mingw32-g++-posix)</li>
-				<li>Install cmake (apt-get install cmake)</li>
-				<li>Install wine64 (apt-get install wine64)</li>
-				<li>Run: export WINEPATH="/usr/x86_64-w64-mingw32/lib;/usr/lib/gcc/x86_64-w64-mingw32/10-posix" (change it based on your environment)</li>
-				<li>Run: ./cmake_linux_mingw.sh Release (Debug doesn't work)</li>
-				<li>Go to the MinGW_Release folder</li>
-				<li>Run: make -j$(nproc) && wine UnitTests.exe</li>
-				<li>Run: wine Samples.exe</li>
-			</ul>
-		</details>
-	</li></ul>
+	<summary>Linux (Ubuntu)</summary>
+	<ul>
+		<li>Install clang (apt-get install clang)</li>
+		<li>Install cmake (apt-get install cmake)</li>
+		<li>If you want to build the Samples or JoltViewer, install the <a href="https://vulkan.lunarg.com/doc/view/latest/linux/getting_started_ubuntu.html">Vulkan SDK</a></li>
+		<li>Run: ./cmake_linux_clang_gcc.sh</li>
+		<li>Go to the Linux_Debug folder</li>
+		<li>Run: make -j$(nproc) && ./UnitTests</li>
+		<li>If you built the samples you can run: ./Samples</li>
+	</ul>
 </details>
 
 <details>
@@ -205,6 +187,7 @@ To implement your custom memory allocator override Allocate, Free, Reallocate, A
 
 * A vcpkg package is available [here](https://github.com/microsoft/vcpkg/tree/master/ports/joltphysics).
 * A xmake package is available [here](https://github.com/xmake-io/xmake-repo/tree/dev/packages/j/joltphysics).
+* A conan package is available [here](https://conan.io/center/recipes/joltphysics)
 * Jolt has been verified to build with [ninja](https://ninja-build.org/) through CMake.
 
 ## Errors
@@ -230,6 +213,16 @@ error LNK2001: unresolved external symbol "public: virtual void __cdecl JPH::Con
 you have a mismatch in defines between your own code and the Jolt library. In this case the mismatch is in the define `JPH_DEBUG_RENDERER` which is most likely defined in `Jolt.lib` and not in your own project. In `Debug` and `Release` builds, Jolt by default has `JPH_DEBUG_RENDERER` defined, in `Distribution` it is not defined. The cmake options `DEBUG_RENDERER_IN_DEBUG_AND_RELEASE` and `DEBUG_RENDERER_IN_DISTRIBUTION` override this behavior.
 
 The `RegisterTypes` function (which you have to call to initialize the library) checks the other important defines and will trace and abort if there are more mismatches.
+
+### Link Error: Undefined Symbol
+
+If you receive a link error that looks like:
+
+```
+error: undefined symbol: typeinfo for JPH::DebugRenderer
+```
+
+you have a mismatch between RTTI settings (MSVC: `/GR`/`/GR-`, clang: `-frtti`/`-fno-rtti`). Jolt by default compiles without RTTI and if your project compiles with RTTI you can get this error. Either turn RTTI off for your project or turn it on for Jolt using the CPP_RTTI_ENABLED cmake option.
 
 ### DirectX Error
 

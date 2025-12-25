@@ -28,10 +28,10 @@ public:
 		return mNumPilesPerAxis == 1? "RagdollSinglePile" : "Ragdoll";
 	}
 
-	virtual bool			Load() override
+	virtual bool			Load(const String &inAssetPath) override
 	{
 		// Load ragdoll
-		if (!ObjectStreamIn::sReadObject("Assets/Human.tof", mRagdollSettings))
+		if (!ObjectStreamIn::sReadObject((inAssetPath + "Human.tof").c_str(), mRagdollSettings))
 		{
 			cerr << "Unable to load ragdoll" << endl;
 			return false;
@@ -46,7 +46,7 @@ public:
 		mRagdollSettings->CalculateConstraintIndexToBodyIdxPair();
 
 		// Load animation
-		if (!ObjectStreamIn::sReadObject("Assets/Human/dead_pose1.tof", mAnimation))
+		if (!ObjectStreamIn::sReadObject((inAssetPath + "Human/dead_pose1.tof").c_str(), mAnimation))
 		{
 			cerr << "Unable to load animation" << endl;
 			return false;
@@ -57,7 +57,7 @@ public:
 		mAnimation->Sample(0.0f, mPose);
 
 		// Read the background scene
-		if (!ObjectStreamIn::sReadObject("Assets/terrain2.bof", mBackground))
+		if (!ObjectStreamIn::sReadObject((inAssetPath + "terrain2.bof").c_str(), mBackground))
 		{
 			cerr << "Unable to load terrain" << endl;
 			return false;
@@ -82,8 +82,6 @@ public:
 		mBackground->CreateBodies(&inPhysicsSystem);
 
 		// Create ragdoll piles
-		mt19937 random;
-		uniform_real_distribution<float> angle(0.0f, JPH_PI);
 		CollisionGroup::GroupID group_id = 1;
 		for (int row = 0; row < mNumPilesPerAxis; ++row)
 			for (int col = 0; col < mNumPilesPerAxis; ++col)
@@ -108,7 +106,8 @@ public:
 					pose_copy.SetRootOffset(start);
 					SkeletonPose::JointState &root = pose_copy.GetJoint(0);
 					root.mTranslation = Vec3(0, mVerticalSeparation * (i + 1), 0);
-					root.mRotation = Quat::sRotation(Vec3::sAxisY(), angle(random)) * root.mRotation;
+					float angle = 2.0f * JPH_PI * float(i) / float(mPileSize);
+					root.mRotation = Quat::sRotation(Vec3::sAxisY(), angle) * root.mRotation;
 					pose_copy.CalculateJointMatrices();
 
 					// Drive to pose

@@ -4,6 +4,27 @@ This document lists all breaking API changes by date and by release tag. Note th
 
 Changes that make some state saved through SaveBinaryState from a prior version of the library unreadable by the new version is marked as *SBS*. See [Saving Shapes](https://jrouwe.github.io/JoltPhysics/#saving-shapes) for further information.
 
+## Changes between v5.4.0 and latest
+
+* 20251206 - Renamed `JPH_CPU_ADDRESS_BITS` to `JPH_CPU_ARCH_BITS` because the size of a pointer can be different from the number of bits used by the architecture. (db654de2a6098fd1ad78cb9a3e70f6a8a61c00b5)
+
+## Changes between v5.3.0 and v5.4.0
+
+* 20240529 - *SBS* - Added `SoftBodyCreationSettings::mFacesDoubleSided` which treats the faces of the soft body as double sided. This changes the binary serialization format. (3ad037b9262ba81bf7ceda10687f2a07da38f091)
+* 20240529 - *SBS* - WheelSettingsTV and WheelSettingsWV were not serializing their base class members. This changes the binary serialization format. (cfefdc669291bd25dd168af95fb32515cc05a78b)
+* 20250523 - *SBS* - `SoftBodySharedSettings::mVertexRadius` was moved to `SoftBodyCreationSettings::mVertexRadius`, this also changes the serialization format of soft bodies. (f3d906f8c0a07a6993ecb2ff962c892a04843daa)
+* 20250505 - The remap tables in `SoftBodySharedSettings::OptimizationResults` mapped from new to old index instead of from old to new as was documented. The maps now behave as documented. (1ee6eb2f059dab839b0bde02b3c455a7bd24e533)
+* 20250505 - *SBS* - The `SoftBodySharedSettings` binary serialization format changed. (1ee6eb2f059dab839b0bde02b3c455a7bd24e533)
+
+## Changes between v5.2.0 and v5.3.0
+
+* 20250131 - `PhysicsSettings::mManifoldToleranceSq` is no longer squared and now called `mManifoldTolerance`. `ManifoldBetweenTwoFaces` now takes `inMaxContactDistance` instead of `inMaxContactDistanceSq`. (7611a4cb33b15fcb9108794ecb6fc5090470a438)
+* 20250108 - `CharacterVirtual::Contact::mHadCollision` is now true for sensor contacts (`mIsSensorB`). Make sure you ignore all discarded contacts (`mWasDiscarded`) when using `CharacterVirtual::GetActiveContacts`. (0ce60932501cdadcb8b209b3e03c143fac4cbcd6)
+* 20250108 - `CharacterContactListener` now has `OnContactPersisted`, `OnContactRemoved`, `OnCharacterContactPersisted` and `OnCharacterContactRemoved` functions. If you relied on `OnContactAdded`/`OnCharacterContactAdded` callbacks, you may want to call those functions from `OnContactPersisted`/`OnCharacterContactPersisted` to keep the behavior the same. (0ce60932501cdadcb8b209b3e03c143fac4cbcd6)
+* 20241221 - `BodyInterface::AddForce` applied a force per soft body vertex rather than to the whole body, this resulted in a soft body accelerating much more compared to a rigid body of the same mass. If you are applying forces to soft bodies, you need to multiply the force by the number of vertices of the soft body to get the same effect as before. (7850b05a97d2079fc52e538507c843026a555ef3)
+* 20241125 - *SBS* - Changed the binary serialization format of `MeshShape` to allow for bigger meshes of up to 110M triangles. (c738b3490c72cf868bdd704db7d0191b41541751)
+* 20241119 - Removed the use of `std::unordered_map` and `std::unordered_set` and replaced them with our own implementation: `UnorderedMap` and `UnorderedSet`. The public facing interface includes some instances of these, e.g. `Shape::ShapeToIDMap`. Since these are typedeffed and the interface remained the same, applications should not notice the change. (f1420822d39c440492602b670eac8ae2f5821401)
+
 ## Changes between v5.1.0 and v5.2.0
 
 * 20240927 - PhysicsStepListener::OnStep now takes a single PhysicsStepListenerContext parameter. The old parameters 'delta time' and 'physics system' are part of this context. The VehicleConstraint step callbacks use the same context. (8153cd854ce0547b2def425118e1e2f68a9e365c)

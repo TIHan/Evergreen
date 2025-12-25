@@ -28,15 +28,17 @@ void SoftBodyRestitutionTest::Initialize()
 	{
 		sphere.mPosition = RVec3(-50.0f + i * 10.0f, 10.0f, 0);
 		sphere.mRestitution = 0.1f * i;
-		mBodyInterface->CreateAndAddSoftBody(sphere, EActivation::Activate);
+		BodyID id = mBodyInterface->CreateAndAddSoftBody(sphere, EActivation::Activate);
+		SetBodyLabel(id, StringFormat("Restitution: %.1f", double(sphere.mRestitution)));
 	}
 
-	SoftBodyCreationSettings cube(SoftBodyCreator::CreateCube(), RVec3::sZero(), Quat::sIdentity(), Layers::MOVING);
+	SoftBodyCreationSettings cube(SoftBodySharedSettings::sCreateCube(5, 0.5f), RVec3::sZero(), Quat::sIdentity(), Layers::MOVING);
 
 	for (int i = 0; i <= 10; ++i)
 	{
 		cube.mPosition = RVec3(-50.0f + i * 10.0f, 10.0f, -5.0f);
 		cube.mRestitution = 0.1f * i;
-		mBodyInterface->CreateAndAddSoftBody(cube, EActivation::Activate);
+		BodyID id = mBodyInterface->CreateAndAddSoftBody(cube, EActivation::Activate);
+		SetBodyLabel(id, StringFormat("Restitution: %.1f", double(cube.mRestitution)));
 	}
 }

@@ -49,16 +49,13 @@ void ShapeFilterTest::PostPhysicsUpdate(float inDeltaTime)
 	class MyShapeFilter : public ShapeFilter
 	{
 	public:
-		// Not used in this example
-		virtual bool	ShouldCollide(const Shape *inShape2, const SubShapeID &inSubShapeIDOfShape2) const override
-		{
-			return true;
-		}
-
 		virtual bool	ShouldCollide(const Shape *inShape1, const SubShapeID &inSubShapeID1, const Shape *inShape2, const SubShapeID &inSubShapeID2) const override
 		{
 			return inShape1->GetUserData() != mUserDataOfShapeToIgnore;
 		}
+
+		// We're not interested in the other overload as it is not used by ray casts
+		using ShapeFilter::ShouldCollide;
 
 		uint64			mUserDataOfShapeToIgnore = (uint64)ShapeIdentifier::Sphere;
 	};
@@ -111,5 +108,5 @@ void ShapeFilterTest::PostPhysicsUpdate(float inDeltaTime)
 		color = Color::sRed;
 	}
 	mDebugRenderer->DrawArrow(cast_origin, cast_point, Color::sOrange, 0.1f);
-	JPH_IF_DEBUG_RENDERER(mCastShape->Draw(mDebugRenderer, RMat44::sTranslation(RVec3(cast_point)), Vec3::sReplicate(1.0f), color, false, true);)
+	JPH_IF_DEBUG_RENDERER(mCastShape->Draw(mDebugRenderer, RMat44::sTranslation(RVec3(cast_point)), Vec3::sOne(), color, false, true);)
 }

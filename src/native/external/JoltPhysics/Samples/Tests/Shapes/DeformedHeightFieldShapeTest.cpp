@@ -5,7 +5,7 @@
 #include <TestFramework.h>
 
 #include <Tests/Shapes/DeformedHeightFieldShapeTest.h>
-#include <Math/Perlin.h>
+#include <External/Perlin.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
@@ -49,7 +49,7 @@ void DeformedHeightFieldShapeTest::Initialize()
 		Vec3 center = offset + GetPathCenter(t);
 
 		// Cast a ray onto the terrain
-		RShapeCast shape_cast(sphere_shape, Vec3::sReplicate(1.0f), RMat44::sTranslation(RVec3(0, 10, 0) + center), Vec3(0, -20, 0));
+		RShapeCast shape_cast(sphere_shape, Vec3::sOne(), RMat44::sTranslation(RVec3(0, 10, 0) + center), Vec3(0, -20, 0));
 		ClosestHitCollisionCollector<CastShapeCollector> collector;
 		mPhysicsSystem->GetNarrowPhaseQuery().CastShape(shape_cast, { }, RVec3::sZero(), collector);
 		if (collector.mHit.mBodyID2 == mHeightFieldID)

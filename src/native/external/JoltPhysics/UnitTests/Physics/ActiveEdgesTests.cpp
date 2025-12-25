@@ -7,6 +7,7 @@
 #include "Layers.h"
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
@@ -50,7 +51,7 @@ TEST_SUITE("ActiveEdgesTest")
 	{
 		float samples[8*8];
 		memset(samples, 0, sizeof(samples));
-		return new HeightFieldShapeSettings(samples, Vec3(-3.5f, 0, -3.5f), Vec3::sReplicate(1.0f), 8);
+		return new HeightFieldShapeSettings(samples, Vec3(-3.5f, 0, -3.5f), Vec3::sOne(), 8);
 	}
 
 	// This struct indicates what we hope to find as hit
@@ -84,7 +85,7 @@ TEST_SUITE("ActiveEdgesTest")
 	static void sTestCollideShape(Shape *inProbeShape, Shape *inTestShape, Vec3Arg inTestShapeScale, const CollideShapeSettings &inSettings, Vec3Arg inProbeShapePos, const Array<ExpectedHit> &inExpectedHits)
 	{
 		AllHitCollisionCollector<CollideShapeCollector> collector;
-		CollisionDispatch::sCollideShapeVsShape(inProbeShape, inTestShape, Vec3::sReplicate(1.0f), inTestShapeScale, Mat44::sTranslation(inProbeShapePos), Mat44::sIdentity(), SubShapeIDCreator(), SubShapeIDCreator(), inSettings, collector);
+		CollisionDispatch::sCollideShapeVsShape(inProbeShape, inTestShape, Vec3::sOne(), inTestShapeScale, Mat44::sTranslation(inProbeShapePos), Mat44::sIdentity(), SubShapeIDCreator(), SubShapeIDCreator(), inSettings, collector);
 
 		sCheckMatch(collector.mHits, inExpectedHits, 1.0e-8f);
 	}
@@ -116,9 +117,9 @@ TEST_SUITE("ActiveEdgesTest")
 	{
 		Ref<ShapeSettings> shape = sCreateMeshShape();
 
-		sTestCollideShape(shape, Vec3::sReplicate(1.0f), false);
+		sTestCollideShape(shape, Vec3::sOne(), false);
 
-		sTestCollideShape(shape, Vec3::sReplicate(1.0f), true);
+		sTestCollideShape(shape, Vec3::sOne(), true);
 
 		sTestCollideShape(shape, Vec3(-1, 1, 1), false);
 
@@ -129,9 +130,9 @@ TEST_SUITE("ActiveEdgesTest")
 	{
 		Ref<ShapeSettings> shape = sCreateHeightFieldShape();
 
-		sTestCollideShape(shape, Vec3::sReplicate(1.0f), false);
+		sTestCollideShape(shape, Vec3::sOne(), false);
 
-		sTestCollideShape(shape, Vec3::sReplicate(1.0f), true);
+		sTestCollideShape(shape, Vec3::sOne(), true);
 
 		sTestCollideShape(shape, Vec3(-1, 1, 1), false);
 
@@ -142,7 +143,7 @@ TEST_SUITE("ActiveEdgesTest")
 	static void sTestCastShape(Shape *inProbeShape, Shape *inTestShape, Vec3Arg inTestShapeScale, const ShapeCastSettings &inSettings, Vec3Arg inProbeShapePos, Vec3Arg inProbeShapeDirection, const Array<ExpectedHit> &inExpectedHits)
 	{
 		AllHitCollisionCollector<CastShapeCollector> collector;
-		ShapeCast shape_cast(inProbeShape, Vec3::sReplicate(1.0f), Mat44::sTranslation(inProbeShapePos), inProbeShapeDirection);
+		ShapeCast shape_cast(inProbeShape, Vec3::sOne(), Mat44::sTranslation(inProbeShapePos), inProbeShapeDirection);
 		CollisionDispatch::sCastShapeVsShapeLocalSpace(shape_cast, inSettings, inTestShape, inTestShapeScale, ShapeFilter(), Mat44::sIdentity(), SubShapeIDCreator(), SubShapeIDCreator(), collector);
 
 		sCheckMatch(collector.mHits, inExpectedHits, 1.0e-6f);
@@ -173,9 +174,9 @@ TEST_SUITE("ActiveEdgesTest")
 	{
 		Ref<ShapeSettings> shape = sCreateMeshShape();
 
-		sTestCastShape(shape, Vec3::sReplicate(1.0f), false);
+		sTestCastShape(shape, Vec3::sOne(), false);
 
-		sTestCastShape(shape, Vec3::sReplicate(1.0f), true);
+		sTestCastShape(shape, Vec3::sOne(), true);
 
 		sTestCastShape(shape, Vec3(-1, 1, 1), false);
 
@@ -186,9 +187,9 @@ TEST_SUITE("ActiveEdgesTest")
 	{
 		Ref<ShapeSettings> shape = sCreateHeightFieldShape();
 
-		sTestCastShape(shape, Vec3::sReplicate(1.0f), false);
+		sTestCastShape(shape, Vec3::sOne(), false);
 
-		sTestCastShape(shape, Vec3::sReplicate(1.0f), true);
+		sTestCastShape(shape, Vec3::sOne(), true);
 
 		sTestCastShape(shape, Vec3(-1, 1, 1), false);
 
@@ -338,5 +339,68 @@ TEST_SUITE("ActiveEdgesTest")
 		sLinearCastCubeSlide(scaled_shape, false);
 
 		sLinearCastCubeSlide(scaled_shape, true);
+	}
+
+	TEST_CASE("TestNonManifoldMesh")
+	{
+		// Test 3 triangles in a plane that all share the same edge
+		// Normally the shared edge would not be active, but since the mesh is non-manifold we expect all of them to be active
+		TriangleList triangles;
+		triangles.push_back(Triangle(Float3(0, 0, -1), Float3(0, 0, 1), Float3(1, 0, 0), 0));
+		triangles.push_back(Triangle(Float3(0, 0, 1), Float3(0, 0, -1), Float3(-1, 0, 0), 0));
+		triangles.push_back(Triangle(Float3(0, 0, 1), Float3(0, 0, -1), Float3(-0.5f, 0, 0), 0));
+
+		ShapeRefC shape = MeshShapeSettings(triangles).Create().Get();
+
+		ShapeRefC sphere = new SphereShape(0.1f);
+
+		CollideShapeSettings settings;
+		settings.mActiveEdgeMode = EActiveEdgeMode::CollideOnlyWithActive;
+
+		// Collide a sphere on both sides of the active edge so that a 45 degree normal will be found then the edge is active.
+		// An inactive edge will return a normal that is perpendicular to the plane.
+		{
+			AllHitCollisionCollector<CollideShapeCollector> collector;
+			CollisionDispatch::sCollideShapeVsShape(sphere, shape, Vec3::sOne(), Vec3::sOne(), Mat44::sTranslation(Vec3(0.05f, 0.05f, 0)), Mat44::sIdentity(), SubShapeIDCreator(), SubShapeIDCreator(), settings, collector);
+			CHECK(collector.mHits.size() == 3);
+
+			// We expect one interior hit because the sphere is above the triangle and 2 active edge hits that provide a normal pointing towards the sphere
+			int num_interior = 0, num_on_shared_edge = 0;
+			for (const CollideShapeResult &r : collector.mHits)
+				if (r.mContactPointOn2.IsClose(Vec3(0.05f, 0.0f, 0.0f)))
+				{
+					CHECK_APPROX_EQUAL(r.mPenetrationAxis.Normalized(), Vec3(0, -1, 0));
+					++num_interior;
+				}
+				else if (r.mContactPointOn2.IsNearZero())
+				{
+					CHECK_APPROX_EQUAL(r.mPenetrationAxis.Normalized(), Vec3(-1, -1, 0).Normalized(), 1.0e-5f);
+					++num_on_shared_edge;
+				}
+			CHECK(num_interior == 1);
+			CHECK(num_on_shared_edge == 2);
+		}
+
+		{
+			AllHitCollisionCollector<CollideShapeCollector> collector;
+			CollisionDispatch::sCollideShapeVsShape(sphere, shape, Vec3::sOne(), Vec3::sOne(), Mat44::sTranslation(Vec3(-0.05f, 0.05f, 0)), Mat44::sIdentity(), SubShapeIDCreator(), SubShapeIDCreator(), settings, collector);
+			CHECK(collector.mHits.size() == 3);
+
+			// We expect 2 interior hits because the sphere is above the triangle and 1 active edge hit that provide a normal pointing towards the sphere
+			int num_interior = 0, num_on_shared_edge = 0;
+			for (const CollideShapeResult &r : collector.mHits)
+				if (r.mContactPointOn2.IsClose(Vec3(-0.05f, 0.0f, 0.0f)))
+				{
+					CHECK_APPROX_EQUAL(r.mPenetrationAxis.Normalized(), Vec3(0, -1, 0));
+					++num_interior;
+				}
+				else if (r.mContactPointOn2.IsNearZero())
+				{
+					CHECK_APPROX_EQUAL(r.mPenetrationAxis.Normalized(), Vec3(1, -1, 0).Normalized(), 1.0e-5f);
+					++num_on_shared_edge;
+				}
+			CHECK(num_interior == 2);
+			CHECK(num_on_shared_edge == 1);
+		}
 	}
 }
