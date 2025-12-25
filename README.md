@@ -5,8 +5,8 @@ Adventures in creating a game engine with a custom programming language.
 ## Prerequisites
 
 - Windows 11 x64
-- [.NET 8](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
-- [Visual Studio Community 2022 or better](https://visualstudio.microsoft.com/vs/community/)
+- [.NET 10](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
+- [Visual Studio Community 2026 or better](https://visualstudio.microsoft.com/vs/community/)
     - Install C/C++ Support
     - Install CMake Support
     - Install .NET Support
