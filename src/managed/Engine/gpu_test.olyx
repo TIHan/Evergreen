@@ -5,6 +5,8 @@
 #package "Spectre.Console.Cli,0.49.1"
 #package "System.Drawing.Common,8.0.11"
 
+#property "r2r" true
+
 namespace GpuTest
 
 open System
