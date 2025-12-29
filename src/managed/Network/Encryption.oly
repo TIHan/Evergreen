@@ -28,6 +28,8 @@ internal class Encryption =
 
         static Create(): IV = IV()
 
+        overrides ToString(): string = System.Text.Encoding.UTF8.GetString(this.buffer)
+
     static field aes: Aes =
         let aes = Aes.Create()
         aes.BlockSize <- 128

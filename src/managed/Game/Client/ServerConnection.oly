@@ -137,7 +137,7 @@ internal class ServerConnection =
                                 let serverFrameDiff = this.latestSnapshotFrame - serverLatestSnapshotFrameAck
             
                                 // Drop the snapshot if it is not within range.
-                                if (serverFrameDiff <= FrameNumber(25) && serverFrameDiff > FrameNumber.Zero)
+                                if (serverFrameDiff <= FrameNumber(15) && serverFrameDiff > FrameNumber.Zero)
                                     let prevSnapshot = clientSnapshots[serverLatestSnapshotFrameAck % clientSnapshots.Length]
                                     prevSnapshot.CopyTo(this.ReceivedWorld)
             

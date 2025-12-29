@@ -299,6 +299,7 @@ class NetworkServer =
         this.timeSinceStart <- 0
         this.socket.ReceiveBufferSize <- Int32.MaxValue
         this.iv.Regenerate()
+        printLine("SERVER: " + this.iv.ToString())
         true
 
     Stop(): () =
