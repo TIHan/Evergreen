@@ -20,7 +20,7 @@ private CheckIntializeVulkan(result: VkResult): () =
         fail("Failed to intialize ImGui.")
 
 CreateContext(window: WindowVulkan, app: Evergreen.Graphics.Backend.Vulkan.VulkanApplication, minImageCount: uint32, imageCount: uint32, renderPass: VkRenderPass): ImGuiContext =
-    let ctx = egImGuiCreateContextVulkan(window.Internal, app.Instance, app.PhysicalDevice, app.Device, app.GraphicsQueueFamilyIndex, app.GraphicsQueues[0], minImageCount, imageCount, renderPass, Unsafe.Cast(&&CheckIntializeVulkan))
+    let ctx = egImGuiCreateContextVulkan(window.Internal, app.Instance, app.PhysicalDevice, app.Device, app.GraphicsQueueFamilyIndex, app.GraphicsQueue, minImageCount, imageCount, renderPass, Unsafe.Cast(&&CheckIntializeVulkan))
     let context = ImGuiContext(app, ctx, window.HWND)
     SetCurrentContext(context)
     context
