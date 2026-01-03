@@ -6,6 +6,10 @@
 #reference "../Game/Client/Game.Client.olyx"
 #reference "../Game/Shared/*.olyx"
 
+#reference "Steamworks.NET.dll"
+#copy "steam_api64.dll"
+#copy "steam_appid.txt"
+
 open System
 open System.IO
 open System.Runtime.Intrinsics
@@ -21,6 +25,7 @@ open static Game.Shared.Types
 open static Game.Shared.Components
 open Game.Server
 open Game.Graphics
+open Steamworks
 
 BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
     let world = ServerWorld(genv)
@@ -76,6 +81,17 @@ BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
 
 module Marker
 
+BeginSteamAPI(): () =
+    let origDir = Environment.CurrentDirectory
+    let markerTy = DotNet.TypeOf<Marker>
+    Environment.CurrentDirectory <- Path.GetDirectoryName(markerTy.Assembly.Location)
+    let mutable isSteamRunning = SteamAPI.Init()
+    printLine("Steam Running: " + isSteamRunning.ToString())
+    Environment.CurrentDirectory <- origDir
+
+EndSteamAPI(): () =
+    SteamAPI.Shutdown()
+
 main(args: string[]): () =
     if (args.Length != 1)
         fail("Invalid arguments")
@@ -114,5 +130,10 @@ main(args: string[]): () =
             (_) -> return BenchmarkMap(resx, genv)
         )
 
-        Console.SetOut(genv.ConsoleWriter)
-        Game.Orchestration.Run(genv, renv)
+        BeginSteamAPI()
+
+        try
+            Console.SetOut(genv.ConsoleWriter)
+            Game.Orchestration.Run(genv, renv)
+        finally
+            EndSteamAPI()
