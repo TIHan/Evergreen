@@ -112,7 +112,6 @@ class VulkanApplication =
 
     internal field mutable currentFrame: int32
     internal field mutable previousFrame: int32
-    internal field mutable currentSemaphoreIndex: int32
     internal field mutable isOutOfDate: bool
     internal field mutable lastImageIndex: uint32
     internal field mutable hasDrawnOnce: bool
@@ -203,7 +202,6 @@ class VulkanApplication =
             InFlightFences = inFlightFences
             currentFrame = 0
             previousFrame = 0
-            currentSemaphoreIndex = 0
             isOutOfDate = false
             lastImageIndex = 0
             hasDrawnOnce = false
@@ -749,8 +747,8 @@ module Vk =
         fenceInfo.flags <- VkFenceCreateFlags.VK_FENCE_CREATE_SIGNALED_BIT
 
         let inFlightFences = zeroArray(maxFramesInFlight)
-        let imageAvailableSemaphores = zeroArray(maxFramesInFlight + 1)
-        let renderFinishedSemaphores = zeroArray(maxFramesInFlight + 1)
+        let imageAvailableSemaphores = zeroArray(maxFramesInFlight)
+        let renderFinishedSemaphores = zeroArray(maxFramesInFlight)
 
         let mutable i = 0
         while (i < inFlightFences.Length)
@@ -1361,8 +1359,8 @@ module Vk =
 
     Draw(app: VulkanApplication, swapChain: VulkanSwapChain, acquireCommandBuffer: (framebufferIndex: int32, frame: int32) -> VulkanCommandBuffer): () =
         let mutable inFlightFence = app.InFlightFences[app.CurrentFrame]
-        let imageAvailableSemaphore = app.ImageAvailableSemaphores[app.currentSemaphoreIndex]
-        let renderFinishedSemaphore = app.RenderFinishedSemaphores[app.currentSemaphoreIndex] 
+        let imageAvailableSemaphore = app.ImageAvailableSemaphores[app.CurrentFrame]
+        let renderFinishedSemaphore = app.RenderFinishedSemaphores[app.CurrentFrame] 
 
         if (task !== null)
             task.Wait()
@@ -1371,44 +1369,40 @@ module Vk =
             app.isOutOfDate <- false
             if (app.hasDrawnOnce)
                 throw VulkanSwapChainOutOfDateException()
+        
+        if (vkWaitForFences(app.Device, 1, &&inFlightFence, VkBool32.TRUE, uint64.MaxValue) != VkResult.VK_SUCCESS)
+            fail("Failed to wait for fences.")
+
+        if (vkResetFences(app.Device, 1, &&inFlightFence) != VkResult.VK_SUCCESS)
+            fail("Failed to reset fences.")   
 
         let mutable imageIndex = default
-        let result = vkAcquireNextImageKHR(app.Device, swapChain.SwapChain, uint64.MaxValue, imageAvailableSemaphore, VkFence.NULL, &&imageIndex)
-        
-        if (result != VkResult.VK_SUCCESS)
+        if (vkAcquireNextImageKHR(app.Device, swapChain.SwapChain, uint64.MaxValue, imageAvailableSemaphore, VkFence.NULL, &&imageIndex) != VkResult.VK_SUCCESS)
             fail("Failed to acquire next image.")
+            
+        let commandBuffer = acquireCommandBuffer(int32(imageIndex), app.CurrentFrame)
+            
+        if (app.AsyncDrawEnabled)
+            task <-
+                System.Threading.Tasks.Task.Run(
+                    () ->
+                        draw(app, swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+                )
         else
             ()
-            if (vkWaitForFences(app.Device, 1, &&inFlightFence, VkBool32.TRUE, uint64.MaxValue) != VkResult.VK_SUCCESS)
-                fail("Failed to wait for fences.")
-    
-            if (vkResetFences(app.Device, 1, &&inFlightFence) != VkResult.VK_SUCCESS)
-                fail("Failed to reset fences.")   
-                
-            let commandBuffer = acquireCommandBuffer(int32(imageIndex), app.CurrentFrame)
-                
-            if (app.AsyncDrawEnabled)
-                task <-
-                    System.Threading.Tasks.Task.Run(
-                        () ->
-                            draw(app, swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
-                    )
-            else
-                ()
-                let result = draw(app, swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
-                
-                // TODO: Remove the commented code below when we feel comfortable that we do not need it.
-                //if (result == VkResult.VK_ERROR_OUT_OF_DATE_KHR || result == VkResult.VK_SUBOPTIMAL_KHR || app.isOutOfDate)
-                //    app.isOutOfDate <- false
-                //    throw VulkanSwapChainOutOfDateException()
-                if (result != VkResult.VK_SUCCESS)
-                    fail("Failed to present.")
+            let result = draw(app, swapChain.SwapChain, app.GraphicsQueues[app.CurrentFrame], app.PresentQueues[app.CurrentFrame], commandBuffer.CommandBuffer, imageIndex, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
+            
+            // TODO: Remove the commented code below when we feel comfortable that we do not need it.
+            //if (result == VkResult.VK_ERROR_OUT_OF_DATE_KHR || result == VkResult.VK_SUBOPTIMAL_KHR || app.isOutOfDate)
+            //    app.isOutOfDate <- false
+            //    throw VulkanSwapChainOutOfDateException()
+            if (result != VkResult.VK_SUCCESS)
+                fail("Failed to present.")
 
-            app.previousFrame <- app.CurrentFrame
-            app.currentFrame <- (app.currentFrame + 1) % app.MaxFramesInFlight
-            app.currentSemaphoreIndex <- (app.currentSemaphoreIndex + 1) % app.ImageAvailableSemaphores.Length
-            app.lastImageIndex <- imageIndex
-            app.hasDrawnOnce <- true
+        app.previousFrame <- app.CurrentFrame
+        app.currentFrame <- (app.currentFrame + 1) % app.MaxFramesInFlight
+        app.lastImageIndex <- imageIndex
+        app.hasDrawnOnce <- true
 
     WaitForIdle(app: VulkanApplication): () =
         lock(VulkanApplication.AsyncLock,
