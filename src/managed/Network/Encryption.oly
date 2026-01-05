@@ -58,33 +58,39 @@ internal class Encryption =
             numberOfBytesReceived
 
     private static Encrypt(srcPacket: Packet, iv: IV, mutable dst: Span<byte>): int32 =
-        match (srcPacket.Kind)
-        | PacketKind.Heartbeat
-        | PacketKind.ConnectionRequested
-        | PacketKind.ConnectionAccepted
-        | PacketKind.Disconnect 
-        | PacketKind.ServerConnectionRefused =>
-            // These packets are not encrypted.
-            ReadOnlySpan(srcPacket.Buffer, 0, srcPacket.Length).CopyTo(dst)
-            srcPacket.Length
-        | _ =>
-            let mutable numberOfBytesToSend = 0
-            if (!aes.TryEncryptCbc(srcPacket.SendingSpan.Slice(1), iv.AsReadOnlySpan(), dst.Slice(1), &numberOfBytesToSend, PaddingMode.PKCS7))
-                throw InvalidOperationException("Failed to encrypt.")
-            (dst[0]) <- Unsafe.Cast(srcPacket.Kind)
-            numberOfBytesToSend + 1
+        // These packets are not encrypted.
+        ReadOnlySpan(srcPacket.Buffer, 0, srcPacket.Length).CopyTo(dst)
+        srcPacket.Length
+        // match (srcPacket.Kind)
+        // | PacketKind.Heartbeat
+        // | PacketKind.ConnectionRequested
+        // | PacketKind.ConnectionAccepted
+        // | PacketKind.Disconnect 
+        // | PacketKind.ServerConnectionRefused =>
+        //     // These packets are not encrypted.
+        //     ReadOnlySpan(srcPacket.Buffer, 0, srcPacket.Length).CopyTo(dst)
+        //     srcPacket.Length
+        // | _ =>
+        //     let mutable numberOfBytesToSend = 0
+        //     if (!aes.TryEncryptCbc(srcPacket.SendingSpan.Slice(1), iv.AsReadOnlySpan(), dst.Slice(1), &numberOfBytesToSend, PaddingMode.PKCS7))
+        //         throw InvalidOperationException("Failed to encrypt.")
+        //     (dst[0]) <- Unsafe.Cast(srcPacket.Kind)
+        //     numberOfBytesToSend + 1
 
     private static Decrypt(mutable src: ReadOnlySpan<byte>, iv: IV, dstPacket: Packet): () =
-        match (Unsafe.Cast(src[0]))
-        | PacketKind.Heartbeat
-        | PacketKind.ConnectionRequested
-        | PacketKind.ConnectionAccepted
-        | PacketKind.Disconnect 
-        | PacketKind.ServerConnectionRefused =>
-            // These packets are not encrypted.
-            src.CopyTo(dstPacket.ReceivingSpan)
-            dstPacket.DataSize <- src.Length - dstPacket.HeaderSize
-        | _ =>
-            let length = aes.DecryptCbc(src.Slice(1), iv.AsReadOnlySpan(), dstPacket.ReceivingSpan.Slice(1), PaddingMode.PKCS7)
-            (dstPacket.ReceivingSpan[0]) <- src[0]
-            dstPacket.DataSize <- (length + 1) - dstPacket.HeaderSize
+        // These packets are not encrypted.
+        src.CopyTo(dstPacket.ReceivingSpan)
+        dstPacket.DataSize <- src.Length - dstPacket.HeaderSize
+        // match (Unsafe.Cast(src[0]))
+        // | PacketKind.Heartbeat
+        // | PacketKind.ConnectionRequested
+        // | PacketKind.ConnectionAccepted
+        // | PacketKind.Disconnect 
+        // | PacketKind.ServerConnectionRefused =>
+        //     // These packets are not encrypted.
+        //     src.CopyTo(dstPacket.ReceivingSpan)
+        //     dstPacket.DataSize <- src.Length - dstPacket.HeaderSize
+        // | _ =>
+        //     let length = aes.DecryptCbc(src.Slice(1), iv.AsReadOnlySpan(), dstPacket.ReceivingSpan.Slice(1), PaddingMode.PKCS7)
+        //     (dstPacket.ReceivingSpan[0]) <- src[0]
+        //     dstPacket.DataSize <- (length + 1) - dstPacket.HeaderSize

@@ -657,7 +657,7 @@ module Vk =
 
         let (graphicsQueueCount, transferAsyncQueueIndex) =
             if (graphicsFamilyIndex == transferFamilyIndex)
-                (uint32(graphicsQueueCount + 1), graphicsQueueCount) // TODO-language-bug: Should not do 'uint32(graphicsQueueCount + 1)'
+                (graphicsQueueCount + 1, graphicsQueueCount)
             else
                 throw NotImplementedException()
 
@@ -684,7 +684,7 @@ module Vk =
                 enableValidationLayers, 
                 validationLayers, 
                 physicalDevice, 
-                graphicsFamilyIndex, graphicsQueueCount,
+                graphicsFamilyIndex, uint32(graphicsQueueCount),
                 computeFamilyIndex, computeQueueCount,
                 transferFamilyIndex, transferQueueCount,
                 presentFamilyIndex, presentQueueCount

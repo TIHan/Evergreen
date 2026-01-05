@@ -1,0 +1,51 @@
+namespace Evergreen.Network.Transport
+
+open System
+open System.IO
+open System.IO.Compression
+open System.Buffers
+open System.Net
+open System.Net.Sockets
+
+interface INetworkIdentity
+
+interface INetworkTransport =
+
+    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32
+    ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity)
+
+    Available: int32 get
+
+private class UdpIdentity =
+    implements INetworkIdentity
+
+    public field endPoint: EndPoint
+
+    new(endPoint: EndPoint) = this { endPoint = endPoint }
+
+class UdpClientTransport =
+    implements INetworkTransport
+
+    field socket: Socket
+    field port: int32
+
+    new(port: int32) = 
+        let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
+        socket.Blocking <- false
+        socket.ReceiveBufferSize <- Int32.MaxValue
+        this { socket = socket; port = port }
+
+    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32 =
+        if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
+            let identity: UdpIdentity = Unsafe.Cast(identity)
+            this.socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
+        else
+            fail("invalid identity")
+
+    ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
+        if (this.port <= 0)
+            fail("invalid port")
+        let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
+        (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
+
+    Available: int32 get() = this.socket.Available
