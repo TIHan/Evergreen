@@ -1,0 +1,25 @@
+#target "dotnet: net10.0"
+
+#reference "Steamworks.NET.dll"
+#copy "steam_api64.dll"
+#copy "steam_appid.txt"
+
+namespace Evergreen.Steam
+
+open System
+open System.IO
+open Steamworks
+
+private module Marker
+
+module Steam =
+    Initialize(): () =
+        let origDir = Environment.CurrentDirectory
+        let markerTy = DotNet.TypeOf<Marker>
+        Environment.CurrentDirectory <- Path.GetDirectoryName(markerTy.Assembly.Location)
+        let mutable isSteamRunning = SteamAPI.Init()
+        printLine("Steam Running: " + isSteamRunning.ToString())
+        Environment.CurrentDirectory <- origDir
+
+    Shutdown(): () =
+        SteamAPI.Shutdown()
