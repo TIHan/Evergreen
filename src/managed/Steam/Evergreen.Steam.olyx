@@ -12,14 +12,84 @@ open Steamworks
 
 private module Marker
 
+class SteamException =
+    inherits Exception
+
+    new(msg: string) = base(msg) { }
+
 module Steam =
+
+    field mutable isSteamRunning: bool = false
+
+    internal CheckRunning(): () =
+        if (!IsRunning)
+            throw SteamException("Steam is not running")
+
+    IsRunning: bool get() = isSteamRunning
+
     Initialize(): () =
         let origDir = Environment.CurrentDirectory
         let markerTy = DotNet.TypeOf<Marker>
         Environment.CurrentDirectory <- Path.GetDirectoryName(markerTy.Assembly.Location)
-        let mutable isSteamRunning = SteamAPI.Init()
-        printLine("Steam Running: " + isSteamRunning.ToString())
+        isSteamRunning <- SteamAPI.Init()
         Environment.CurrentDirectory <- origDir
 
     Shutdown(): () =
         SteamAPI.Shutdown()
+
+struct SteamListenSocket =
+    implements IDisposable
+
+    field socket: HSteamListenSocket
+    new(socket: HSteamListenSocket) = this { socket = socket }
+
+    static Create(port: uint16): SteamListenSocket =
+        Steam.CheckRunning()
+
+        let mutable addr: SteamNetworkingIPAddr = default
+        addr.Clear()
+        addr.SetIPv6LocalHost(port)
+        let socket = SteamNetworkingSockets.CreateListenSocketIP(&addr, 0, mutable [])
+        if (socket == HSteamListenSocket.Invalid)
+            throw SteamException("Unable to create listen socket")
+        
+        SteamListenSocket(socket)
+
+    Dispose(): () =
+        if (!SteamNetworkingSockets.CloseListenSocket(this.socket))
+            throw SteamException("Failed to close listen socket")
+        
+struct SteamServerConnection =
+    implements IDisposable
+
+    field connection: HSteamNetConnection
+    new(connection: HSteamNetConnection) = this { connection = connection }
+
+    static Create(address: string, port: uint16): SteamServerConnection =
+        Steam.CheckRunning()
+
+        let mutable addr: SteamNetworkingIPAddr = default
+        addr.Clear()
+        if (address == "localhost" || address == "127.0.0.1")
+            addr.SetIPv6LocalHost(port)
+        else
+            throw NotImplementedException()
+        let connection = SteamNetworkingSockets.ConnectByIPAddress(&addr, 0, mutable [])
+        if (connection == HSteamNetConnection.Invalid)
+            throw SteamException("Unable to create socket")
+        
+        SteamServerConnection(connection)
+
+    Dispose(): () =
+        if (!SteamNetworkingSockets.CloseConnection(this.connection, 0, "", false)) // TODO-language-bug: 'if (!SteamNetworkingSockets.(this.socket))' causes a crash
+            throw SteamException("Failed to close server connection")
+
+module SteamTests =
+
+    `basic client server`(): () =
+        let port = 27019: uint16
+        let steamListenSocket = SteamListenSocket.Create(port)
+        let steamServerConnection = SteamServerConnection.Create("localhost", port)
+
+        steamServerConnection.Dispose()
+        steamListenSocket.Dispose()

@@ -90,6 +90,7 @@ main(args: string[]): () =
         file.Dispose()
 
         Steam.Initialize()
+        SteamTests.`basic client server`()
         
         let options = RenderingOptions()
 #if DEBUG
