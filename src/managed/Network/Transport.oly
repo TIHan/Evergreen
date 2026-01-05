@@ -6,22 +6,134 @@ open System.IO.Compression
 open System.Buffers
 open System.Net
 open System.Net.Sockets
+open System.Collections.Generic
 
-interface INetworkIdentity
+interface INetworkIdentity =
+    inherits IEquatable<INetworkIdentity>
+
+    Port: int32 get
+    AsString(): string
+    
+class NetworkIdentityComparer =
+    implements IEqualityComparer<INetworkIdentity>
+
+    GetHashCode(obj: INetworkIdentity): int32 = obj.Port
+    Equals(x: INetworkIdentity, y: INetworkIdentity): bool =
+        x.Equals(y)
 
 interface INetworkTransport =
+    inherits IDisposable
+
+    StartHost(): ()
+    StopHost(): ()
 
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity)
 
     Available: int32 get
+    LocalIdentity: INetworkIdentity get
+   // RemoteIdentity: INetworkIdentity get
 
-private class UdpIdentity =
+internal class UdpIdentity =
     implements INetworkIdentity
 
     public field endPoint: EndPoint
 
     new(endPoint: EndPoint) = this { endPoint = endPoint }
+
+    Port: int32 
+        get() = 
+            if (DotNet.IsSubtypeOf<IPEndPoint>(this.endPoint))
+                let endPoint: IPEndPoint = Unsafe.Cast(this.endPoint)
+                endPoint.Port
+            else
+                0
+
+    AsString(): string = this.endPoint.ToString()
+
+    overrides Equals(other: object): bool =
+        if (DotNet.IsSubtypeOf<UdpIdentity>(other))
+            let other: UdpIdentity = Unsafe.Cast(other)
+            if (DotNet.IsSubtypeOf<IPEndPoint>(this.endPoint) && DotNet.IsSubtypeOf<IPEndPoint>(other.endPoint))
+                let x: IPEndPoint = Unsafe.Cast(this.endPoint)
+                let y: IPEndPoint = Unsafe.Cast(other.endPoint)
+                let result = x.Equals(y)
+                result
+            else
+                false
+        else
+            false
+
+    Equals(other: INetworkIdentity): bool =
+        this.Equals(other: object)
+
+private module Helpers =
+
+    BindSocket(socket: Socket, port: int32): bool =
+        let bind(port) =
+            try
+                // This prevents the server from receiving a socket exception when a client disconnects.
+                // This is windows specific.
+                let _ = socket.IOControl(/* SIO_UDP_CONNRESET */ -1744830452, mutable [0: byte;0;0;0], unchecked default)
+               // socket.Bind(IPEndPoint(IPAddress.Any, port))
+                socket.Bind(IPEndPoint(IPAddress.Parse("127.0.0.1"), port))
+                true
+            catch (ex: Exception) =>
+                false
+
+        if (!bind(port))
+            if (!bind(port + 1))
+                if (!bind(port + 2))
+                    false
+                else
+                    true
+            else
+                true
+        else
+            true
+
+class UdpServerTransport =
+    implements INetworkTransport
+
+    field socket: Socket
+
+    new(desiredPort: int32) = 
+        let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
+        socket.Blocking <- false
+        socket.ReceiveBufferSize <- 0
+        if (!Helpers.BindSocket(socket, desiredPort))
+            fail("Failed to start server socket")
+        this { socket = socket }
+
+    StartHost(): () =
+        this.socket.ReceiveBufferSize <- Int32.MaxValue
+
+    StopHost(): () =
+        this.socket.ReceiveBufferSize <- 0
+
+    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32 =
+        if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
+            let identity: UdpIdentity = Unsafe.Cast(identity)
+            this.socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
+        else
+            fail("invalid identity")
+
+    ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
+        let port =
+            if (DotNet.IsSubtypeOf<IPEndPoint>(this.socket.LocalEndPoint))
+                let endPoint: IPEndPoint = Unsafe.Cast(this.socket.LocalEndPoint)
+                endPoint.Port
+            else
+                fail("invalid end point")
+        let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
+        (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
+
+    Available: int32 get() = this.socket.Available
+    LocalIdentity: INetworkIdentity get() = UdpIdentity(this.socket.LocalEndPoint)
+   // RemoteIdentity: INetworkIdentity get() = fail("remote identity is not valid for server")
+
+    Dispose(): () =
+        this.socket.Dispose()
 
 class UdpClientTransport =
     implements INetworkTransport
@@ -35,6 +147,9 @@ class UdpClientTransport =
         socket.ReceiveBufferSize <- Int32.MaxValue
         this { socket = socket; port = port }
 
+    StartHost(): () = fail("client cannot host")
+    StopHost(): () = fail("client cannot host")
+
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32 =
         if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
             let identity: UdpIdentity = Unsafe.Cast(identity)
@@ -43,9 +158,12 @@ class UdpClientTransport =
             fail("invalid identity")
 
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
-        if (this.port <= 0)
-            fail("invalid port")
         let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
         (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
 
     Available: int32 get() = this.socket.Available
+    LocalIdentity: INetworkIdentity get() = UdpIdentity(this.socket.LocalEndPoint)
+   // RemoteIdentity: INetworkIdentity get() = UdpIdentity(this.socket.RemoteEndPoint)
+
+    Dispose(): () =
+        this.socket.Dispose()

@@ -4,27 +4,23 @@ open System
 open System.IO
 open System.IO.Compression
 open System.Buffers
-open System.Net
-open System.Net.Sockets
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Runtime.InteropServices
 open System.Security.Cryptography
 
 open Evergreen.Utilities
+open Evergreen.Network.Transport
 
 class NetworkClient =
     implements IDisposable
 
-    private static CreateSocket(): Socket =
-        let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
-        socket.Blocking <- false
-        socket.ReceiveBufferSize <- Int32.MaxValue
-        socket
+    private static CreateTransport(port: int32): INetworkTransport =
+        UdpClientTransport(port)
 
     field lockObj: object
     field iv: Encryption.IV
-    field mutable socket: Socket
+    field mutable transport: INetworkTransport
     field encryption: Encryption
     field packetFactory: PacketFactory
     field channels: Channels
@@ -36,7 +32,7 @@ class NetworkClient =
     field mutable connectionKey: string 
     field mutable port: int32
     field mutable isConnectionAccepted: bool
-    field mutable remoteEndPoint: EndPoint
+    field mutable remoteIdentity: INetworkIdentity
     field mutable timeout: float32
     field mutable timeSinceHeartbeat: float32
     field mutable timeSinceConnect: float32
@@ -57,7 +53,7 @@ class NetworkClient =
         this { 
             lockObj = System.Object()
             iv = Encryption.IV.Create()
-            socket = null
+            transport = null
             encryption = Encryption()
             packetFactory = PacketFactory()
             channels = Channels()
@@ -69,7 +65,7 @@ class NetworkClient =
             connectionKey = ""
             port = 0
             isConnectionAccepted = false
-            remoteEndPoint = null
+            remoteIdentity = null
             timeout = 5
             timeSinceHeartbeat = 0
             timeSinceConnect = 0
@@ -82,18 +78,18 @@ class NetworkClient =
         }
 
     Port: int32 get() = this.port
-    IsConnecting: bool get() = (this.remoteEndPoint !== null) && !this.isConnectionAccepted
-    IsConnected: bool get() = (this.remoteEndPoint !== null) && this.isConnectionAccepted
+    IsConnecting: bool get() = (this.remoteIdentity !== null) && !this.isConnectionAccepted
+    IsConnected: bool get() = (this.remoteIdentity !== null) && this.isConnectionAccepted
 
-    private CheckSocket(): () =
-        if (this.socket === null)
-            fail("No socket")
+    private CheckTransport(): () =
+        if (this.transport === null)
+            fail("No transport")
 
     private ResetState(): () =
-        if (this.socket !== null)
-            this.socket.Dispose()
-            this.socket <- null
-        this.remoteEndPoint <- null
+        if (this.transport !== null)
+            this.transport.Dispose()
+            this.transport <- null
+        this.remoteIdentity <- null
         this.isConnectionAccepted <- false
         this.port <- 0
         this.channels.Clear()
@@ -101,35 +97,34 @@ class NetworkClient =
         this.lagQueue.Clear()
 
     private SendPacket(packet: Packet): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         if (packet.IsInPool)
             throw InvalidOperationException("Cannot send packet that is in the packet pool")
         
-        if (this.remoteEndPoint === null)
+        if (this.remoteIdentity === null)
             throw InvalidOperationException("Client has not attempted connection.")
 
-        if ((packet.IPEndPoint: EndPoint) !== this.remoteEndPoint)
+        if ((packet.Identity: INetworkIdentity) !== this.remoteIdentity)
             throw InvalidOperationException("Remote end point does not match the packet's end point.")
 
         try
-            let _ = this.encryption.SendPacket(this.socket, packet, this.iv)
+            let _ = this.encryption.SendPacket(this.transport, packet, this.iv)
         catch (ex: Exception) =>
             if (this.IsConnected)
                 this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
             else
                 this.OnConnectionFailed(ClientDisconnectReason.MalformedPacketOrException)
 
-    private ReceivePacket(): (Packet, numberOfBytesReadFromSocket: int32) =
-        this.CheckSocket()
+    private ReceivePacket(): (Packet, numberOfBytesRead: int32) =
+        this.CheckTransport()
         
         let mutable packet = this.ReceivePacketPool.Rent()
-        let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
-        let numberOfBytesReadFromSocket = 
+        let numberOfBytesRead = 
             try
-                this.encryption.ReceivePacket(this.socket, this.port, this.iv, packet)
-            catch (ex: SocketException) =>
-                if (ex.SocketErrorCode != SocketError.WouldBlock)
+                this.encryption.ReceivePacket(this.transport, this.port, this.iv, packet)
+            catch (ex: System.Net.Sockets.SocketException) =>
+                if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
                     this.ReceivePacketPool.Return(packet)
                     throw ex
                 else
@@ -138,46 +133,46 @@ class NetworkClient =
                 this.ReceivePacketPool.Return(packet)
                 throw ex
 
-        (packet, numberOfBytesReadFromSocket)
+        (packet, numberOfBytesRead)
 
     private OnConnectionFailed(reason: ClientDisconnectReason): () =
-        this.CheckSocket()
+        this.CheckTransport()
         
         this.onConnectionFailed(this, reason)
         this.ResetState()
 
     private OnDisconnected(reason: ClientDisconnectReason): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         this.onDisconnected(this, reason)
         this.ResetState()
 
     private SendConnectionRequested(): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
-        let packet = Packet.CreateConnectionRequested(this.connectionKey, Unsafe.Cast(this.remoteEndPoint))
+        let packet = Packet.CreateConnectionRequested(this.connectionKey, Unsafe.Cast(this.remoteIdentity))
         this.SendPacket(packet)
 
     private TrySendHeartbeat(): () =
         if (this.IsConnected || this.IsConnecting)
-            this.CheckSocket()
+            this.CheckTransport()
 
-            let packet = Packet.CreateHeartbeat(Unsafe.Cast(this.remoteEndPoint))
+            let packet = Packet.CreateHeartbeat(Unsafe.Cast(this.remoteIdentity))
             this.SendPacket(packet)
 
     private SendDisconnect(): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
-        let packet = Packet.CreateDisconnect(Unsafe.Cast(this.remoteEndPoint))
+        let packet = Packet.CreateDisconnect(Unsafe.Cast(this.remoteIdentity))
         this.SendPacket(packet)
 
     private SendCore(mutable bytes: ReadOnlySpan<byte>, channel: byte, kind: PacketKind): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         if (bytes.Length > NetworkPacket.MaxDataSize)
             fail("Message too large to send.")
 
-        let packets = this.packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(this.remoteEndPoint))
+        let packets = this.packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(this.remoteIdentity))
         if (packets.Length > 1)
             fail("Too many packets to send.")
 
@@ -188,7 +183,7 @@ class NetworkClient =
         this.SendPacket(packets[0])
 
     Send(bytes: ReadOnlySpan<byte>, channel: byte): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         if (!this.IsConnected)
             throw InvalidOperationException("Client not connected.")
@@ -197,7 +192,7 @@ class NetworkClient =
 
     SendReliableSequenced(bytes: ReadOnlySpan<byte>, channel: byte): () =
         // TODO: Disallow more than one packet for the client to send.
-        this.CheckSocket()
+        this.CheckTransport()
 
         if (!this.IsConnected)
             throw InvalidOperationException("Client not connected.")
@@ -208,7 +203,7 @@ class NetworkClient =
         this.ReceivePacketPool.Return(packet)
 
     private ProcessLagSimulatedPackets(gotHeartbeat: byref<bool>): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         let mutable maxCountToProcess = this.lagQueue.Count
         let mutable count = 0
@@ -232,7 +227,7 @@ class NetworkClient =
                     this.FreeReceivedPacket(state.Packet)
 
     private HandleReceivedPacket(packet: Packet, gotHeartbeat: byref<bool>): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         if (packet.Stream.Position.Index != 0)
             fail("invalid packet stream")
@@ -271,7 +266,7 @@ class NetworkClient =
                 let seqId = header.SequenceId
                 let fragIndex = header.FragmentIndex
 
-                let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(this.remoteEndPoint))
+                let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(this.remoteIdentity))
                 this.SendPacket(ackPacket)
 
                 packet.Stream.ResetPosition()
@@ -319,7 +314,7 @@ class NetworkClient =
                 this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
 
     Connect(ipOrHostName: string, port: int32, connectionKey: string): () =
-        if (this.socket !== null)
+        if (this.transport !== null)
             fail("Client already connected or awaiting connection.")
 
         this.timeSinceConnect <- 0
@@ -334,8 +329,8 @@ class NetworkClient =
                     "127.0.0.1"
                 else
                     ipOrHostName
-            this.socket <- CreateSocket()
-            this.remoteEndPoint <- IPEndPoint(IPAddress.Parse(ipOrHostName), port)
+            this.transport <- CreateTransport(port)
+            this.remoteIdentity <- UdpIdentity(System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port))
             this.SendConnectionRequested()
             this.onConnectionRequested(this)
         catch (ex: Exception) =>
@@ -343,22 +338,22 @@ class NetworkClient =
             this.OnConnectionFailed(ClientDisconnectReason.MalformedPacketOrException)
 
     Heartbeat(deltaTime: float32): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
-        if (this.remoteEndPoint === null)
+        if (this.remoteIdentity === null)
             throw InvalidOperationException("Client has not attempted connection.")   
         try
             this.HeartbeatAux(deltaTime)
         catch (ex: Exception) =>
             LogClientError("Heartbeat: " + ex.Message)
-            if (this.socket !== null)
+            if (this.transport !== null)
                 if (this.IsConnected)
                     this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
                 else
                     this.OnConnectionFailed(ClientDisconnectReason.MalformedPacketOrException)
 
     private HeartbeatAux(deltaTime: float32): () =
-        this.CheckSocket()
+        this.CheckTransport()
 
         if (this.isConnectionAccepted)
             this.TrySendHeartbeat()
@@ -378,13 +373,13 @@ class NetworkClient =
             let mutable gotHeartbeat = false
             this.ProcessLagSimulatedPackets(&gotHeartbeat) 
 
-            let availableBytes = this.socket.Available
+            let availableBytes = this.transport.Available
             let mutable readByteCount = 0
             while (readByteCount < availableBytes)
-                let (packet, numberOfBytesReadFromSocket) = this.ReceivePacket()
-                readByteCount <- readByteCount + numberOfBytesReadFromSocket
+                let (packet, numberOfBytesRead) = this.ReceivePacket()
+                readByteCount <- readByteCount + numberOfBytesRead
 
-                if (packet.IPEndPoint !== null)
+                if (packet.Identity !== unchecked default)
                     // TODO: Handle this in HandleReceivedPacket?
                     if (Unsafe.Cast<PacketKind>(packet.Buffer[0]) == PacketKind.ConnectionAccepted)
                         packet.DataSpan.CopyTo(this.iv.AsSpan())
@@ -427,7 +422,7 @@ class NetworkClient =
 
     DisconnectIfPossible(reason: ClientDisconnectReason): () =
         if (this.IsConnected || this.IsConnecting)
-            this.CheckSocket()
+            this.CheckTransport()
 
             if (this.IsConnected)
                 this.SendDisconnect()
@@ -435,16 +430,16 @@ class NetworkClient =
             else
                 this.OnConnectionFailed(reason)
 
-    LocalIdentity: string get() = this.socket.LocalEndPoint.ToString()
+    LocalIdentity: string get() = this.transport.LocalIdentity.AsString()
     RemoteIdentity: string 
         get() =
-            let remoteEndPoint: Option<IPEndPoint> =
-                if (this.remoteEndPoint === null)
+            let remoteIdentity: Option<INetworkIdentity> =
+                if (this.remoteIdentity === unchecked default)
                     None
                 else
-                    Some(Unsafe.Cast(this.remoteEndPoint))
-            match (remoteEndPoint)
-            | Some(endPoint) => endPoint.Address.ToString()
+                    Some(this.remoteIdentity)
+            match (remoteIdentity)
+            | Some(identity) => identity.AsString()
             | _ => String.Empty
 
     Dispose(): () =

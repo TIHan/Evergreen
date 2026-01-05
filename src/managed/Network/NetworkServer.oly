@@ -4,14 +4,13 @@ open System
 open System.IO
 open System.IO.Compression
 open System.Buffers
-open System.Net
-open System.Net.Sockets
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Runtime.InteropServices
 open System.Security.Cryptography
 
 open Evergreen.Utilities
+open Evergreen.Network.Transport
 
 struct NetworkServerStatistics =
     public field mutable LastSentByteCount: uint64 = 0
@@ -21,15 +20,15 @@ class NetworkServer =
     implements IDisposable
 
     field iv: Encryption.IV
-    field endPointsToDisconnect: HashSet<IPEndPoint>
-    field socket: Socket
+    field identitiesToDisconnect: HashSet<INetworkIdentity>
+    field transport: INetworkTransport
     field encryption: Encryption
-    field connections: ConcurrentDictionary<IPEndPoint, Connection>
-    field onConnectionRequested: IPEndPoint -> bool
-    field onConnectionRefused: (IPEndPoint, ClientDisconnectReason) -> ()
-    field onClientConnected: IPEndPoint -> ()
-    field onClientDisconnected: (IPEndPoint, ClientDisconnectReason) -> ()
-    field onMessageReceived: (IPEndPoint, ByteStream, channel: byte) -> ()
+    field connections: ConcurrentDictionary<INetworkIdentity, Connection>
+    field onConnectionRequested: INetworkIdentity -> bool
+    field onConnectionRefused: (INetworkIdentity, ClientDisconnectReason) -> ()
+    field onClientConnected: INetworkIdentity -> ()
+    field onClientDisconnected: (INetworkIdentity, ClientDisconnectReason) -> ()
+    field onMessageReceived: (INetworkIdentity, ByteStream, channel: byte) -> ()
     field mutable connectionKey: string 
     field mutable isStarted: bool
     field mutable timeSinceStart: float32
@@ -42,52 +41,23 @@ class NetworkServer =
     LatencySimulationRange: (uint16, uint16) get, set
     PacketLossSimulationRate: byte get, set
 
-    private DisconnectQueue: ConcurrentQueue<IPEndPoint> get
+    private DisconnectQueue: ConcurrentQueue<INetworkIdentity> get
     private ReceivePacketPool: PacketPool get
 
-    static StartSocket(socket: Socket, port: int32): bool =
-        let bind(port) =
-            try
-                // This prevents the server from receiving a socket exception when a client disconnects.
-                // This is windows specific.
-                let _ = socket.IOControl(/* SIO_UDP_CONNRESET */ -1744830452, mutable [0: byte;0;0;0], unchecked default)
-               // socket.Bind(IPEndPoint(IPAddress.Any, port))
-                socket.Bind(IPEndPoint(IPAddress.Parse("127.0.0.1"), port))
-                true
-            catch (ex: Exception) =>
-                false
-
-        if (!bind(port))
-            if (!bind(port + 1))
-                if (!bind(port + 2))
-                    false
-                else
-                    true
-            else
-                true
-        else
-            true
-
     new(desiredPort: int32,
-        onConnectionRequested: IPEndPoint -> bool,
-        onConnectionRefused: (IPEndPoint, ClientDisconnectReason) -> (),
-        onClientConnected: IPEndPoint -> (),
-        onClientDisconnected: (IPEndPoint, ClientDisconnectReason) -> (),
-        onMessageReceived: (IPEndPoint, ByteStream, channel: byte) -> ()) = 
+        onConnectionRequested: INetworkIdentity -> bool,
+        onConnectionRefused: (INetworkIdentity, ClientDisconnectReason) -> (),
+        onClientConnected: INetworkIdentity -> (),
+        onClientDisconnected: (INetworkIdentity, ClientDisconnectReason) -> (),
+        onMessageReceived: (INetworkIdentity, ByteStream, channel: byte) -> ()) = 
         if (desiredPort <= 0)
             throw ArgumentOutOfRangeException("desiredPort")
         this { 
             iv = Encryption.IV.Create()
-            endPointsToDisconnect = HashSet()
-            socket =
-                let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
-                socket.Blocking <- false
-                socket.ReceiveBufferSize <- 0
-                if (!StartSocket(socket, desiredPort))
-                    fail("Failed to start server socket")
-                socket
+            identitiesToDisconnect = HashSet()
+            transport = UdpServerTransport(desiredPort)
             encryption = Encryption()
-            connections = ConcurrentDictionary()
+            connections = ConcurrentDictionary(NetworkIdentityComparer())
             onConnectionRequested = onConnectionRequested
             onConnectionRefused = onConnectionRefused
             onClientConnected = onClientConnected
@@ -108,62 +78,59 @@ class NetworkServer =
             ReceivePacketPool = PacketPool(1024)
         }
 
-    private EndPoint: IPEndPoint get() = Unsafe.Cast(this.socket.LocalEndPoint)
-
-    Port: int32 get() = this.EndPoint.Port
+    Port: int32 get() = this.transport.LocalIdentity.Port
     Statistics: NetworkServerStatistics get() = this.stats
     IsStarted: bool get() = this.isStarted
 
     private SendPacket(packet: Packet): () =
         if (packet.IsInPool)
             throw InvalidOperationException("Cannot send packet that is in the packet pool")
-        this.stats.LastSentByteCount <- uint64(this.encryption.SendPacket(this.socket, packet, this.iv)) + this.stats.LastSentByteCount
+        this.stats.LastSentByteCount <- uint64(this.encryption.SendPacket(this.transport, packet, this.iv)) + this.stats.LastSentByteCount
         this.stats.PacketCountSinceHeartbeat <- this.stats.PacketCountSinceHeartbeat + 1
 
-    private SendConnectionAccepted(endPoint: EndPoint): () =
-        let packet = Packet.CreateConnectionAccepted(this.iv, Unsafe.Cast(endPoint))
+    private SendConnectionAccepted(identity: INetworkIdentity): () =
+        let packet = Packet.CreateConnectionAccepted(this.iv, identity)
         this.SendPacket(packet)
 
-    private SendHeartbeat(endPoint: EndPoint): () =
-        let packet = Packet.CreateHeartbeat(Unsafe.Cast(endPoint))
+    private SendHeartbeat(identity: INetworkIdentity): () =
+        let packet = Packet.CreateHeartbeat(identity)
         this.SendPacket(packet)
 
-    Disconnect(endPoint: IPEndPoint, reason: ClientDisconnectReason): () =
+    Disconnect(identity: INetworkIdentity, reason: ClientDisconnectReason): () =
         let mutable connection = unchecked default
-        if (this.connections.TryRemove(endPoint, &connection))
-            let packet = Packet.CreateDisconnect(Unsafe.Cast(endPoint))
+        if (this.connections.TryRemove(identity, &connection))
+            let packet = Packet.CreateDisconnect(Unsafe.Cast(identity))
             // TODO: Should we send this multiple times?
             try
                 this.SendPacket(packet)
             catch (ex: Exception) =>
                 ()
             if (connection.PacketFactory !== null)
-                this.onClientDisconnected(endPoint, reason)
+                this.onClientDisconnected(identity, reason)
             else
-                let packet = Packet.CreateServerConnectionRefused(endPoint, reason)
+                let packet = Packet.CreateServerConnectionRefused(identity, reason)
                 // TODO: Should we send this multiple times?
                 try
                     this.SendPacket(packet)
                 catch (ex: Exception) =>
                     ()
-                this.onConnectionRefused(endPoint, reason)
+                this.onConnectionRefused(identity, reason)
         else
-            let packet = Packet.CreateServerConnectionRefused(endPoint, reason)
+            let packet = Packet.CreateServerConnectionRefused(identity, reason)
             // TODO: Should we send this multiple times?
             try
                 this.SendPacket(packet)
             catch (ex: Exception) =>
                 ()
-            this.onConnectionRefused(endPoint, reason)
+            this.onConnectionRefused(identity, reason)
 
-    private ReceivePacket(): (Packet, numberOfBytesReadFromSocket: int32) =
+    private ReceivePacket(): (Packet, numberOfBytesRead: int32) =
         let mutable packet = this.ReceivePacketPool.Rent()
-        let mutable endPoint = IPEndPoint(IPAddress.Any, this.Port): EndPoint
-        let numberOfBytesReadFromSocket = 
+        let numberOfBytesRead = 
             try
-                this.encryption.ReceivePacket(this.socket, this.Port, this.iv, packet)
-            catch (ex: SocketException) =>
-                if (ex.SocketErrorCode != SocketError.WouldBlock)
+                this.encryption.ReceivePacket(this.transport, this.Port, this.iv, packet)
+            catch (ex: System.Net.Sockets.SocketException) =>
+                if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
                     this.ReceivePacketPool.Return(packet)
                     throw ex
                 else
@@ -172,7 +139,7 @@ class NetworkServer =
                 this.ReceivePacketPool.Return(packet)
                 throw ex
 
-        (packet, numberOfBytesReadFromSocket)
+        (packet, numberOfBytesRead)
 
     private FreeReceivedPacket(packet: Packet): () =
         this.ReceivePacketPool.Return(packet)
@@ -203,13 +170,13 @@ class NetworkServer =
         try
             this.HandlePacketAux(packet)
         catch (ex: Exception) =>
-            this.Disconnect(packet.IPEndPoint, ClientDisconnectReason.MalformedPacketOrException)
+            this.Disconnect(packet.Identity, ClientDisconnectReason.MalformedPacketOrException)
 
     private HandlePacketAux(packet: Packet): () =
-        let endPoint = packet.IPEndPoint
+        let identity = packet.Identity
                     
         let mutable connection = unchecked default
-        if (this.connections.TryGetValue(endPoint, &connection))
+        if (this.connections.TryGetValue(identity, &connection))
             let packetFactory = connection.PacketFactory
             if (packetFactory !== null)
                 match (packet.Kind)
@@ -220,21 +187,21 @@ class NetworkServer =
                     connection.Time <- 0
 
                 | PacketKind.Disconnect =>
-                    this.Disconnect(endPoint, ClientDisconnectReason.ClientInitiated)
+                    this.Disconnect(identity, ClientDisconnectReason.ClientInitiated)
 
                 | PacketKind.SmallUnreliable =>
                     let channel = packet.Channel
                     let bstream = ByteStream()
                     bstream.Write(packet.DataSpan)
                     bstream.ResetPosition()
-                    this.onMessageReceived(endPoint, bstream, channel)
+                    this.onMessageReceived(identity, bstream, channel)
 
                 | PacketKind.Unreliable 
                 | PacketKind.UnreliableSequenced =>
                     let channel = packet.Channel
                     connection.Channels.GetDefragmenter(packet.Kind, channel).HandlePacket(packet.Stream,
                         (bstream, channel) ->
-                            this.onMessageReceived(endPoint, bstream, channel)
+                            this.onMessageReceived(identity, bstream, channel)
                     )
 
                 | PacketKind.ReliableSequenced =>
@@ -244,12 +211,12 @@ class NetworkServer =
                     let seqId = header.SequenceId
                     let fragIndex = header.FragmentIndex
 
-                    let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(endPoint))
+                    let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(identity))
                     this.SendPacket(ackPacket)
 
                     packet.Stream.ResetPosition()
                     connection.Channels.GetDefragmenter(PacketKind.ReliableSequenced, channel).HandlePacket(packet.Stream,
-                        (bstream, channel) -> this.onMessageReceived(endPoint, bstream, channel)
+                        (bstream, channel) -> this.onMessageReceived(identity, bstream, channel)
                     )
 
                 | PacketKind.ReliableSequencedAck =>
@@ -271,22 +238,22 @@ class NetworkServer =
                     connection.PacketFactory <- PacketFactory()
                     connection.Time <- 0
 
-                    this.SendHeartbeat(endPoint)
-                    this.onClientConnected(endPoint)
+                    this.SendHeartbeat(identity)
+                    this.onClientConnected(identity)
 
                 | _ =>
-                    this.Disconnect(endPoint, ClientDisconnectReason.MalformedPacketOrException)
+                    this.Disconnect(identity, ClientDisconnectReason.MalformedPacketOrException)
         else
             match (packet.Kind)
             | PacketKind.ConnectionRequested =>
                 let connectionKey = packet.DataString
-                if (connectionKey == this.connectionKey && this.onConnectionRequested(endPoint))
-                    if (this.connections.TryAdd(endPoint, Connection()))
-                        this.SendConnectionAccepted(endPoint)
+                if (connectionKey == this.connectionKey && this.onConnectionRequested(identity))
+                    if (this.connections.TryAdd(identity, Connection()))
+                        this.SendConnectionAccepted(identity)
                 else
-                    this.Disconnect(endPoint, ClientDisconnectReason.BadConnectionKey)
+                    this.Disconnect(identity, ClientDisconnectReason.BadConnectionKey)
             | _ =>
-                this.Disconnect(endPoint, ClientDisconnectReason.InvalidPacket)
+                this.Disconnect(identity, ClientDisconnectReason.InvalidPacket)
 
     Start(
             connectionKey: string
@@ -297,7 +264,7 @@ class NetworkServer =
         this.isStarted <- true
         this.connectionKey <- connectionKey
         this.timeSinceStart <- 0
-        this.socket.ReceiveBufferSize <- Int32.MaxValue
+        this.transport.StartHost()
         this.iv.Regenerate()
         printLine("SERVER: " + this.iv.ToString())
         true
@@ -307,38 +274,38 @@ class NetworkServer =
             throw InvalidOperationException("Server not started.")
 
         this.ForEachConnection(
-            endPoint ->
-                this.Disconnect(endPoint, ClientDisconnectReason.ServerInitiated)
+            identity ->
+                this.Disconnect(identity, ClientDisconnectReason.ServerInitiated)
         )
         assert(this.connections.Count == 0)
         this.isStarted <- false
-        this.socket.ReceiveBufferSize <- 0
+        this.transport.StopHost()
         this.lagQueue.Clear()
 
-    ForEachConnection(f: IPEndPoint -> ()): () =
+    ForEachConnection(f: INetworkIdentity -> ()): () =
         ForEach(this.connections,
             (mutable pair) ->
                 if (pair.Value.PacketFactory !== null)
                     f(pair.Key)
         )
 
-    private SendCore(bytes: ReadOnlySpan<byte>, channel: byte, endPoint: IPEndPoint, kind: PacketKind): () =
+    private SendCore(bytes: ReadOnlySpan<byte>, channel: byte, identity: INetworkIdentity, kind: PacketKind): () =
         if (!this.isStarted)
             throw InvalidOperationException("Server not started.")
 
         // TODO: We need to add a limiter here so we do not send huge bursts of packets.
 
         let mutable connection = unchecked default
-        if (this.connections.TryGetValue(endPoint, &connection))
+        if (this.connections.TryGetValue(identity, &connection))
             let packetFactory = connection.PacketFactory
             if (packetFactory !== null)
-                let packets = packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(endPoint))
+                let packets = packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(identity))
 
                 if (kind == PacketKind.ReliableSequenced)
                     let mutable i = 0
                     while (i < packets.Length)
                         let packet = packets[i]
-                        packet.IPEndPoint <- endPoint
+                        packet.Identity <- identity
                         let acks = connection.Channels.GetAck(kind, channel)
                         acks.MarkAck(packet)
                         this.SendPacket(packet)
@@ -347,18 +314,18 @@ class NetworkServer =
                     let mutable i = 0
                     while (i < packets.Length)
                         let packet = packets[i]
-                        packet.IPEndPoint <- endPoint
+                        packet.Identity <- identity
                         this.SendPacket(packet)
                         i <- i + 1
 
-    Send(bytes: ReadOnlySpan<byte>, channel: byte, endPoint: IPEndPoint): () =
-        this.SendCore(bytes, channel, endPoint, PacketKind.Unreliable)
+    Send(bytes: ReadOnlySpan<byte>, channel: byte, identity: INetworkIdentity): () =
+        this.SendCore(bytes, channel, identity, PacketKind.Unreliable)
 
-    SendSequenced(bytes: ReadOnlySpan<byte>, channel: byte, endPoint: IPEndPoint): () =
-        this.SendCore(bytes, channel, endPoint, PacketKind.UnreliableSequenced)
+    SendSequenced(bytes: ReadOnlySpan<byte>, channel: byte, identity: INetworkIdentity): () =
+        this.SendCore(bytes, channel, identity, PacketKind.UnreliableSequenced)
 
-    SendReliableSequenced(bytes: ReadOnlySpan<byte>, channel: byte, endPoint: IPEndPoint): () =
-        this.SendCore(bytes, channel, endPoint, PacketKind.ReliableSequenced)
+    SendReliableSequenced(bytes: ReadOnlySpan<byte>, channel: byte, identity: INetworkIdentity): () =
+        this.SendCore(bytes, channel, identity, PacketKind.ReliableSequenced)
         
     Heartbeat(deltaTime: float32): () =
         if (!this.isStarted)
@@ -367,14 +334,14 @@ class NetworkServer =
         this.stats.LastSentByteCount <- 0
         this.stats.PacketCountSinceHeartbeat <- 0
 
-        this.endPointsToDisconnect.Clear()
+        this.identitiesToDisconnect.Clear()
 
         ForEach(this.connections,
             (mutable pair) ->
-                let endPoint = pair.Key
+                let identity = pair.Key
                 let connection = pair.Value
                 if (connection.Time >= this.clientTimeout)
-                    this.Disconnect(endPoint, ClientDisconnectReason.TimedOut)
+                    this.Disconnect(identity, ClientDisconnectReason.TimedOut)
                 else
                     connection.Time <- connection.Time + deltaTime
                     if (connection.PacketFactory !== null)
@@ -385,30 +352,30 @@ class NetworkServer =
                                 acks.Heartbeat(deltaTime,
                                     packet ->
                                         this.SendPacket(packet),
-                                    endPoint ->
-                                        let _ = this.endPointsToDisconnect.Add(endPoint)
+                                    identity ->
+                                        let _ = this.identitiesToDisconnect.Add(identity)
                                 )
                         )
 
-                        this.SendHeartbeat(endPoint)
+                        this.SendHeartbeat(identity)
                     else
-                        this.SendConnectionAccepted(endPoint)
+                        this.SendConnectionAccepted(identity)
         )
 
-        ForEach(this.endPointsToDisconnect,
-            endPoint ->
-                this.Disconnect(endPoint, ClientDisconnectReason.AckTimedOut)
+        ForEach(this.identitiesToDisconnect,
+            identity ->
+                this.Disconnect(identity, ClientDisconnectReason.AckTimedOut)
         )
 
         this.ProcessLagSimulatedPackets()
 
-        let availableBytes = this.socket.Available
+        let availableBytes = this.transport.Available
         let mutable readByteCount = 0
         while (readByteCount < availableBytes)
-            let (packet, numberOfBytesReadFromSocket) = this.ReceivePacket()
-            readByteCount <- readByteCount + numberOfBytesReadFromSocket
+            let (packet, numberOfBytesRead) = this.ReceivePacket()
+            readByteCount <- readByteCount + numberOfBytesRead
 
-            if (packet.IPEndPoint !== null)
+            if (packet.Identity !== unchecked default)
                 let mutable willFree = true
 
                 match (this.LatencySimulationRange)

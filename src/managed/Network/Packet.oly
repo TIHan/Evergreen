@@ -12,6 +12,7 @@ open System.Runtime.InteropServices
 open System.Security.Cryptography
 
 open Evergreen.Utilities
+open Evergreen.Network.Transport
 
 internal enum PacketKind =
     inherits byte
@@ -58,7 +59,7 @@ internal struct PacketMessageHeader =
         }
         
 internal class Packet =
-    IPEndPoint: IPEndPoint get, set = unchecked default
+    Identity: INetworkIdentity get, set = unchecked default
     Stream: ByteStream get = ByteStream(zeroArray(NetworkMTU.Amount), NetworkMTU.Amount)
     Buffer: mutable byte[] get() = this.Stream.Raw
     DataSize: int32 get, set = 0
@@ -104,40 +105,40 @@ internal class Packet =
     DataString: string get() = System.Text.Encoding.Default.GetString(this.Buffer, this.HeaderSize, this.DataSize)
     DataStream: ByteStream get() = ByteStream(this.Buffer, this.HeaderSize, this.DataSize)
 
-    static CreateHeartbeat(ipEndPoint: IPEndPoint): Packet =
+    static CreateHeartbeat(identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         packet.Stream.Write(PacketKind.Heartbeat)
         packet
 
-    static CreateConnectionRequested(connectionKey: string, ipEndPoint: IPEndPoint): Packet =
+    static CreateConnectionRequested(connectionKey: string, identity: INetworkIdentity): Packet =
         let mutable payload = ReadOnlySpan(System.Text.Encoding.Default.GetBytes(connectionKey))
         let payloadLength = payload.Length
 
         let mutable packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         packet.Stream.Write(PacketKind.ConnectionRequested)
         packet.DataSize <- payloadLength
         payload.CopyTo(packet.DataSpan)
         packet
 
-    static CreateConnectionAccepted(iv: Encryption.IV, ipEndPoint: IPEndPoint): Packet =
+    static CreateConnectionAccepted(iv: Encryption.IV, identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         packet.Stream.Write(PacketKind.ConnectionAccepted)
         packet.Stream.Write(iv.AsReadOnlySpan())
         packet.DataSize <- iv.AsReadOnlySpan().Length
         packet
 
-    static CreateDisconnect(ipEndPoint: IPEndPoint): Packet =
+    static CreateDisconnect(identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         packet.Stream.Write(PacketKind.Disconnect)
         packet
 
-    static CreateServerConnectionRefused(ipEndPoint: IPEndPoint, reason: ClientDisconnectReason): Packet =
+    static CreateServerConnectionRefused(identity: INetworkIdentity, reason: ClientDisconnectReason): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         packet.Stream.Write(PacketKind.ServerConnectionRefused)
         packet.Stream.Write(reason)
         packet.DataSize <- DotNet.SizeOf<ClientDisconnectReason>
@@ -148,9 +149,9 @@ internal class Packet =
             fail("Invalid packet.")
         packet.DataStream.Read()
 
-    static CreateSmallUnreliable(channel: byte, ipEndPoint: IPEndPoint): Packet =
+    static CreateSmallUnreliable(channel: byte, identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         let bstream = packet.Stream
 
         let size = DotNet.SizeOf<PacketSmallMessageHeader>
@@ -164,9 +165,9 @@ internal class Packet =
 
         packet
 
-    static CreateUnreliable(seqId: uint16, fragIndex: uint16, fragCount: uint16, payloadSize: int32, channel: byte, ipEndPoint: IPEndPoint): Packet =
+    static CreateUnreliable(seqId: uint16, fragIndex: uint16, fragCount: uint16, payloadSize: int32, channel: byte, identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         let bstream = packet.Stream
 
         bstream.Write(
@@ -182,9 +183,9 @@ internal class Packet =
         
         packet
 
-    static CreateUnreliableSequenced(seqId: uint16, fragIndex: uint16, fragCount: uint16, payloadSize: int32, channel: byte, ipEndPoint: IPEndPoint): Packet =
+    static CreateUnreliableSequenced(seqId: uint16, fragIndex: uint16, fragCount: uint16, payloadSize: int32, channel: byte, identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         let bstream = packet.Stream
 
         bstream.Write(
@@ -200,9 +201,9 @@ internal class Packet =
 
         packet
 
-    static CreateReliableSequenced(seqId: uint16, fragIndex: uint16, fragCount: uint16, payloadSize: int32, channel: byte, ipEndPoint: IPEndPoint): Packet =
+    static CreateReliableSequenced(seqId: uint16, fragIndex: uint16, fragCount: uint16, payloadSize: int32, channel: byte, identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         let bstream = packet.Stream
         
         bstream.Write(
@@ -218,9 +219,9 @@ internal class Packet =
 
         packet
 
-    static CreateReliableSequencedAck(seqId: uint16, fragIndex: uint16, channel: byte, ipEndPoint: IPEndPoint): Packet =
+    static CreateReliableSequencedAck(seqId: uint16, fragIndex: uint16, channel: byte, identity: INetworkIdentity): Packet =
         let packet = Packet()
-        packet.IPEndPoint <- ipEndPoint
+        packet.Identity <- identity
         let bstream = packet.Stream
 
         bstream.Write(
@@ -261,7 +262,7 @@ internal class PacketPool =
             Packet()
 
     Return(packet: Packet): () =
-        packet.IPEndPoint <- unchecked default
+        packet.Identity <- unchecked default
         packet.Stream.ResetPosition()
         Span(packet.Stream.Raw).Clear()
         packet.IsInPool <- true
@@ -280,7 +281,7 @@ internal class PacketFactory =
     Clear(): () =
         this.nextSequenceId <- 1
 
-    CreatePackets(packetKind: PacketKind, channel: byte, mutable msgPayload: ReadOnlySpan<byte>, ipEndPoint: IPEndPoint): Packet[] =
+    CreatePackets(packetKind: PacketKind, channel: byte, mutable msgPayload: ReadOnlySpan<byte>, identity: INetworkIdentity): Packet[] =
         let sequenceId = this.nextSequenceId
         this.nextSequenceId <- (this.nextSequenceId + 1) % uint16.MaxValue
 
@@ -292,11 +293,11 @@ internal class PacketFactory =
                     let packet =
                         match (packetKind)
                         | PacketKind.Unreliable =>
-                            Packet.CreateUnreliable(sequenceId, uint16(i), uint16(chunkCount), msgPayloadSize, channel, ipEndPoint)
+                            Packet.CreateUnreliable(sequenceId, uint16(i), uint16(chunkCount), msgPayloadSize, channel, identity)
                         | PacketKind.UnreliableSequenced =>
-                            Packet.CreateUnreliableSequenced(sequenceId, uint16(i), uint16(chunkCount), msgPayloadSize, channel, ipEndPoint)
+                            Packet.CreateUnreliableSequenced(sequenceId, uint16(i), uint16(chunkCount), msgPayloadSize, channel, identity)
                         | PacketKind.ReliableSequenced =>
-                            Packet.CreateReliableSequenced(sequenceId, uint16(i), uint16(chunkCount), msgPayloadSize, channel, ipEndPoint)
+                            Packet.CreateReliableSequenced(sequenceId, uint16(i), uint16(chunkCount), msgPayloadSize, channel, identity)
                         | _ =>
                             fail("Invalid packet kind.")
 
@@ -312,11 +313,11 @@ internal class PacketFactory =
             let mutable packet =
                 match (packetKind)
                 | PacketKind.Unreliable =>
-                    Packet.CreateSmallUnreliable(channel, ipEndPoint)
+                    Packet.CreateSmallUnreliable(channel, identity)
                 | PacketKind.UnreliableSequenced =>
-                    Packet.CreateUnreliableSequenced(sequenceId, 0, 1, msgPayloadSize, channel, ipEndPoint)
+                    Packet.CreateUnreliableSequenced(sequenceId, 0, 1, msgPayloadSize, channel, identity)
                 | PacketKind.ReliableSequenced =>
-                    Packet.CreateReliableSequenced(sequenceId, 0, 1, msgPayloadSize, channel, ipEndPoint)
+                    Packet.CreateReliableSequenced(sequenceId, 0, 1, msgPayloadSize, channel, identity)
                 | _ =>
                     fail("Invalid packet kind.")
 

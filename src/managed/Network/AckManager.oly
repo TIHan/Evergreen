@@ -12,6 +12,7 @@ open System.Runtime.InteropServices
 open System.Security.Cryptography
 
 open Evergreen.Utilities
+open Evergreen.Network.Transport
 
 internal struct AckInfo =
     TimeStamp: float32 get, set = 0
@@ -72,7 +73,7 @@ internal class AckManager =
 
         packet.Stream.Position <- prevPacketPos
 
-    Heartbeat(deltaTime: float32, packetToResend: Packet -> (), onAckTimedOut: IPEndPoint -> ()): () =
+    Heartbeat(deltaTime: float32, packetToResend: Packet -> (), onAckTimedOut: INetworkIdentity -> ()): () =
         let maxRetryCount: byte = 3
         ForEach(this.lookup,
             (mutable pair) ->
@@ -84,7 +85,7 @@ internal class AckManager =
                         let mutable ackInfo = pair.Value
                         let retryCount = ackInfo.RetryCount
                         if (retryCount >= maxRetryCount)
-                            onAckTimedOut(ackInfo.Packet.IPEndPoint)
+                            onAckTimedOut(ackInfo.Packet.Identity)
                         else         
                             let r = ackInfo.TimeStamp
                             ackInfo.TimeStamp <- r + deltaTime

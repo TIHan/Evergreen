@@ -7,6 +7,7 @@ open System.Collections.Concurrent
 open Evergreen.Utilities
 open Evergreen.Database
 open Evergreen.Network
+open Evergreen.Network.Transport
 open Game.Shared
 open Game.Server
 open static Game.Shared.World
@@ -23,7 +24,7 @@ internal enum ClientSceneState =
 #[null]
 internal class ConnectedClient =
     Index: byte get
-    EndPoint: System.Net.IPEndPoint get
+    Identity: INetworkIdentity get
     InputBuffer: InterpolationBuffer<CharacterInput> get
     DeltaSnapshots: World[] get
     DeltaSnapshotTimeStamps: mutable int64[] get
@@ -57,10 +58,10 @@ internal class ConnectedClient =
     SpeedOffset: float32 get, set
     IsListenServer: bool get
 
-    new(index: byte, endPoint: System.Net.IPEndPoint, isListenServer: bool) =
+    new(index: byte, identity: INetworkIdentity, isListenServer: bool) =
         this {
             Index = index
-            EndPoint = endPoint
+            Identity = identity
             InputBuffer = 
                 InterpolationBuffer(3, 1,
                     (prev, next, alpha, frame) -> NoneStruct,
@@ -144,7 +145,7 @@ internal class ServerHost =
     field MaxNumberOfClients: int32
     field ConnectedClientIndices: mutable ConnectedClient[]
     field ConnectedClientIndexStack: Stack<byte>
-    field ConnectedClients: Dictionary<System.Net.IPEndPoint, byte>
+    field ConnectedClients: Dictionary<INetworkIdentity, byte>
 
     field Publisher: ServerEventPublisher
     field mutable IsListenServer: bool
@@ -172,14 +173,14 @@ internal class ServerHost =
         let maxNumberOfClients = 8
         let connectedClientIndices = zeroArray<ConnectedClient>(maxNumberOfClients + 1) // index 0 is always empty
         let connectedClientIndexStack = Stack<byte>(Cast(initArray(maxNumberOfClients, i -> byte(maxNumberOfClients - i))): IEnumerable<_>)
-        let connectedClients = Dictionary<System.Net.IPEndPoint, byte>()
+        let connectedClients = Dictionary<INetworkIdentity, byte>(NetworkIdentityComparer())
     
         let mutable netServer: NetworkServer = unchecked default
         netServer <-
             NetworkServer(
                 27015,
                 /* onClientConnectionRequested */
-                endPoint ->
+                identity ->
                     if (connectedClients.Count >= maxNumberOfClients)
                         false
                     else
@@ -187,49 +188,49 @@ internal class ServerHost =
                         if (connectedClientIndexStack.TryPop(&clientIndex))
                             // TODO: This can have a slight bug if another connection gets here before the local client does.
                             let isListenServer = this.IsListenServer && clientIndex == 1 // 1 always means the local client is hosting
-                            let connectedClient = ConnectedClient(clientIndex, endPoint, isListenServer)
-                            connectedClients[endPoint] <- clientIndex
+                            let connectedClient = ConnectedClient(clientIndex, identity, isListenServer)
+                            connectedClients[identity] <- clientIndex
                             connectedClientIndices[int32(clientIndex)] <- connectedClient
-                            LogServer("Client Connection Requested: " + endPoint.ToString())
+                            LogServer("Client Connection Requested: " + identity.AsString())
                             true
                         else
                             false
                     ,
                     
                 /* onClientConnectionRefused */
-                (endPoint, reason) ->
+                (identity, reason) ->
                     let mutable clientIndex = unchecked default
-                    if (connectedClients.Remove(endPoint, &clientIndex))
+                    if (connectedClients.Remove(identity, &clientIndex))
                         connectedClientIndices[int32(clientIndex)] <- null
                         connectedClientIndexStack.Push(clientIndex)
                         publisher.ClientDisconnected(clientIndex)
 
-                    LogServerWarning("Client Connection Refused: " + endPoint.ToString() + " - Reason: " + reason.ToString())
+                    LogServerWarning("Client Connection Refused: " + identity.AsString() + " - Reason: " + reason.ToString())
                     ,
 
                 /* onClientConnected */
-                endPoint ->
-                    let clientIndex = connectedClients[endPoint]
+                identity ->
+                    let clientIndex = connectedClients[identity]
                     publisher.ClientConnected(clientIndex)
-                    LogServer("Client Connected: " + endPoint.ToString())
+                    LogServer("Client Connected: " + identity.AsString())
                     ,
 
                 /* onClientDisconnected */
-                (endPoint, reason) ->
+                (identity, reason) ->
                     let mutable clientIndex = unchecked default
-                    if (connectedClients.Remove(endPoint, &clientIndex))
+                    if (connectedClients.Remove(identity, &clientIndex))
                         connectedClientIndices[int32(clientIndex)] <- null
                         connectedClientIndexStack.Push(clientIndex)
                         publisher.ClientDisconnected(clientIndex)
                         
-                    LogServer("Client Disconnected: " + endPoint.ToString() + " - Reason: " + reason.ToString())
+                    LogServer("Client Disconnected: " + identity.AsString() + " - Reason: " + reason.ToString())
                     ,
 
                 /* onMessageReceived */
-                (endPoint, bstream, channel) ->
+                (identity, bstream, channel) ->
                     if (channel == NetworkChannels.ClientInputChannel)
                         let mutable clientIndex = default
-                        if (connectedClients.TryGetValue(endPoint, &clientIndex))
+                        if (connectedClients.TryGetValue(identity, &clientIndex))
                             let connectedClient = connectedClientIndices[int32(clientIndex)]
                             readSnapshotAck(bstream, connectedClient)
                             let playerInput = bstream.Read<CharacterInput>()
@@ -249,14 +250,14 @@ internal class ServerHost =
 
                     else if (channel == NetworkChannels.SnapshotAckChannel)
                         let mutable clientIndex = default
-                        if (connectedClients.TryGetValue(endPoint, &clientIndex))
+                        if (connectedClients.TryGetValue(identity, &clientIndex))
                             let connectedClient = connectedClientIndices[int32(clientIndex)]
                             readSnapshotAck(bstream, connectedClient)
                             
                     else if (channel == NetworkChannels.SceneLoadedChannel)
                         let snapshotSequence = ByteSequence(bstream.ReadByte())
                         let mutable clientIndex = default
-                        if (connectedClients.TryGetValue(endPoint, &clientIndex))
+                        if (connectedClients.TryGetValue(identity, &clientIndex))
                             let connectedClient = connectedClientIndices[int32(clientIndex)]
                             if (connectedClient.SceneSequence == snapshotSequence)
                                 connectedClient.SceneLoadingTime <- TimeSpan.Zero
@@ -264,13 +265,13 @@ internal class ServerHost =
 
                     else if (channel == NetworkChannels.UserCommandChannel)
                         let mutable clientIndex = default
-                        if (connectedClients.TryGetValue(endPoint, &clientIndex))
+                        if (connectedClients.TryGetValue(identity, &clientIndex))
                             let connectedClient = connectedClientIndices[int32(clientIndex)]
                             let userCmd: UserCommand = bstream.Read()
                             publisher.UserCommandRequested(clientIndex, userCmd)
                             
                     else
-                        netServer.Disconnect(endPoint, ClientDisconnectReason.Other)
+                        netServer.Disconnect(identity, ClientDisconnectReason.Other)
             )
         this {
             NetworkServer = netServer
@@ -348,7 +349,7 @@ internal class ServerHost =
             if (connectedClient !== null)
                 let isLoading = connectedClient.SceneState == ClientSceneState.Loading
                 if (isLoading && connectedClient.SceneLoadingTime.Ticks >= TimeSpan.FromMinutes(1: int64).Ticks)
-                    netServer.Disconnect(connectedClient.EndPoint, ClientDisconnectReason.OtherTimedOut)
+                    netServer.Disconnect(connectedClient.Identity, ClientDisconnectReason.OtherTimedOut)
                 else
                     ()
                     if (isLoading)
@@ -366,17 +367,17 @@ internal class ServerHost =
   
             i <- i + 1
 
-    private GetConnectedClient(endPoint: System.Net.IPEndPoint): ConnectedClient =
+    private GetConnectedClient(identity: INetworkIdentity): ConnectedClient =
         let connectedClients = this.ConnectedClients
         let connectedClientIndices = this.ConnectedClientIndices
 
-        let clientIndex = connectedClients[endPoint]
+        let clientIndex = connectedClients[identity]
         connectedClientIndices[int32(clientIndex)]
 
     private SendSnapshot(time: GameTime, mainSnapshot: Snapshot, connectedClient: ConnectedClient): () =
         let netServer = this.NetworkServer
         let clientIndex = connectedClient.Index
-        let endPoint = connectedClient.EndPoint
+        let identity = connectedClient.Identity
 
         if (!connectedClient.IsAwaitingFullSnapshot)
             connectedClient.AwaitingFullSnapshotTimeOut <- TimeSpan.Zero
@@ -401,7 +402,7 @@ internal class ServerHost =
             connectedClient.LatestSnapshotFrameAck <- FrameNumber(-1)
 
             let bytes = NetworkCompression.Compress(clientSnapshotStream.Raw, 0, clientSnapshotStream.TotalCount)
-            netServer.SendReliableSequenced(bytes.AsReadOnlySpan(), NetworkChannels.FullSnapshotChannel, endPoint)
+            netServer.SendReliableSequenced(bytes.AsReadOnlySpan(), NetworkChannels.FullSnapshotChannel, identity)
             let mutable clientIndex = clientIndex
             LogServer("main snapshot sent for client '" + clientIndex.ToString() + "'")
 
@@ -413,7 +414,7 @@ internal class ServerHost =
             mainSnapshot.World.CopyTo(snapshotWorld)
 
             let bytes = NetworkCompression.Compress(clientSnapshotStream.Raw, 0, clientSnapshotStream.TotalCount)
-            netServer.Send(bytes.AsReadOnlySpan(), channel, endPoint)
+            netServer.Send(bytes.AsReadOnlySpan(), channel, identity)
 
         let sendDeltaSnapshot() =
             let snapshotIndex = mainSnapshot.ServerFrame % connectedClient.DeltaSnapshots.Length
@@ -433,7 +434,7 @@ internal class ServerHost =
         // -----
 
         if (connectedClient.AwaitingFullSnapshotTimeOut.Ticks > TimeSpan.FromSeconds(20: int64).Ticks)
-            netServer.Disconnect(connectedClient.EndPoint, ClientDisconnectReason.OtherAckTimedOut)       
+            netServer.Disconnect(connectedClient.Identity, ClientDisconnectReason.OtherAckTimedOut)       
 
         else if (connectedClient.IsAwaitingFullSnapshot)
             connectedClient.AwaitingFullSnapshotTimeOut <- connectedClient.AwaitingFullSnapshotTimeOut + TimeSpan.FromSeconds(float64(time.DeltaTime))
@@ -484,13 +485,13 @@ internal class ServerHost =
         stream.Reset()
         stream.WriteSmallString(sceneName)
         stream.WriteByte(ByteSequence.GetByte(snapshotSequence))
-        netServer.SendReliableSequenced(stream.AsReadOnlySpan(), NetworkChannels.LoadSceneChannel, connectedClient.EndPoint)
+        netServer.SendReliableSequenced(stream.AsReadOnlySpan(), NetworkChannels.LoadSceneChannel, connectedClient.Identity)
         connectedClient.OnSceneLoading(sceneName, snapshotSequence)
 
     SendSnapshot(sceneName: string, time: GameTime, snapshotFrame: FrameNumber, snapshotWorld: World, sequence: ByteSequence): () =
         this.NetworkServer.ForEachConnection(
-            endPoint ->
-                let client = this.GetConnectedClient(endPoint)
+            identity ->
+                let client = this.GetConnectedClient(identity)
 
                 if (client.SceneState == ClientSceneState.None)
                     this.SendLoadScene(client, sceneName, sequence)

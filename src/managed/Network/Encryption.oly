@@ -12,6 +12,7 @@ open System.Runtime.InteropServices
 open System.Security.Cryptography
 
 open Evergreen.Utilities
+open Evergreen.Network.Transport
 
 internal class Encryption =
 
@@ -41,20 +42,19 @@ internal class Encryption =
     new() = 
         this { SendBuffer = zeroArray(NetworkMTU.Amount); ReceiveBuffer = zeroArray(NetworkMTU.Amount) }
 
-    SendPacket(socket: Socket, srcPacket: Packet, iv: IV): int32 =
+    SendPacket(transport: INetworkTransport, srcPacket: Packet, iv: IV): int32 =
         let numberOfBytesToSend = Encrypt(srcPacket, iv, this.SendBuffer.AsSpan())
-        socket.SendTo(ReadOnlySpan(this.SendBuffer, 0, numberOfBytesToSend), SocketFlags.None, srcPacket.IPEndPoint)
+        transport.SendTo(ReadOnlySpan(this.SendBuffer, 0, numberOfBytesToSend), srcPacket.Identity)
 
-    ReceivePacket(socket: Socket, port: int32, iv: IV, dstPacket: Packet): int32 =
-        let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
-        let numberOfBytesReceived = socket.ReceiveFrom(this.ReceiveBuffer, SocketFlags.None, &endPoint)
+    ReceivePacket(transport: INetworkTransport, port: int32, iv: IV, dstPacket: Packet): int32 =
+        let (numberOfBytesReceived, identity) = transport.ReceiveFrom(Span(this.ReceiveBuffer))
         
         if (numberOfBytesReceived == 0)
-            dstPacket.IPEndPoint <- null
+            dstPacket.Identity <- unchecked default
             0
         else
             Decrypt(ReadOnlySpan(this.ReceiveBuffer, 0, numberOfBytesReceived), iv, dstPacket)
-            dstPacket.IPEndPoint <- Unsafe.Cast<IPEndPoint>(endPoint)
+            dstPacket.Identity <- identity
             numberOfBytesReceived
 
     private static Encrypt(srcPacket: Packet, iv: IV, mutable dst: Span<byte>): int32 =
