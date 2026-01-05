@@ -298,12 +298,7 @@ internal class ServerConnection =
         this.NetworkClient.DisconnectIfPossible(ClientDisconnectReason.ClientInitiated)
         this.IsListenServer <- false
 
-    Address: string 
-        get() =
-            match (this.NetworkClient.TryGetRemoteEndPoint())
-            | Some(endPoint) => endPoint.Address.ToString()
-            | _ => String.Empty
-
+    Address: string get() = this.NetworkClient.RemoteIdentity
     Port: int32 get() = this.NetworkClient.Port
 
     Status: ConnectionStatus

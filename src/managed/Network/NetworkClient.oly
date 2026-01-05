@@ -435,13 +435,17 @@ class NetworkClient =
             else
                 this.OnConnectionFailed(reason)
 
-    TryGetRemoteEndPoint(): Option<IPEndPoint> =
-        if (this.remoteEndPoint === null)
-            None
-        else
-            Some(Unsafe.Cast(this.remoteEndPoint))
-
     LocalIdentity: string get() = this.socket.LocalEndPoint.ToString()
+    RemoteIdentity: string 
+        get() =
+            let remoteEndPoint: Option<IPEndPoint> =
+                if (this.remoteEndPoint === null)
+                    None
+                else
+                    Some(Unsafe.Cast(this.remoteEndPoint))
+            match (remoteEndPoint)
+            | Some(endPoint) => endPoint.Address.ToString()
+            | _ => String.Empty
 
     Dispose(): () =
         this.DisconnectIfPossible(ClientDisconnectReason.ClientInitiated)
