@@ -8,7 +8,10 @@ namespace Evergreen.Steam
 
 open System
 open System.IO
+open System.Runtime.InteropServices
 open Steamworks
+
+private alias CallConvCdecl = System.Runtime.CompilerServices.CallConvCdecl
 
 private module Marker
 
@@ -34,28 +37,62 @@ module Steam =
         isSteamRunning <- SteamAPI.Init()
         Environment.CurrentDirectory <- origDir
 
+        let res = SteamNetworkingSockets.InitAuthentication()
+        if (res == ESteamNetworkingAvailability.k_ESteamNetworkingAvailability_Failed)
+            throw SteamException("Steam networking not available")
+
     Shutdown(): () =
         SteamAPI.Shutdown()
+
+    module Networking =
+
+        RunCallbacks(): () =
+            SteamNetworkingSockets.RunCallbacks()
 
 struct SteamListenSocket =
     implements IDisposable
 
     field socket: HSteamListenSocket
-    new(socket: HSteamListenSocket) = this { socket = socket }
+    field pollGroup: HSteamNetPollGroup
+    new(socket: HSteamListenSocket, pollGroup: HSteamNetPollGroup) = this { socket = socket; pollGroup = pollGroup }
 
-    static Create(port: uint16): SteamListenSocket =
+    #[blittable]
+    #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
+    private static OnConnectionStatusChanged(payload: SteamNetConnectionStatusChangedCallback_t*): () =
+        fail("connection status changeed")
+
+    static Start(port: uint16): SteamListenSocket =
         Steam.CheckRunning()
+
+        let mutable optValue = default: SteamNetworkingConfigValue_t.OptionValue
+        optValue.m_functionPtr <- nint(&&OnConnectionStatusChanged)
+
+        let mutable opt: SteamNetworkingConfigValue_t = default
+        opt.m_eDataType <- ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Ptr
+        opt.m_eValue <- ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged
+        opt.m_val <- optValue
 
         let mutable addr: SteamNetworkingIPAddr = default
         addr.Clear()
-        addr.SetIPv6LocalHost(port)
-        let socket = SteamNetworkingSockets.CreateListenSocketIP(&addr, 0, mutable [])
+        addr.m_port <- port
+        let socket = SteamNetworkingSockets.CreateListenSocketIP(&addr, 1, mutable [opt])
         if (socket == HSteamListenSocket.Invalid)
             throw SteamException("Unable to create listen socket")
+
+        let pollGroup = SteamNetworkingSockets.CreatePollGroup()
+        if (pollGroup == HSteamNetPollGroup.Invalid)
+            throw SteamException("Unable to create poll group")
         
-        SteamListenSocket(socket)
+        SteamListenSocket(socket, pollGroup)
+
+    ReceiveMessage(mutable buffer: Span<byte>): int32 =
+        let bufferPtr = &&buffer.GetPinnableReference()
+        let msgs = mutable [nint(bufferPtr)]
+        SteamNetworkingSockets.ReceiveMessagesOnPollGroup(this.pollGroup, msgs, 1)
 
     Dispose(): () =
+        if (!SteamNetworkingSockets.DestroyPollGroup(this.pollGroup))
+            throw SteamException("Failed to destroy poll group")
         if (!SteamNetworkingSockets.CloseListenSocket(this.socket))
             throw SteamException("Failed to close listen socket")
         
@@ -65,20 +102,54 @@ struct SteamServerConnection =
     field connection: HSteamNetConnection
     new(connection: HSteamNetConnection) = this { connection = connection }
 
-    static Create(address: string, port: uint16): SteamServerConnection =
+    #[blittable]
+    #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
+    private static OnConnectionStatusChanged(payload: SteamNetConnectionStatusChangedCallback_t*): () =
+        let payload2 = *payload
+        let state = payload2.m_info.m_eState
+        match (state)
+        | ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_None => ()
+        | _ => fail("success")
+
+    static Connect(address: string, port: uint16): SteamServerConnection =
         Steam.CheckRunning()
 
+        let mutable optValue = default: SteamNetworkingConfigValue_t.OptionValue
+        optValue.m_functionPtr <- nint(&&OnConnectionStatusChanged)
+
+        let mutable opt: SteamNetworkingConfigValue_t = default
+        opt.m_eDataType <- ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Ptr
+        opt.m_eValue <- ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged
+        opt.m_val <- optValue
+
         let mutable addr: SteamNetworkingIPAddr = default
-        addr.Clear()
-        if (address == "localhost" || address == "127.0.0.1")
-            addr.SetIPv6LocalHost(port)
-        else
-            throw NotImplementedException()
-        let connection = SteamNetworkingSockets.ConnectByIPAddress(&addr, 0, mutable [])
+        addr.SetIPv4(0x7f000001, port)
+        let connection = SteamNetworkingSockets.ConnectByIPAddress(&addr, 1, mutable [opt])
         if (connection == HSteamNetConnection.Invalid)
             throw SteamException("Unable to create socket")
         
         SteamServerConnection(connection)
+
+    SendMessage(mutable buffer: ReadOnlySpan<byte>): () =
+        // TODO-language-bug: We should get diagnostic error, but compiles and causes an internal compiler
+        // let bytes = bytes.GetPinnableReference()
+        // let mutable msgNum = default
+        // 'if (SteamNetworkingSockets.SendMessageToConnection(this.connection, &&bytes, 0, 0, &msgNum) != EResult.k_EResultOK)' causes an internal compiler error
+
+        // TODO-language-bug: We should get diagnostic error, but compiles and causes an internal compiler of invalid cast
+        // let bytes = &bytes.GetPinnableReference()
+        // let mutable msgNum = default
+        // 'if (SteamNetworkingSockets.SendMessageToConnection(this.connection, nint(&&bytes), 0, 0, &msgNum) != EResult.k_EResultOK)' causes an internal compiler error
+
+        let bufferPtr = &&buffer.GetPinnableReference()
+        let mutable msgNum = default
+        if (SteamNetworkingSockets.SendMessageToConnection(this.connection, nint(bufferPtr), 0, 0, &msgNum) != EResult.k_EResultOK)
+            throw SteamException("Failed to send message")
+
+    ReceiveMessage(mutable buffer: Span<byte>): int32 =
+        let bufferPtr = &&buffer.GetPinnableReference()
+        let msgs = mutable [nint(bufferPtr)]
+        SteamNetworkingSockets.ReceiveMessagesOnConnection(this.connection, msgs, 1)
 
     Dispose(): () =
         if (!SteamNetworkingSockets.CloseConnection(this.connection, 0, "", false)) // TODO-language-bug: 'if (!SteamNetworkingSockets.(this.socket))' causes a crash
@@ -88,8 +159,35 @@ module SteamTests =
 
     `basic client server`(): () =
         let port = 27019: uint16
-        let steamListenSocket = SteamListenSocket.Create(port)
-        let steamServerConnection = SteamServerConnection.Create("localhost", port)
+        let steamListenSocket = SteamListenSocket.Start(port)
+        let steamServerConnection = SteamServerConnection.Connect("localhost", port)
+
+        let mutable i = 0
+        while (i < 500)
+            Steam.Networking.RunCallbacks()
+            System.Threading.Thread.Sleep(1)
+            i <- i + 1
+
+        // TODO-language-bug: 'steamServerConnection.SendMessage(ReadOnlySpan(mutable [5;4;3;2;1]))' causes an internal error when compiling
+        // TODO-language-bug: 'steamServerConnection.SendMessage(ReadOnlySpan<byte>(mutable [5;4;3;2;1]))' causes an internal error when compiling
+        // TODO-language-bug: 'steamServerConnection.SendMessage(ReadOnlySpan(mutable [5: byte;4;3;2;1]))' causes an internal error when compiling
+        let inputMsgData = mutable [5: byte;4;3;2;1]
+        let inputMsgData = ReadOnlySpan(inputMsgData)
+        steamServerConnection.SendMessage(inputMsgData)
+
+        let mutable i = 0
+        while (i < 500)
+            Steam.Networking.RunCallbacks()
+            System.Threading.Thread.Sleep(1)
+            i <- i + 1
+
+        let outputMsgData = mutable [0: byte;0;0;0;0]
+        let outputMsgData = Span(outputMsgData)
+        let result = steamListenSocket.ReceiveMessage(outputMsgData)
+
+        // TODO-language-bug: 'if (!System.MemoryExtensions.SequenceEqual(inputMsgData, Span<_>.op_Implicit(inputMsgData)))' causes an internal error when compiling
+        if (!System.MemoryExtensions.SequenceEqual(inputMsgData, Span<_>.op_Implicit(outputMsgData)))
+            fail("Expected correct output")
 
         steamServerConnection.Dispose()
         steamListenSocket.Dispose()
