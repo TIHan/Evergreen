@@ -28,6 +28,13 @@ module Steam =
         if (!IsRunning)
             throw SteamException("Steam is not running")
 
+    private class DebugCallback =
+        
+        OnDebugOutput(eType: ESteamNetworkingSocketsDebugOutputType, pszMsg: int8*): () =
+            let msg = String(pszMsg)
+            printLine(msg)
+         //   fail("something")
+
     IsRunning: bool get() = isSteamRunning
 
     Initialize(): () =
@@ -37,9 +44,26 @@ module Steam =
         isSteamRunning <- SteamAPI.Init()
         Environment.CurrentDirectory <- origDir
 
-        let res = SteamNetworkingSockets.InitAuthentication()
-        if (res == ESteamNetworkingAvailability.k_ESteamNetworkingAvailability_Failed)
-            throw SteamException("Steam networking not available")
+        let debugCallback = DebugCallback()
+
+        SteamNetworkingUtils.SetDebugOutputFunction(
+            ESteamNetworkingSocketsDebugOutputType.k_ESteamNetworkingSocketsDebugOutputType_Everything, 
+            FSteamNetworkingSocketsDebugOutput(debugCallback, nint(&&debugCallback.OnDebugOutput))
+        )
+
+        let mutable x = 8
+        let xPtr = &&x
+        let xPtrPtr = &&xPtr
+
+        let res = 
+            SteamNetworkingUtils.SetConfigValue(
+                ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_LogLevel_Message, 
+                ESteamNetworkingConfigScope.k_ESteamNetworkingConfig_Global, 
+                nint(0), 
+                ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Int32, nint(xPtrPtr)
+            )
+
+        ()
 
     Shutdown(): () =
         SteamAPI.Shutdown()
@@ -59,7 +83,11 @@ struct SteamListenSocket =
     #[blittable]
     #[UnmanagedCallersOnlyAttribute() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
     private static OnConnectionStatusChanged(payload: SteamNetConnectionStatusChangedCallback_t*): () =
-        fail("connection status changeed")
+        let payload2 = *payload
+        let state = payload2.m_info.m_eState
+        match (state)
+        | ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_None => ()
+        | _ => fail("success")
 
     static Start(port: uint16): SteamListenSocket =
         Steam.CheckRunning()
@@ -72,10 +100,10 @@ struct SteamListenSocket =
         opt.m_eValue <- ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged
         opt.m_val <- optValue
 
-        let mutable addr: SteamNetworkingIPAddr = default
-        addr.Clear()
-        addr.m_port <- port
-        let socket = SteamNetworkingSockets.CreateListenSocketIP(&addr, 1, mutable [opt])
+        // let mutable addr: SteamNetworkingIPAddr = default
+        // addr.Clear()
+        // addr.m_port <- port
+        let socket = SteamNetworkingSockets.CreateListenSocketP2P(int32(port), 1, mutable [opt])
         if (socket == HSteamListenSocket.Invalid)
             throw SteamException("Unable to create listen socket")
 
@@ -122,11 +150,15 @@ struct SteamServerConnection =
         opt.m_eValue <- ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged
         opt.m_val <- optValue
 
-        let mutable addr: SteamNetworkingIPAddr = default
-        addr.SetIPv4(0x7f000001, port)
-        let connection = SteamNetworkingSockets.ConnectByIPAddress(&addr, 1, mutable [opt])
+        // let mutable addr: SteamNetworkingIPAddr = default
+        // addr.SetIPv4(0x7f000001, port)
+        let mutable identity = default: SteamNetworkingIdentity
+        identity.SetSteamID(SteamUser.GetSteamID())
+        let connection = SteamNetworkingSockets.ConnectP2P(&identity, int32(port), 1, mutable [opt]) //ConnectByIPAddress(&addr, 1, mutable [opt])
         if (connection == HSteamNetConnection.Invalid)
             throw SteamException("Unable to create socket")
+
+        SteamNetworkingSockets.SetConnectionName(connection, "client")
         
         SteamServerConnection(connection)
 
@@ -158,6 +190,14 @@ struct SteamServerConnection =
 module SteamTests =
 
     `basic client server`(): () =
+
+        // let mutable server = default
+        // let mutable serverIdentity = default
+        // let mutable client = default
+        // let mutable clientIdentity = default
+        // if (!SteamNetworkingSockets.CreateSocketPair(&server, &client, true, &serverIdentity, &clientIdentity))
+        //     fail("failed to create loopback")
+
         let port = 27019: uint16
         let steamListenSocket = SteamListenSocket.Start(port)
         let steamServerConnection = SteamServerConnection.Connect("localhost", port)
