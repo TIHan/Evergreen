@@ -128,7 +128,7 @@ class NetworkServer =
         let mutable packet = this.ReceivePacketPool.Rent()
         let numberOfBytesRead = 
             try
-                this.encryption.ReceivePacket(this.transport, this.Port, this.iv, packet)
+                this.encryption.ReceivePacket(this.transport, this.iv, packet)
             catch (ex: System.Net.Sockets.SocketException) =>
                 if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
                     this.ReceivePacketPool.Return(packet)
@@ -266,7 +266,6 @@ class NetworkServer =
         this.timeSinceStart <- 0
         this.transport.StartHost()
         this.iv.Regenerate()
-        printLine("SERVER: " + this.iv.ToString())
         true
 
     Stop(): () =
@@ -369,34 +368,36 @@ class NetworkServer =
 
         this.ProcessLagSimulatedPackets()
 
-        let availableBytes = this.transport.Available
-        let mutable readByteCount = 0
-        while (readByteCount < availableBytes)
+        let maxPacketsToRead = 1000
+        let mutable packetCount = 0
+        while (packetCount < maxPacketsToRead)
             let (packet, numberOfBytesRead) = this.ReceivePacket()
-            readByteCount <- readByteCount + numberOfBytesRead
-
-            if (packet.Identity !== unchecked default)
-                let mutable willFree = true
-
-                match (this.LatencySimulationRange)
-                | (start, end) when ((end > 0) && (end >= start)) =>
-                    willFree <- false
-                | _ =>
-                    ()
-
-                match (this.PacketLossSimulationRate)
-                | packetLossRate when (packetLossRate > 0) =>
-                    willFree <- false
-                | _ =>
-                    ()
-
-                if (willFree)
-                    this.HandleReceivedPacket(packet)
-                    this.FreeReceivedPacket(packet)
-                else
-                    this.lagQueue.Enqueue(LagSimulatedPacket(packet, this.timeSinceStart))
+            if (numberOfBytesRead == 0)
+                packetCount <- maxPacketsToRead
             else
-                this.FreeReceivedPacket(packet)
+                packetCount <- packetCount + 1
+                if (packet.Identity !== unchecked default)
+                    let mutable willFree = true
+
+                    match (this.LatencySimulationRange)
+                    | (start, end) when ((end > 0) && (end >= start)) =>
+                        willFree <- false
+                    | _ =>
+                        ()
+
+                    match (this.PacketLossSimulationRate)
+                    | packetLossRate when (packetLossRate > 0) =>
+                        willFree <- false
+                    | _ =>
+                        ()
+
+                    if (willFree)
+                        this.HandleReceivedPacket(packet)
+                        this.FreeReceivedPacket(packet)
+                    else
+                        this.lagQueue.Enqueue(LagSimulatedPacket(packet, this.timeSinceStart))
+                else
+                    this.FreeReceivedPacket(packet)
 
         this.timeSinceStart <- this.timeSinceStart + deltaTime
 

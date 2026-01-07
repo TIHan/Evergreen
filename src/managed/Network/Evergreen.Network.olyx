@@ -4,3 +4,4 @@
 #load "*.oly"
 
 #reference "../Utilities/Evergreen.Utilities.olyx"
+#reference "../Steam/Evergreen.Steam.olyx"

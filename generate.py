@@ -36,6 +36,8 @@ vulkan_sdk_include_path = os.path.join(vulkan_sdk_path, "Include")
 
 run('dotnet tool install --global ClangSharpPInvokeGenerator --version 18.1.0.3')
 
+
+# Physics
 run('msbuild src/native/libs/Evergreen.Physics/Evergreen.Physics.sln')
 run('msbuild /p:Configuration=Release src/native/libs/Evergreen.Physics/Evergreen.Physics.sln')
 run("""
@@ -163,3 +165,17 @@ ClangSharpPInvokeGenerator
 """)
 run('dotnet build src/managed/Graphics/Shader/Backend/Interop/Evergreen.Graphics.Shader.Backend.Interop.csproj')
 run('dotnet build -c Release src/managed/Graphics/Shader/Backend/Interop/Evergreen.Graphics.Shader.Backend.Interop.csproj')
+
+# Steam
+run('msbuild src/native/libs/Evergreen.Steam/Evergreen.Steam.sln')
+run('msbuild /p:Configuration=Release src/native/libs/Evergreen.Steam/Evergreen.Steam.sln')
+run("""
+ClangSharpPInvokeGenerator 
+    -n Evergreen.Steam.Interop 
+    -l Evergreen.Steam.Native.dll 
+    --file src/native/libs/Evergreen.Steam/egSteam.h 
+    -o src/managed/Steam/Interop/api 
+    -c multi-file generate-file-scoped-namespaces generate-helper-types strip-enum-member-type-name exclude-enum-operators
+""")
+run('dotnet build src/managed/Steam/Interop/Evergreen.Steam.Interop.csproj')
+run('dotnet build -c Release src/managed/Steam/Interop/Evergreen.Steam.Interop.csproj')

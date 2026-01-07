@@ -9,6 +9,7 @@ open Evergreen.Database
 open Evergreen.Graphics.Rendering
 open Evergreen.Graphics.Rendering.UI
 open Evergreen.Window
+open Evergreen.Steam
 open Game.Client
 open Game.Client.Gui
 open Game.Server
@@ -117,6 +118,9 @@ module Orchestration =
             /* fixedUpdate */
             glenv ->
                 Game.AssetManager.AssetManager.Flush()
+
+                Steam.RunCallbacks()
+                Steam.RunNetworkCallbacks()
 
                 game.FixedUpdateGui(glenv.Time, logicFrame, logicFrametime)
                 game.Sync(glenv.Time)

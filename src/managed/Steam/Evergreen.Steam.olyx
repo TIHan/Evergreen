@@ -1,10 +1,13 @@
 #target "dotnet: net10.0"
+#library
+
+#load "*.oly"
+
+#reference "Interop/Evergreen.Steam.Interop.csproj"
 
 #reference "Steamworks.NET.dll"
-#copy "steam_api64.dll"
-#copy "steam_appid.txt"
 
-namespace Evergreen.Steam
+namespace Evergreen.SteamOld
 
 open System
 open System.IO
@@ -33,7 +36,6 @@ module Steam =
         OnDebugOutput(eType: ESteamNetworkingSocketsDebugOutputType, pszMsg: int8*): () =
             let msg = String(pszMsg)
             printLine(msg)
-         //   fail("something")
 
     IsRunning: bool get() = isSteamRunning
 

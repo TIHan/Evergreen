@@ -8,6 +8,8 @@ open System.Net
 open System.Net.Sockets
 open System.Collections.Generic
 
+open Evergreen.Steam
+
 interface INetworkIdentity =
     inherits IEquatable<INetworkIdentity>
 
@@ -30,9 +32,34 @@ interface INetworkTransport =
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity)
 
-    Available: int32 get
     LocalIdentity: INetworkIdentity get
-   // RemoteIdentity: INetworkIdentity get
+
+private module Helpers =
+
+    BindSocket(socket: Socket, port: int32): bool =
+        let bind(port) =
+            try
+                // This prevents the server from receiving a socket exception when a client disconnects.
+                // This is windows specific.
+                let _ = socket.IOControl(/* SIO_UDP_CONNRESET */ -1744830452, mutable [0: byte;0;0;0], unchecked default)
+               // socket.Bind(IPEndPoint(IPAddress.Any, port))
+                socket.Bind(IPEndPoint(IPAddress.Parse("127.0.0.1"), port))
+                true
+            catch (ex: Exception) =>
+                false
+
+        if (!bind(port))
+            if (!bind(port + 1))
+                if (!bind(port + 2))
+                    false
+                else
+                    true
+            else
+                true
+        else
+            true
+
+// Simple UDP transport implementation.
 
 internal class UdpIdentity =
     implements INetworkIdentity
@@ -67,31 +94,6 @@ internal class UdpIdentity =
     Equals(other: INetworkIdentity): bool =
         this.Equals(other: object)
 
-private module Helpers =
-
-    BindSocket(socket: Socket, port: int32): bool =
-        let bind(port) =
-            try
-                // This prevents the server from receiving a socket exception when a client disconnects.
-                // This is windows specific.
-                let _ = socket.IOControl(/* SIO_UDP_CONNRESET */ -1744830452, mutable [0: byte;0;0;0], unchecked default)
-               // socket.Bind(IPEndPoint(IPAddress.Any, port))
-                socket.Bind(IPEndPoint(IPAddress.Parse("127.0.0.1"), port))
-                true
-            catch (ex: Exception) =>
-                false
-
-        if (!bind(port))
-            if (!bind(port + 1))
-                if (!bind(port + 2))
-                    false
-                else
-                    true
-            else
-                true
-        else
-            true
-
 class UdpServerTransport =
     implements INetworkTransport
 
@@ -119,18 +121,19 @@ class UdpServerTransport =
             fail("invalid identity")
 
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
-        let port =
-            if (DotNet.IsSubtypeOf<IPEndPoint>(this.socket.LocalEndPoint))
-                let endPoint: IPEndPoint = Unsafe.Cast(this.socket.LocalEndPoint)
-                endPoint.Port
-            else
-                fail("invalid end point")
-        let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
-        (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
+        if (this.socket.Available == 0)
+            (0, unchecked default)
+        else
+            let port =
+                if (DotNet.IsSubtypeOf<IPEndPoint>(this.socket.LocalEndPoint))
+                    let endPoint: IPEndPoint = Unsafe.Cast(this.socket.LocalEndPoint)
+                    endPoint.Port
+                else
+                    fail("invalid end point")
+            let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
+            (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
 
-    Available: int32 get() = this.socket.Available
     LocalIdentity: INetworkIdentity get() = UdpIdentity(this.socket.LocalEndPoint)
-   // RemoteIdentity: INetworkIdentity get() = fail("remote identity is not valid for server")
 
     Dispose(): () =
         this.socket.Dispose()
@@ -158,12 +161,13 @@ class UdpClientTransport =
             fail("invalid identity")
 
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
-        let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
-        (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
+        if (this.socket.Available == 0)
+            (0, unchecked default)
+        else
+            let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
+            (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
 
-    Available: int32 get() = this.socket.Available
     LocalIdentity: INetworkIdentity get() = UdpIdentity(this.socket.LocalEndPoint)
-   // RemoteIdentity: INetworkIdentity get() = UdpIdentity(this.socket.RemoteEndPoint)
 
     Dispose(): () =
         this.socket.Dispose()

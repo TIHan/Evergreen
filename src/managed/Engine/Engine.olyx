@@ -7,6 +7,8 @@
 #reference "../Game/Shared/*.olyx"
 #reference "../Steam/Evergreen.Steam.olyx"
 
+#copy "steam_appid.txt"
+
 open System
 open System.IO
 open System.Runtime.Intrinsics
@@ -22,6 +24,7 @@ open static Game.Shared.Types
 open static Game.Shared.Components
 open Game.Server
 open Game.Graphics
+
 open Evergreen.Steam
 
 BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
@@ -90,7 +93,6 @@ main(args: string[]): () =
         file.Dispose()
 
         Steam.Initialize()
-        SteamTests.`basic client server`()
         
         let options = RenderingOptions()
 #if DEBUG
@@ -119,6 +121,7 @@ main(args: string[]): () =
             (_) -> return BenchmarkMap(resx, genv)
         )
 
-        Console.SetOut(genv.ConsoleWriter)
+       // Console.SetOut(genv.ConsoleWriter)
         Game.Orchestration.Run(genv, renv)
+
         Steam.Shutdown()

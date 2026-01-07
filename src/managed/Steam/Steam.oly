@@ -1,0 +1,95 @@
+module Evergreen.Steam.Steam
+
+open System
+open System.IO
+open Evergreen.Steam.Interop
+open static Evergreen.Steam.Interop.Methods
+
+private module Marker
+
+newtype SteamNetworkClientConnection =
+    internal field connection: EgSteamNetworking_Connection
+
+newtype SteamNetworkServer =
+    internal field socket: EgSteamNetworking_ListenSocket
+
+    SendMessage(mutable buffer: ReadOnlySpan<byte>, connection: SteamNetworkClientConnection): () =
+        let bufferPtr = &&buffer.GetPinnableReference()
+        let _ = egSteamNetworking_SendMessage(connection.connection, buffer.Length, Unsafe.AsPointer(bufferPtr))
+
+    ReceiveMessage(mutable buffer: Span<byte>): (SteamNetworkClientConnection, int32) =
+        let mutable connectionOut = default: EgSteamNetworking_Connection
+        let bufferPtr = &&buffer.GetPinnableReference()
+        let bytesRead = egSteamNetworking_ReceiveMessageFromListenSocket(this.socket, Unsafe.AsPointer(bufferPtr), &&connectionOut)
+        (SteamNetworkClientConnection(connectionOut), bytesRead)
+
+    GetConnection(index: int32): SteamNetworkClientConnection =
+        let connection = egSteamNetworking_GetConnection(this.socket, index)
+        SteamNetworkClientConnection(connection)
+
+    ConnectionCount: int32 get() = egSteamNetworking_GetConnectionCount(this.socket)
+
+newtype SteamNetworkClient =
+    internal field connection: EgSteamNetworking_Connection
+
+    SendMessage(mutable buffer: ReadOnlySpan<byte>): () =
+        let bufferPtr = &&buffer.GetPinnableReference()
+        let _ = egSteamNetworking_SendMessage(this.connection, buffer.Length, Unsafe.AsPointer(bufferPtr))
+
+    ReceiveMessage(mutable buffer: Span<byte>): int32 =
+        let bufferPtr = &&buffer.GetPinnableReference()
+        egSteamNetworking_ReceiveMessageFromConnection(this.connection, Unsafe.AsPointer(bufferPtr))
+
+Initialize(): () =
+    let origDir = Environment.CurrentDirectory
+    let markerTy = DotNet.TypeOf<Marker>
+    Environment.CurrentDirectory <- Path.GetDirectoryName(markerTy.Assembly.Location)
+
+    let mutable options = default: EgSteam_InitializeOptions
+    options.flags <- EgSteam_InitializeFlags.DebugOutputEnabled
+    if (egSteam_Initialize(&&options) == 0)
+        fail("Failed to initialize Steamworks API.")
+
+    Environment.CurrentDirectory <- origDir
+
+Shutdown(): () =
+    egSteam_Shutdown()
+
+RunCallbacks(): () =
+    egSteam_RunCallbacks()
+
+RunNetworkCallbacks(): () =
+    egSteamNetworking_RunCallbacks()
+
+CreateNetworkServer(port: int32): SteamNetworkServer =
+    let mutable options = default: EgSteamNetworking_CreateListenSocketOptions
+    options.port <- uint16(port)
+    
+    let socket = egSteamNetworking_CreateListenSocketIP(&&options)
+    if (egSteamNetworking_IsListenSocketInvalid(socket) != 0)
+        fail("Failed to create Steam listen socket.")
+
+    SteamNetworkServer(socket)
+
+DestroyNetworkServer(server: SteamNetworkServer): () =
+    if (egSteamNetworking_CloseListenSocket(server.socket) == 0)
+        fail("Failed to close Steam listen socket.")
+
+CreateNetworkClient(address: string, port: int32): SteamNetworkClient =
+    let mutable addressHandle = fixedCopyUTF8(address)
+
+    let mutable options = default: EgSteamNetworking_ConnectOptions
+    options.address <- Unsafe.AsPointer(addressHandle.AddrOfPinnedObject())
+    options.port <- uint16(port)
+    
+    let connection = egSteamNetworking_ConnectIP(&&options)
+    if (egSteamNetworking_IsConnectionInvalid(connection) != 0)
+        addressHandle.Free()
+        fail("Failed to create Steam connection.")
+
+    addressHandle.Free()
+    SteamNetworkClient(connection)
+
+DestroyNetworkClient(client: SteamNetworkClient): () =
+    if (egSteamNetworking_CloseConnection(client.connection) == 0)
+        fail("Failed to close Steam connection.")

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <None Include="..\..\..\native\libs\Evergreen.Steam\x64\Debug\Evergreen.Steam.Native.dll" Link="Evergreen.Steam.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\native\libs\Evergreen.Steam\x64\Debug\Evergreen.Steam.Native.pdb" Link="Evergreen.Steam.Native.pdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+	
+  <ItemGroup Condition=" '$(Configuration)' == 'Release' ">
+    <None Include="..\..\..\native\libs\Evergreen.Steam\x64\Release\Evergreen.Steam.Native.dll" Link="Evergreen.Steam.Native.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\..\native\external\steamworks\public\steam\lib\win64\sdkencryptedappticket64.dll" Link="sdkencryptedappticket64.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\..\native\external\steamworks\redistributable_bin\win64\steam_api64.dll" Link="steam_api64.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

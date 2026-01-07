@@ -122,7 +122,7 @@ class NetworkClient =
         let mutable packet = this.ReceivePacketPool.Rent()
         let numberOfBytesRead = 
             try
-                this.encryption.ReceivePacket(this.transport, this.port, this.iv, packet)
+                this.encryption.ReceivePacket(this.transport, this.iv, packet)
             catch (ex: System.Net.Sockets.SocketException) =>
                 if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
                     this.ReceivePacketPool.Return(packet)
@@ -373,52 +373,54 @@ class NetworkClient =
             let mutable gotHeartbeat = false
             this.ProcessLagSimulatedPackets(&gotHeartbeat) 
 
-            let availableBytes = this.transport.Available
-            let mutable readByteCount = 0
-            while (readByteCount < availableBytes)
+            let maxPacketsToRead = 1000
+            let mutable packetCount = 0
+            while (packetCount < maxPacketsToRead)
                 let (packet, numberOfBytesRead) = this.ReceivePacket()
-                readByteCount <- readByteCount + numberOfBytesRead
+                if (numberOfBytesRead == 0)
+                    packetCount <- maxPacketsToRead
+                else
+                    packetCount <- packetCount + 1
+                    if (packet.Identity !== unchecked default)
+                        // TODO: Handle this in HandleReceivedPacket?
+                        if (Unsafe.Cast<PacketKind>(packet.Buffer[0]) == PacketKind.ConnectionAccepted)
+                            packet.DataSpan.CopyTo(this.iv.AsSpan())
 
-                if (packet.Identity !== unchecked default)
-                    // TODO: Handle this in HandleReceivedPacket?
-                    if (Unsafe.Cast<PacketKind>(packet.Buffer[0]) == PacketKind.ConnectionAccepted)
-                        packet.DataSpan.CopyTo(this.iv.AsSpan())
+                        let mutable willFree = true
 
-                    let mutable willFree = true
+                        match (this.LatencySimulationRange)
+                        | (start, end) when ((end > 0) && (end >= start)) =>
+                            willFree <- false
+                        | _ =>
+                            ()
 
-                    match (this.LatencySimulationRange)
-                    | (start, end) when ((end > 0) && (end >= start)) =>
-                        willFree <- false
-                    | _ =>
-                        ()
+                        match (this.PacketLossSimulationRate)
+                        | packetLossRate when (packetLossRate > 0) =>
+                            willFree <- false
+                        | _ =>
+                            ()
 
-                    match (this.PacketLossSimulationRate)
-                    | packetLossRate when (packetLossRate > 0) =>
-                        willFree <- false
-                    | _ =>
-                        ()
-
-                    if (willFree)
-                        this.HandleReceivedPacket(packet, &gotHeartbeat)
-                        this.FreeReceivedPacket(packet)
+                        if (willFree)
+                            this.HandleReceivedPacket(packet, &gotHeartbeat)
+                            this.FreeReceivedPacket(packet)
+                        else
+                            this.lagQueue.Enqueue(LagSimulatedPacket(packet, this.timeSinceConnect))
                     else
-                        this.lagQueue.Enqueue(LagSimulatedPacket(packet, this.timeSinceConnect))
+                        this.FreeReceivedPacket(packet)
+
+                if (gotHeartbeat)
+                    this.timeSinceHeartbeat <- 0
                 else
-                    this.FreeReceivedPacket(packet)
+                    this.timeSinceHeartbeat <- this.timeSinceHeartbeat + deltaTime
 
-            if (gotHeartbeat)
-                this.timeSinceHeartbeat <- 0
-            else
-                this.timeSinceHeartbeat <- this.timeSinceHeartbeat + deltaTime
+                if (this.timeSinceHeartbeat >= this.timeout)
+                    if (this.IsConnected)
+                        this.DisconnectIfPossible(ClientDisconnectReason.TimedOut)
+                    else
+                        this.OnConnectionFailed(ClientDisconnectReason.TimedOut)
+                    throw NetworkTimedOutException()
 
-            if (this.timeSinceHeartbeat >= this.timeout)
-                if (this.IsConnected)
-                    this.DisconnectIfPossible(ClientDisconnectReason.TimedOut)
-                else
-                    this.OnConnectionFailed(ClientDisconnectReason.TimedOut)
-                throw NetworkTimedOutException()
-
-            this.timeSinceConnect <- this.timeSinceConnect + deltaTime
+                this.timeSinceConnect <- this.timeSinceConnect + deltaTime
 
     DisconnectIfPossible(reason: ClientDisconnectReason): () =
         if (this.IsConnected || this.IsConnecting)

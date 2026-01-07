@@ -46,7 +46,7 @@ internal class Encryption =
         let numberOfBytesToSend = Encrypt(srcPacket, iv, this.SendBuffer.AsSpan())
         transport.SendTo(ReadOnlySpan(this.SendBuffer, 0, numberOfBytesToSend), srcPacket.Identity)
 
-    ReceivePacket(transport: INetworkTransport, port: int32, iv: IV, dstPacket: Packet): int32 =
+    ReceivePacket(transport: INetworkTransport, iv: IV, dstPacket: Packet): int32 =
         let (numberOfBytesReceived, identity) = transport.ReceiveFrom(Span(this.ReceiveBuffer))
         
         if (numberOfBytesReceived == 0)
