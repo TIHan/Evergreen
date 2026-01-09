@@ -21,7 +21,8 @@ class NetworkServer =
 
     field iv: Encryption.IV
     field identitiesToDisconnect: HashSet<INetworkIdentity>
-    field transport: INetworkTransport
+    field desiredPort: int32
+    field transport: INetworkServerTransport
     field encryption: Encryption
     field connections: ConcurrentDictionary<INetworkIdentity, Connection>
     field onConnectionRequested: INetworkIdentity -> bool
@@ -55,7 +56,8 @@ class NetworkServer =
         this { 
             iv = Encryption.IV.Create()
             identitiesToDisconnect = HashSet()
-            transport = UdpServerTransport(desiredPort)
+            transport = UdpServerTransport()
+            desiredPort = desiredPort
             encryption = Encryption()
             connections = ConcurrentDictionary(NetworkIdentityComparer())
             onConnectionRequested = onConnectionRequested
@@ -78,7 +80,12 @@ class NetworkServer =
             ReceivePacketPool = PacketPool(1024)
         }
 
-    Port: int32 get() = this.transport.LocalIdentity.Port
+    Port: int32 
+        get() = 
+            if (this.isStarted)
+                this.transport.LocalIdentity.Port
+            else
+                0
     Statistics: NetworkServerStatistics get() = this.stats
     IsStarted: bool get() = this.isStarted
 
@@ -261,11 +268,14 @@ class NetworkServer =
         if (this.isStarted)
             throw InvalidOperationException("Server already started.")
 
-        this.isStarted <- true
         this.connectionKey <- connectionKey
         this.timeSinceStart <- 0
-        this.transport.StartHost()
         this.iv.Regenerate()
+
+        if (!this.transport.StartHost(this.desiredPort))
+            fail("Failed to start transport")
+
+        this.isStarted <- true
         true
 
     Stop(): () =
@@ -278,7 +288,10 @@ class NetworkServer =
         )
         assert(this.connections.Count == 0)
         this.isStarted <- false
-        this.transport.StopHost()
+
+        if (!this.transport.StopHost())
+            fail("Failed to stop transport")
+
         this.lagQueue.Clear()
 
     ForEachConnection(f: INetworkIdentity -> ()): () =

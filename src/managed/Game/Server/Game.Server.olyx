@@ -24,7 +24,7 @@ class ServerGame =
 
     Bandwidth: uint64 get() = Server.getBandwidth(this.senv)
     Port: int32       get() = this.senv.Host.Port
-    IsHosting: bool   get() = this.senv.Host.IsStarted
+    IsHosted: bool    get() = this.senv.Host.IsStarted
 
     StartHosting(connectionKey: string, isListenServer: bool): () =
         Server.startHosting(this.senv, connectionKey, isListenServer)
@@ -144,18 +144,21 @@ internal struct ServerState =
     Bandwidth: uint64 get
     Port: int32 get
     Password: string get
-    new(bandwidth: uint64, port: int32, password: string) =
+    IsHosted: bool get
+    new(bandwidth: uint64, port: int32, password: string, isHosted: bool) =
         this {
             Bandwidth = bandwidth
             Port = port
             Password = password
+            IsHosted = isHosted
         }
 
     WithPassword(password: string): ServerState =
         ServerState(
             this.Bandwidth,
             this.Port,
-            password
+            password,
+            this.IsHosted
         )
 
 class ServerGameProxy =
@@ -170,12 +173,13 @@ class ServerGameProxy =
     Bandwidth: uint64 get() = this.State.Bandwidth
     Port: int32 get() = this.State.Port
     Password: string get() = this.State.Password
+    IsHosted: bool get() = this.State.IsHosted
 
     new() =
         this {
             ServerCommandStreams = DoubleBuffer(ByteStream(), ByteStream())
             SV = ServerGame()
-            State = ServerState(0, -1, String.Empty)
+            State = ServerState(0, -1, String.Empty, false)
         }
 
     /// Background-thread only
@@ -209,7 +213,7 @@ class ServerGameProxy =
                 sv.StopHosting()
 
             | ServerCommand.SetPassword(password) =>
-                if (sv.IsHosting)
+                if (sv.IsHosted)
                     LogServerWarning("Unable to set password while server is running")
                 else
                     this.State <- this.State.WithPassword(password)
@@ -228,7 +232,7 @@ class ServerGameProxy =
         // ------------ MAIN/BACKGREOUND THREAD SYNC ------------
         // Background is halted at this point.
 
-        this.State <- ServerState(this.SV.Bandwidth, this.SV.Port, this.State.Password)
+        this.State <- ServerState(this.SV.Bandwidth, this.SV.Port, this.State.Password, this.SV.IsHosted)
 
         this.ServerCommandStreams.Swap()
         this.ServerCommandStreams.Front.Reset()

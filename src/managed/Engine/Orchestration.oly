@@ -97,9 +97,18 @@ module Orchestration =
         )
         guiEnv.ConsoleModel.CompletionItems.Value <- Unsafe.AsImmutable(consoleCommandsList.ToArray())
 
+        let mutable isServerStarted = false
+
         GameLoop.StartWithBackground(
             /* update */
             glenv ->
+                if (!isServerStarted && game.IsLocalServerStarted)
+                    clientEventPublisher.ListenServerStarted(game.LocalServerPort)
+                    isServerStarted <- true
+                else if (isServerStarted && !game.IsLocalServerStarted)
+                    clientEventPublisher.ListenServerStopped()
+                    isServerStarted <- false
+                    
                 game.Update(glenv.Time,
                     inputSnapshot ->
                         ClientServerGameHelpers.HandleInputSnapshot(clientEventPublisher, inputSnapshot)

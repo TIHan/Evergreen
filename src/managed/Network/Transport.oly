@@ -9,6 +9,7 @@ open System.Net.Sockets
 open System.Collections.Generic
 
 open Evergreen.Steam
+open Evergreen.Utilities
 
 interface INetworkIdentity =
     inherits IEquatable<INetworkIdentity>
@@ -26,13 +27,16 @@ class NetworkIdentityComparer =
 interface INetworkTransport =
     inherits IDisposable
 
-    StartHost(): ()
-    StopHost(): ()
-
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity)
 
     LocalIdentity: INetworkIdentity get
+
+interface INetworkServerTransport =
+    inherits INetworkTransport
+
+    StartHost(port: int32): bool
+    StopHost(): bool
 
 private module Helpers =
 
@@ -95,48 +99,79 @@ internal class UdpIdentity =
         this.Equals(other: object)
 
 class UdpServerTransport =
-    implements INetworkTransport
+    implements INetworkServerTransport
 
-    field socket: Socket
+    field mutable isDisposed: bool = false
+    field mutable socket: Option<Socket> = None
 
-    new(desiredPort: int32) = 
-        let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
-        socket.Blocking <- false
-        socket.ReceiveBufferSize <- 0
-        if (!Helpers.BindSocket(socket, desiredPort))
-            fail("Failed to start server socket")
-        this { socket = socket }
+    private CheckDisposed(): () =
+        if (this.isDisposed)
+            fail("Object disposed")
 
-    StartHost(): () =
-        this.socket.ReceiveBufferSize <- Int32.MaxValue
+    private CheckSocket(): Socket =
+        match (this.socket)
+        | Some(socket) => socket
+        | _ => fail("Socket not started")
 
-    StopHost(): () =
-        this.socket.ReceiveBufferSize <- 0
+    StartHost(port: int32): bool =
+        this.CheckDisposed()
+        if (this.socket.IsSome)
+            false
+        else
+            let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
+            socket.Blocking <- false
+            socket.ReceiveBufferSize <- Int32.MaxValue
+            if (Helpers.BindSocket(socket, port))
+                this.socket <- Some(socket)
+                true
+            else
+                socket.Dispose()
+                false
+
+    StopHost(): bool =
+        this.CheckDisposed()
+        match (this.socket)
+        | Some(socket) =>
+            socket.Dispose()
+            this.socket <- None
+            true
+        | _ =>
+            false
 
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32 =
+        this.CheckDisposed()
+        let socket = this.CheckSocket()
         if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
             let identity: UdpIdentity = Unsafe.Cast(identity)
-            this.socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
+            socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
         else
             fail("invalid identity")
 
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
-        if (this.socket.Available == 0)
+        this.CheckDisposed()
+        let socket = this.CheckSocket()
+        if (socket.Available == 0)
             (0, unchecked default)
         else
             let port =
-                if (DotNet.IsSubtypeOf<IPEndPoint>(this.socket.LocalEndPoint))
-                    let endPoint: IPEndPoint = Unsafe.Cast(this.socket.LocalEndPoint)
+                if (DotNet.IsSubtypeOf<IPEndPoint>(socket.LocalEndPoint))
+                    let endPoint: IPEndPoint = Unsafe.Cast(socket.LocalEndPoint)
                     endPoint.Port
                 else
                     fail("invalid end point")
             let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
-            (this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
+            (socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
 
-    LocalIdentity: INetworkIdentity get() = UdpIdentity(this.socket.LocalEndPoint)
+    LocalIdentity: INetworkIdentity 
+        get() = 
+            this.CheckDisposed()
+            let socket = this.CheckSocket()
+            UdpIdentity(socket.LocalEndPoint)
 
     Dispose(): () =
-        this.socket.Dispose()
+        this.CheckDisposed() // TODO-language-bug: 'this.CheckDisposded' should show the correct diagnostic text range
+        this.isDisposed <- true
+        let _ = this.StopHost()
 
 class UdpClientTransport =
     implements INetworkTransport
@@ -149,9 +184,6 @@ class UdpClientTransport =
         socket.Blocking <- false
         socket.ReceiveBufferSize <- Int32.MaxValue
         this { socket = socket; port = port }
-
-    StartHost(): () = fail("client cannot host")
-    StopHost(): () = fail("client cannot host")
 
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32 =
         if (DotNet.IsSubtypeOf<UdpIdentity>(identity))

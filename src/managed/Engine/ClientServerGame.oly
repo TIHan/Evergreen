@@ -160,7 +160,6 @@ module ClientServerGameHelpers =
                         game.LoadScene("map01.json")
                         game.StartHosting(genv.ConnectionKey, guiEnv.SettingsMenuModel.SimulateClient.Value)
                         csgenv.IsHosting <- true
-                        connectLocalHost(game, guiEnv, genv.ConnectionKey)
                         guiEnv.CurrentMenuState <- GuiMenuState.Loading
     
                 | ClientEvent.NavigateBackRequested =>
@@ -194,8 +193,7 @@ module ClientServerGameHelpers =
                             if (csgenv.IsHosting)
                                 fail("already hosting")
                             game.StartHosting(genv.ConnectionKey, guiEnv.SettingsMenuModel.SimulateClient.Value)
-                            csgenv.IsHosting <- true
-                            connectLocalHost(game, guiEnv, genv.ConnectionKey)           
+                            csgenv.IsHosting <- true       
     
                 | ClientEvent.ExitGameRequested =>
                     if (guiEnv.MainMenuModel.IsExitGameVisible.Value)
@@ -278,8 +276,8 @@ module ClientServerGameHelpers =
                     guiEnv.MainMenuModel.IsNewGameVisible.Value <- false
                     guiEnv.MainMenuModel.IsMultiplayerVisible.Value <- false
                     guiEnv.MainMenuModel.IsExitGameVisible.Value <- true
-                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- game.IsListenServer
-                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- game.IsListenServer
+                    guiEnv.MainMenuModel.IsLoadGameEnabled.Value <- game.IsClientListenServer
+                    guiEnv.MainMenuModel.IsSaveGameVisible.Value <- game.IsClientListenServer
                     resetGuiMenuStateToNone(guiEnv)
                     LogClient("Scene Began: " + sceneName)
                     let musicPlayback = genv.SoundManager.Get("Music/Freedoom/d_e1m6.ogg").StopAndPlay(csgenv.MusicPlayback, guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true)
@@ -294,6 +292,12 @@ module ClientServerGameHelpers =
                 | ClientEvent.ClearConsoleRequested =>
                     let consoleLog = genv.ConsoleWriter.GetStringBuilder()
                     let _ = consoleLog.Clear()
+
+                | ClientEvent.ListenServerStarted(port) =>
+                    connectLocalHost(game, guiEnv, genv.ConnectionKey)
+
+                | ClientEvent.ListenServerStopped =>
+                    ()
     
                 | ClientEvent.MoveForwardRequested(factor) =>
                     if (canAcceptLocalPlayerActionEvents(csgenv, game, guiEnv))
@@ -375,7 +379,8 @@ class ClientServerGame =
     ClientPing: int64                  get() = this.CL.Ping
     ClientPassword: string             get() = this.CL.Password
 
-    IsListenServer: bool get() = this.CL.IsListenServer
+    IsClientListenServer: bool get() = this.CL.IsListenServer
+    IsLocalServerStarted: bool get() = this.SV.IsHosted
 
     /// Background-thread only
     BackgroundFixedUpdate(genv: GameEnv, time: GameTime, isCatchingUp: bool): () =
@@ -389,7 +394,7 @@ class ClientServerGame =
         // Updating the client first is intentional.
         this.CL.Sync(time,
             () ->
-                if (this.IsListenServer)
+                if (this.IsClientListenServer)
                     let mutable input = default
                     let mutable outTransform = default
                     let mutable outCameraId = default

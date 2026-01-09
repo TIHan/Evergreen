@@ -30,6 +30,9 @@ internal enum Tag =
     | MenuButtonClicked
     | ClearConsoleRequested
 
+    | ListenServerStarted
+    | ListenServerStopped
+
     // Character movement/actions
     | MoveForwardRequested
     | MoveBackwardRequested
@@ -148,6 +151,13 @@ newtype ClientEventPublisher =
 
     ClearConsoleRequested(): () =
         this.stream.Write(Tag.ClearConsoleRequested)
+
+    ListenServerStarted(port: int32): () =
+        this.stream.Write(Tag.ListenServerStarted)
+        this.stream.WriteInt32(port)
+
+    ListenServerStopped(): () =
+        this.stream.Write(Tag.ListenServerStopped)
 
     MoveForwardRequested(factor: float32): () =
         this.stream.Write(Tag.MoveForwardRequested)
@@ -280,6 +290,13 @@ module ClientEvent =
         ConsumeTag(reader.Stream)
 
     pattern ClearConsoleRequested(reader: ClientEventReader): () when (reader.Tag == Tag.ClearConsoleRequested) =>
+        ConsumeTag(reader.Stream)
+
+    pattern ListenServerStarted(reader: ClientEventReader): int32 when (reader.Tag == Tag.ListenServerStarted) =>
+        ConsumeTag(reader.Stream)
+        reader.Stream.ReadInt32()
+    
+    pattern ListenServerStopped(reader: ClientEventReader): () when (reader.Tag == Tag.ListenServerStopped) =>
         ConsumeTag(reader.Stream)
 
     pattern MoveForwardRequested(reader: ClientEventReader): float32 when (reader.Tag == Tag.MoveForwardRequested) =>

@@ -68,7 +68,7 @@ class CommandProcessor =
         this.AddDef(ActionCommand<string>.Impl("echo", "value",                  x  -> Log(x)))
         this.AddDef(ActionCommand(             "quick_save",                     () -> appendEvent(x -> x.SaveGameRequested(SpecialFile.QuickSave))))
         this.AddDef(ActionCommand(             "quick_load",                     () -> appendEvent(x -> x.LoadGameRequested(SpecialFile.QuickSave))))
-        this.AddDef(ActionCommand(             "port",                           () -> LogCommandInfo("port: " + svGame.Port.ToString())))
+        this.AddDef(ActionCommand(             "sv_port",                        () -> LogCommandInfo("sv_port: " + svGame.Port.ToString())))
         this.AddDef(ActionCommand(             "disconnect",                     () -> appendEvent(x -> x.ExitGameRequested())))
         this.AddDef(ActionCommand(             "clear",                          () -> appendEvent(x -> x.ClearConsoleRequested())))
         this.AddDef(ActionCommand(             "benchmark",                      () -> appendEvent(x -> x.LoadGameRequested("benchmark.test"))))
