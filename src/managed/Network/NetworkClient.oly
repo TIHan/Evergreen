@@ -15,13 +15,8 @@ open Evergreen.Network.Transport
 class NetworkClient =
     implements IDisposable
 
-    private static CreateTransport(port: int32): INetworkTransport =
-        UdpClientTransport(port)
-
     field lockObj: object
-    field iv: Encryption.IV
-    field mutable transport: INetworkTransport
-    field encryption: Encryption
+    field mutable transport: INetworkClientTransport
     field packetFactory: PacketFactory
     field channels: Channels
     field onConnectionRequested: NetworkClient -> ()
@@ -52,9 +47,7 @@ class NetworkClient =
             onMessageReceived: (NetworkClient, ByteStream, channel: byte) -> ()) = 
         this { 
             lockObj = System.Object()
-            iv = Encryption.IV.Create()
             transport = null
-            encryption = Encryption()
             packetFactory = PacketFactory()
             channels = Channels()
             onConnectionRequested = onConnectionRequested
@@ -109,7 +102,7 @@ class NetworkClient =
             throw InvalidOperationException("Remote end point does not match the packet's end point.")
 
         try
-            let _ = this.encryption.SendPacket(this.transport, packet, this.iv)
+            let _ = this.transport.Send(packet.SendingSpan)
         catch (ex: Exception) =>
             if (this.IsConnected)
                 this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
@@ -122,7 +115,7 @@ class NetworkClient =
         let mutable packet = this.ReceivePacketPool.Rent()
         let numberOfBytesRead = 
             try
-                this.encryption.ReceivePacket(this.transport, this.iv, packet)
+                this.transport.Receive(packet.ReceivingSpan)
             catch (ex: System.Net.Sockets.SocketException) =>
                 if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
                     this.ReceivePacketPool.Return(packet)
@@ -133,6 +126,12 @@ class NetworkClient =
                 this.ReceivePacketPool.Return(packet)
                 throw ex
 
+        packet.Identity <- this.transport.LocalIdentity
+        if (numberOfBytesRead > 0)
+            let headerSize = packet.HeaderSize
+            packet.DataSize <- numberOfBytesRead - headerSize
+        else
+            packet.DataSize <- 0
         (packet, numberOfBytesRead)
 
     private OnConnectionFailed(reason: ClientDisconnectReason): () =
@@ -329,8 +328,8 @@ class NetworkClient =
                     "127.0.0.1"
                 else
                     ipOrHostName
-            this.transport <- CreateTransport(port)
-            this.remoteIdentity <- UdpIdentity(System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port))
+            this.transport <- UdpClientTransport.Connect(UdpIdentity(System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port)))
+            this.remoteIdentity <- this.transport.LocalIdentity // TODO: do not need remoteIdentity anymore
             this.SendConnectionRequested()
             this.onConnectionRequested(this)
         catch (ex: Exception) =>
@@ -382,10 +381,6 @@ class NetworkClient =
                 else
                     packetCount <- packetCount + 1
                     if (packet.Identity !== unchecked default)
-                        // TODO: Handle this in HandleReceivedPacket?
-                        if (Unsafe.Cast<PacketKind>(packet.Buffer[0]) == PacketKind.ConnectionAccepted)
-                            packet.DataSpan.CopyTo(this.iv.AsSpan())
-
                         let mutable willFree = true
 
                         match (this.LatencySimulationRange)

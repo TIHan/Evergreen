@@ -122,12 +122,10 @@ internal class Packet =
         payload.CopyTo(packet.DataSpan)
         packet
 
-    static CreateConnectionAccepted(iv: Encryption.IV, identity: INetworkIdentity): Packet =
+    static CreateConnectionAccepted(identity: INetworkIdentity): Packet =
         let packet = Packet()
         packet.Identity <- identity
         packet.Stream.Write(PacketKind.ConnectionAccepted)
-        packet.Stream.Write(iv.AsReadOnlySpan())
-        packet.DataSize <- iv.AsReadOnlySpan().Length
         packet
 
     static CreateDisconnect(identity: INetworkIdentity): Packet =

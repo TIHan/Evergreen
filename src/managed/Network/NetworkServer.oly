@@ -19,11 +19,9 @@ struct NetworkServerStatistics =
 class NetworkServer =
     implements IDisposable
 
-    field iv: Encryption.IV
     field identitiesToDisconnect: HashSet<INetworkIdentity>
     field desiredPort: int32
     field transport: INetworkServerTransport
-    field encryption: Encryption
     field connections: ConcurrentDictionary<INetworkIdentity, Connection>
     field onConnectionRequested: INetworkIdentity -> bool
     field onConnectionRefused: (INetworkIdentity, ClientDisconnectReason) -> ()
@@ -54,11 +52,9 @@ class NetworkServer =
         if (desiredPort <= 0)
             throw ArgumentOutOfRangeException("desiredPort")
         this { 
-            iv = Encryption.IV.Create()
             identitiesToDisconnect = HashSet()
             transport = UdpServerTransport()
             desiredPort = desiredPort
-            encryption = Encryption()
             connections = ConcurrentDictionary(NetworkIdentityComparer())
             onConnectionRequested = onConnectionRequested
             onConnectionRefused = onConnectionRefused
@@ -92,11 +88,11 @@ class NetworkServer =
     private SendPacket(packet: Packet): () =
         if (packet.IsInPool)
             throw InvalidOperationException("Cannot send packet that is in the packet pool")
-        this.stats.LastSentByteCount <- uint64(this.encryption.SendPacket(this.transport, packet, this.iv)) + this.stats.LastSentByteCount
+        this.stats.LastSentByteCount <- uint64(this.transport.SendTo(packet.SendingSpan, packet.Identity)) + this.stats.LastSentByteCount
         this.stats.PacketCountSinceHeartbeat <- this.stats.PacketCountSinceHeartbeat + 1
 
     private SendConnectionAccepted(identity: INetworkIdentity): () =
-        let packet = Packet.CreateConnectionAccepted(this.iv, identity)
+        let packet = Packet.CreateConnectionAccepted(identity)
         this.SendPacket(packet)
 
     private SendHeartbeat(identity: INetworkIdentity): () =
@@ -135,7 +131,14 @@ class NetworkServer =
         let mutable packet = this.ReceivePacketPool.Rent()
         let numberOfBytesRead = 
             try
-                this.encryption.ReceivePacket(this.transport, this.iv, packet)
+                let (numberOfBytesRead, identity) = this.transport.ReceiveFrom(packet.ReceivingSpan)
+                packet.Identity <- this.transport.LocalIdentity
+                if (numberOfBytesRead > 0)
+                    packet.DataSize <- numberOfBytesRead - packet.HeaderSize
+                    numberOfBytesRead
+                else
+                    packet.DataSize <- 0
+                    0
             catch (ex: System.Net.Sockets.SocketException) =>
                 if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
                     this.ReceivePacketPool.Return(packet)
@@ -270,7 +273,6 @@ class NetworkServer =
 
         this.connectionKey <- connectionKey
         this.timeSinceStart <- 0
-        this.iv.Regenerate()
 
         if (!this.transport.StartHost(this.desiredPort))
             fail("Failed to start transport")
