@@ -51,7 +51,7 @@ class NetworkClient =
             onMessageReceived: (NetworkClient, ByteStream, channel: byte) -> ()) = 
         this { 
             lockObj = System.Object()
-            transport = UdpClientTransport()
+            transport = SteamClientTransport()//UdpClientTransport()
             packetFactory = PacketFactory()
             channels = Channels()
             onConnectionRequested = onConnectionRequested
@@ -93,8 +93,9 @@ class NetworkClient =
         if (packet.IsInPool)
             throw InvalidOperationException("Cannot send packet that is in the packet pool")
 
-        if ((packet.Identity: INetworkIdentity) !== transport.RemoteIdentity)
-            throw InvalidOperationException("Remote end point does not match the packet's end point.")
+        // TODO: Check Packet.Identity for null as it does not need to be set as it's always the remote identity.
+        // if ((packet.Identity: INetworkIdentity) !== transport.RemoteIdentity)
+        //     throw InvalidOperationException("Remote end point does not match the packet's end point.")
 
         try
             let _ = transport.Send(packet.SendingSpan)

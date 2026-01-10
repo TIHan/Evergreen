@@ -33,7 +33,7 @@ interface INetworkServerTransport =
     StartHost(port: int32): bool
     StopHost(): bool
 
-    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32
+    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): bool
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity)
 
     LocalIdentity: INetworkIdentity get
@@ -44,7 +44,7 @@ interface INetworkClientTransport =
     Connect(ipOrHostName: string, port: int32): ()
     Disconnect(): ()
 
-    Send(buffer: ReadOnlySpan<byte>): int32
+    Send(buffer: ReadOnlySpan<byte>): bool
     Receive(buffer: Span<byte>): int32
 
     RemoteIdentity: INetworkIdentity get
@@ -140,7 +140,7 @@ class UdpServerTransport =
                 false
 
     StopHost(): bool =
-        this.CheckDisposed()
+        this.CheckDisposed() // TODO-language-bug: 'this.CheckDisposed' as a partial call should show the correct diagnostic text range
         match (this.socket)
         | Some(socket) =>
             socket.Dispose()
@@ -149,12 +149,13 @@ class UdpServerTransport =
         | _ =>
             false
 
-    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32 =
+    SendTo(mutable buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): bool =
         this.CheckDisposed()
         let socket = this.CheckSocket()
         if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
             let identity: UdpIdentity = Unsafe.Cast(identity)
-            socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
+            let bytesSent = socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
+            bytesSent == buffer.Length
         else
             fail("invalid identity")
 
@@ -180,9 +181,8 @@ class UdpServerTransport =
             UdpIdentity(socket.LocalEndPoint)
 
     Dispose(): () =
-        this.CheckDisposed() // TODO-language-bug: 'this.CheckDisposded' should show the correct diagnostic text range
-        this.isDisposed <- true
         let _ = this.StopHost()
+        this.isDisposed <- true
 
 private class UdpClientInfo =
     public field socket: Socket
@@ -213,13 +213,13 @@ class UdpClientTransport =
         if (this.info.IsSome)
             fail("Client already connected")
 
-        let ipOrHostName =
+        let ip =
             if (ipOrHostName == "localhost")
                 "::1"
             else
                 ipOrHostName
 
-        let ipEndPoint = System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port)
+        let ipEndPoint = System.Net.IPEndPoint(System.Net.IPAddress.Parse(ip), port)
         let serverIdentity = UdpIdentity(ipEndPoint)
         let port = serverIdentity.Port
         let socket = Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp)
@@ -233,14 +233,18 @@ class UdpClientTransport =
         info.socket.Dispose()
         this.info <- None    
 
-    Send(buffer: ReadOnlySpan<byte>): int32 =
+    Send(mutable buffer: ReadOnlySpan<byte>): bool =
         this.CheckDisposed()
         let info = this.CheckInfo()
 
         let socket = info.socket
         let remoteEndPoint = info.remoteEndPoint
 
-        socket.SendTo(buffer, SocketFlags.None, remoteEndPoint)
+        let bytesSent = socket.SendTo(buffer, SocketFlags.None, remoteEndPoint)
+        if (bytesSent == buffer.Length)
+            true
+        else
+            false
 
     Receive(buffer: Span<byte>): int32 =
         this.CheckDisposed()
@@ -274,3 +278,175 @@ class UdpClientTransport =
             this.info <- None
         | _ =>
             ()
+
+// Steam transport implementation.
+
+private class SteamServerIdentity =
+    implements INetworkIdentity
+
+    public field port: int32
+
+    new(port: int32) = this { port = port }
+
+    Port: int32 
+        get() = this.port
+
+    AsString(): string = 
+        let mutable port = this.port
+        "SteamServerPort: " + port.ToString()
+
+    overrides Equals(other: object): bool =
+        if (DotNet.IsSubtypeOf<SteamServerIdentity>(other))
+            let other: SteamServerIdentity = Unsafe.Cast(other)
+            this.port == other.port
+        else
+            false
+
+    Equals(other: INetworkIdentity): bool =
+        this.Equals(other: object)
+
+private class SteamConnectionIdentity =
+    implements INetworkIdentity
+
+    public field connection: Steam.SteamNetworkClientConnection
+
+    new(connection: Steam.SteamNetworkClientConnection) = this { connection = connection }
+
+    Port: int32 
+        get() = 0
+
+    AsString(): string = 
+        "SteamIdentity: TODO"
+
+    overrides Equals(other: object): bool =
+        if (DotNet.IsSubtypeOf<SteamConnectionIdentity>(other))
+            let other: SteamConnectionIdentity = Unsafe.Cast(other)
+            this.connection == other.connection
+        else
+            false
+
+    Equals(other: INetworkIdentity): bool =
+        this.Equals(other: object)
+
+class SteamServerTransport =
+    implements INetworkServerTransport
+
+    field mutable isDisposed: bool = false
+    field mutable server: OptionStruct<Steam.SteamNetworkServer> = NoneStruct
+    field mutable port: int32 = 0
+
+    private CheckDisposed(): () =
+        if (this.isDisposed)
+            fail("Object disposed")
+
+    private CheckServer(): Steam.SteamNetworkServer =
+        match (this.server)
+        | SomeStruct(server) => server
+        | _ => fail("Server not started")
+
+    StartHost(port: int32): bool =
+        this.CheckDisposed()
+        if (this.server.IsSome)
+            false
+        else
+            let server = Steam.CreateNetworkServer(port)
+            this.port <- port
+            this.server <- SomeStruct(server)
+            true
+
+    StopHost(): bool =
+        this.CheckDisposed()
+        match (this.server)
+        | SomeStruct(server) =>
+            this.port <- 0
+            this.server <- NoneStruct
+            Steam.DestroyNetworkServer(server)
+            true
+        | _ =>
+            false
+
+    SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): bool =
+        this.CheckDisposed()
+        let server = this.CheckServer()
+        if (DotNet.IsSubtypeOf<SteamConnectionIdentity>(identity))
+            let identity: SteamConnectionIdentity = Unsafe.Cast(identity)
+            server.SendMessage(buffer, identity.connection)
+            true
+        else
+            fail("invalid identity")
+
+    ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
+        this.CheckDisposed()
+        let server = this.CheckServer()
+        let (connection, bytesRead) = server.ReceiveMessage(buffer) // TODO-language-bug: 'let (connection, bytesRead) = server.ReceiveMessage(buffer)' being the last expression should error.
+        if (bytesRead > 0)
+            let identity = SteamConnectionIdentity(connection)
+            (bytesRead, identity)
+        else
+            (0, unchecked default)
+
+    LocalIdentity: INetworkIdentity 
+        get() = 
+            this.CheckDisposed()
+            let _ = this.CheckServer()
+            SteamServerIdentity(this.port)
+
+    Dispose(): () =
+        let _ = this.StopHost()
+        this.isDisposed <- true
+
+class SteamClientTransport =
+    implements INetworkClientTransport
+
+    field mutable isDisposed: bool = false
+    field mutable client: OptionStruct<Steam.SteamNetworkClient> = NoneStruct
+
+    private CheckDisposed(): () =
+        if (this.isDisposed)
+            fail("Object disposed")
+
+    private CheckClient(): Steam.SteamNetworkClient =
+        match (this.client)
+        | SomeStruct(client) => client
+        | _ => fail("Client not connected")
+
+    Connect(ipOrHostName: string, port: int32): () =
+        this.CheckDisposed()
+        if (this.client.IsSome)
+            fail("Client already connected")
+
+        let ip =
+            if (ipOrHostName == "localhost")
+                "127.0.0.1"
+            else
+                ipOrHostName
+
+        let client = Steam.CreateNetworkClient(ip, port)
+        this.client <- SomeStruct(client)
+
+    Disconnect(): () =
+        this.CheckDisposed()
+        let client = this.CheckClient()
+        Steam.DestroyNetworkClient(client)
+        this.client <- NoneStruct
+
+    Send(buffer: ReadOnlySpan<byte>): bool =
+        this.CheckDisposed()
+        let client = this.CheckClient()
+        client.SendMessage(buffer)
+        true
+
+    Receive(buffer: Span<byte>): int32 =
+        this.CheckDisposed()
+        let client = this.CheckClient()
+        client.ReceiveMessage(buffer)
+
+    RemoteIdentity: INetworkIdentity 
+        get() = 
+            this.CheckDisposed()
+            let client = this.CheckClient()
+            SteamConnectionIdentity(client.GetConnection()) // TODO-language-bug: 'SteamConnectionIdentity(client.GetConnection)' partial call should give error with correct text range.
+
+    Dispose(): () =
+        let _ = this.Disconnect()
+        this.isDisposed <- true

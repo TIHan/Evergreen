@@ -2,13 +2,18 @@ module Evergreen.Steam.Steam
 
 open System
 open System.IO
+open System.Collections.Generic
 open Evergreen.Steam.Interop
 open static Evergreen.Steam.Interop.Methods
 
 private module Marker
 
 newtype SteamNetworkClientConnection =
+
     internal field connection: EgSteamNetworking_Connection
+
+    static op_Equality(a: SteamNetworkClientConnection, b: SteamNetworkClientConnection): bool =
+        a.connection.`internal` == b.connection.`internal`
 
 newtype SteamNetworkServer =
     internal field socket: EgSteamNetworking_ListenSocket
@@ -39,6 +44,9 @@ newtype SteamNetworkClient =
     ReceiveMessage(mutable buffer: Span<byte>): int32 =
         let bufferPtr = &&buffer.GetPinnableReference()
         egSteamNetworking_ReceiveMessageFromConnection(this.connection, Unsafe.AsPointer(bufferPtr))
+
+    GetConnection(): SteamNetworkClientConnection =
+        SteamNetworkClientConnection(this.connection)
 
 Initialize(): () =
     let origDir = Environment.CurrentDirectory

@@ -53,7 +53,7 @@ class NetworkServer =
             throw ArgumentOutOfRangeException("desiredPort")
         this { 
             identitiesToDisconnect = HashSet()
-            transport = UdpServerTransport()
+            transport = SteamServerTransport()//UdpServerTransport()
             desiredPort = desiredPort
             connections = ConcurrentDictionary(NetworkIdentityComparer())
             onConnectionRequested = onConnectionRequested
@@ -88,7 +88,12 @@ class NetworkServer =
     private SendPacket(packet: Packet): () =
         if (packet.IsInPool)
             throw InvalidOperationException("Cannot send packet that is in the packet pool")
-        this.stats.LastSentByteCount <- uint64(this.transport.SendTo(packet.SendingSpan, packet.Identity)) + this.stats.LastSentByteCount
+        let byteCount =
+            if (this.transport.SendTo(packet.SendingSpan, packet.Identity))
+                packet.SendingSpan.Length
+            else
+                0
+        this.stats.LastSentByteCount <- uint64(byteCount) + this.stats.LastSentByteCount
         this.stats.PacketCountSinceHeartbeat <- this.stats.PacketCountSinceHeartbeat + 1
 
     private SendConnectionAccepted(identity: INetworkIdentity): () =
