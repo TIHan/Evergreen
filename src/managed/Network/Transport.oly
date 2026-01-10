@@ -76,7 +76,7 @@ private module Helpers =
 
 // Simple UDP transport implementation.
 
-internal class UdpIdentity =
+private class UdpIdentity =
     implements INetworkIdentity
 
     public field endPoint: EndPoint
