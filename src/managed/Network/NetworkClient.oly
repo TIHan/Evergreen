@@ -325,10 +325,10 @@ class NetworkClient =
 
             let ipOrHostName =
                 if (ipOrHostName == "localhost")
-                    "127.0.0.1"
+                    "::1"
                 else
                     ipOrHostName
-            this.transport <- UdpClientTransport.Connect(UdpIdentity(System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port)))
+            this.transport <- UdpClientTransport.Connect(ipOrHostName, port)
             this.remoteIdentity <- this.transport.LocalIdentity // TODO: do not need remoteIdentity anymore
             this.SendConnectionRequested()
             this.onConnectionRequested(this)

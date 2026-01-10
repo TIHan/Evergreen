@@ -53,7 +53,7 @@ private module Helpers =
                 // This is windows specific.
                 let _ = socket.IOControl(/* SIO_UDP_CONNRESET */ -1744830452, mutable [0: byte;0;0;0], unchecked default)
                // socket.Bind(IPEndPoint(IPAddress.Any, port))
-                socket.Bind(IPEndPoint(IPAddress.Parse("127.0.0.1"), port))
+                socket.Bind(IPEndPoint(IPAddress.Parse("::1"), port))
                 true
             catch (ex: Exception) =>
                 false
@@ -124,7 +124,7 @@ class UdpServerTransport =
         if (this.socket.IsSome)
             false
         else
-            let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
+            let socket = Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp)
             socket.Blocking <- false
             socket.ReceiveBufferSize <- Int32.MaxValue
             if (Helpers.BindSocket(socket, port))
@@ -165,7 +165,7 @@ class UdpServerTransport =
                     endPoint.Port
                 else
                     fail("invalid end point")
-            let mutable endPoint = IPEndPoint(IPAddress.Any, port): EndPoint
+            let mutable endPoint = IPEndPoint(IPAddress.IPv6Any, port): EndPoint
             (socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint), UdpIdentity(endPoint))
 
     LocalIdentity: INetworkIdentity 
@@ -185,20 +185,19 @@ class UdpClientTransport =
     field socket: Socket
     field port: int32
     field serverIdentity: UdpIdentity
+    field serverEndPoint: IPEndPoint
 
-    private new(socket: Socket, port: int32, serverIdentity: UdpIdentity) =
-        this { socket = socket; port = port; serverIdentity = serverIdentity }
+    private new(socket: Socket, port: int32, serverIdentity: UdpIdentity, ipEndPoint: IPEndPoint) =
+        this { socket = socket; port = port; serverIdentity = serverIdentity; serverEndPoint = ipEndPoint }
 
-    static Connect(serverIdentity: INetworkIdentity): UdpClientTransport =
-        if (DotNet.IsSubtypeOf<UdpIdentity>(serverIdentity))
-            let serverIdentity: UdpIdentity = Unsafe.Cast(serverIdentity)
-            let port = serverIdentity.Port
-            let socket = Socket(SocketType.Dgram, ProtocolType.Udp)
-            socket.Blocking <- false
-            socket.ReceiveBufferSize <- Int32.MaxValue
-            UdpClientTransport(socket, port, serverIdentity)
-        else
-            fail("invalid identity")
+    static Connect(ipOrHostName: string, port: int32): UdpClientTransport =
+        let ipEndPoint = System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port)
+        let serverIdentity = UdpIdentity(ipEndPoint)
+        let port = serverIdentity.Port
+        let socket = Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp)
+        socket.Blocking <- false
+        socket.ReceiveBufferSize <- Int32.MaxValue
+        UdpClientTransport(socket, port, serverIdentity, ipEndPoint)
 
     Send(buffer: ReadOnlySpan<byte>): int32 =
         let identity = this.serverIdentity
@@ -212,9 +211,9 @@ class UdpClientTransport =
         if (this.socket.Available == 0)
             0
         else
-            let mutable endPoint = IPEndPoint(IPAddress.Any, this.port): EndPoint
+            let mutable endPoint = this.serverEndPoint: EndPoint
             let numberOfBytesRead = this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint)
-            if (endPoint.Equals(this.serverIdentity.endPoint))
+            if (endPoint.Equals(this.serverEndPoint))
                 numberOfBytesRead
             else
                 0

@@ -132,12 +132,11 @@ class NetworkServer =
         let numberOfBytesRead = 
             try
                 let (numberOfBytesRead, identity) = this.transport.ReceiveFrom(packet.ReceivingSpan)
-                packet.Identity <- this.transport.LocalIdentity
+                packet.Identity <- identity
                 if (numberOfBytesRead > 0)
                     packet.DataSize <- numberOfBytesRead - packet.HeaderSize
                     numberOfBytesRead
                 else
-                    packet.DataSize <- 0
                     0
             catch (ex: System.Net.Sockets.SocketException) =>
                 if (ex.SocketErrorCode != System.Net.Sockets.SocketError.WouldBlock)
