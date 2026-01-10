@@ -41,6 +41,9 @@ interface INetworkServerTransport =
 interface INetworkClientTransport =
     inherits INetworkTransport
 
+    Connect(ipOrHostName: string, port: int32): ()
+    Disconnect(): ()
+
     Send(buffer: ReadOnlySpan<byte>): int32
     Receive(buffer: Span<byte>): int32
 
@@ -181,46 +184,93 @@ class UdpServerTransport =
         this.isDisposed <- true
         let _ = this.StopHost()
 
+private class UdpClientInfo =
+    public field socket: Socket
+    public field port: int32
+    public field remoteIdentity: UdpIdentity
+    public field remoteEndPoint: IPEndPoint
+
+    new(socket: Socket, port: int32, remoteIdentity: UdpIdentity, remoteEndPoint: IPEndPoint) =
+        this { socket = socket; port = port; remoteIdentity = remoteIdentity; remoteEndPoint = remoteEndPoint }
+
 class UdpClientTransport =
     implements INetworkClientTransport
 
-    field socket: Socket
-    field port: int32
-    field remoteIdentity: UdpIdentity
-    field remoteEndPoint: IPEndPoint
+    field mutable isDisposed: bool = false
+    field mutable info: Option<UdpClientInfo> = None
 
-    private new(socket: Socket, port: int32, remoteIdentity: UdpIdentity, remoteEndPoint: IPEndPoint) =
-        this { socket = socket; port = port; remoteIdentity = remoteIdentity; remoteEndPoint = remoteEndPoint }
+    private CheckDisposed(): () =
+        if (this.isDisposed)
+            fail("Object disposed")
 
-    static Connect(ipOrHostName: string, port: int32): UdpClientTransport =
+    private CheckInfo(): UdpClientInfo =
+        match (this.info)
+        | Some(info) => info
+        | _ => fail("Client not connected")
+
+    Connect(ipOrHostName: string, port: int32): () =
+        this.CheckDisposed()
+        if (this.info.IsSome)
+            fail("Client already connected")
+
+        let ipOrHostName =
+            if (ipOrHostName == "localhost")
+                "::1"
+            else
+                ipOrHostName
+
         let ipEndPoint = System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port)
         let serverIdentity = UdpIdentity(ipEndPoint)
         let port = serverIdentity.Port
         let socket = Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp)
         socket.Blocking <- false
         socket.ReceiveBufferSize <- Int32.MaxValue
-        UdpClientTransport(socket, port, serverIdentity, ipEndPoint)
+        this.info <- Some(UdpClientInfo(socket, port, serverIdentity, ipEndPoint))
+
+    Disconnect(): () =
+        this.CheckDisposed()
+        let info = this.CheckInfo()
+        info.socket.Dispose()
+        this.info <- None    
 
     Send(buffer: ReadOnlySpan<byte>): int32 =
-        let remoteIdentity = this.remoteIdentity
-        if (DotNet.IsSubtypeOf<UdpIdentity>(remoteIdentity))
-            let identity: UdpIdentity = Unsafe.Cast(remoteIdentity)
-            this.socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
-        else
-            fail("invalid identity")
+        this.CheckDisposed()
+        let info = this.CheckInfo()
+
+        let socket = info.socket
+        let remoteEndPoint = info.remoteEndPoint
+
+        socket.SendTo(buffer, SocketFlags.None, remoteEndPoint)
 
     Receive(buffer: Span<byte>): int32 =
-        if (this.socket.Available == 0)
+        this.CheckDisposed()
+        let info = this.CheckInfo()
+
+        let socket = info.socket
+        let remoteEndPoint = info.remoteEndPoint
+
+        if (socket.Available == 0)
             0
         else
-            let mutable endPoint = this.remoteEndPoint: EndPoint
-            let numberOfBytesRead = this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint)
-            if (endPoint.Equals(this.remoteEndPoint))
+            let mutable endPoint = remoteEndPoint: EndPoint
+            let numberOfBytesRead = socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint)
+            if (endPoint.Equals(remoteEndPoint))
                 numberOfBytesRead
             else
                 0
 
-    RemoteIdentity: INetworkIdentity get() = this.remoteIdentity
+    RemoteIdentity: INetworkIdentity 
+        get() = 
+            this.CheckDisposed()
+            let info = this.CheckInfo()
+            info.remoteIdentity
 
     Dispose(): () =
-        this.socket.Dispose()
+        this.CheckDisposed()
+        this.isDisposed <- true
+        match (this.info)
+        | Some(info) =>
+            info.socket.Dispose()
+            this.info <- None
+        | _ =>
+            ()
