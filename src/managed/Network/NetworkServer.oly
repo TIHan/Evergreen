@@ -85,7 +85,7 @@ class NetworkServer =
     Statistics: NetworkServerStatistics get() = this.stats
     IsStarted: bool get() = this.isStarted
 
-    private SendPacket(packet: Packet): () =
+    private CheckedSendPacket(packet: Packet): () =
         if (packet.IsInPool)
             throw InvalidOperationException("Cannot send packet that is in the packet pool")
         this.stats.LastSentByteCount <- uint64(this.transport.SendTo(packet.SendingSpan, packet.Identity)) + this.stats.LastSentByteCount
@@ -93,11 +93,11 @@ class NetworkServer =
 
     private SendConnectionAccepted(identity: INetworkIdentity): () =
         let packet = Packet.CreateConnectionAccepted(identity)
-        this.SendPacket(packet)
+        this.CheckedSendPacket(packet)
 
     private SendHeartbeat(identity: INetworkIdentity): () =
         let packet = Packet.CreateHeartbeat(identity)
-        this.SendPacket(packet)
+        this.CheckedSendPacket(packet)
 
     Disconnect(identity: INetworkIdentity, reason: ClientDisconnectReason): () =
         let mutable connection = unchecked default
@@ -105,7 +105,7 @@ class NetworkServer =
             let packet = Packet.CreateDisconnect(Unsafe.Cast(identity))
             // TODO: Should we send this multiple times?
             try
-                this.SendPacket(packet)
+                this.CheckedSendPacket(packet)
             catch (ex: Exception) =>
                 ()
             if (connection.PacketFactory !== null)
@@ -114,7 +114,7 @@ class NetworkServer =
                 let packet = Packet.CreateServerConnectionRefused(identity, reason)
                 // TODO: Should we send this multiple times?
                 try
-                    this.SendPacket(packet)
+                    this.CheckedSendPacket(packet)
                 catch (ex: Exception) =>
                     ()
                 this.onConnectionRefused(identity, reason)
@@ -122,12 +122,12 @@ class NetworkServer =
             let packet = Packet.CreateServerConnectionRefused(identity, reason)
             // TODO: Should we send this multiple times?
             try
-                this.SendPacket(packet)
+                this.CheckedSendPacket(packet)
             catch (ex: Exception) =>
                 ()
             this.onConnectionRefused(identity, reason)
 
-    private ReceivePacket(): (Packet, numberOfBytesRead: int32) =
+    private CheckedReceivePacket(): (Packet, numberOfBytesRead: int32) =
         let mutable packet = this.ReceivePacketPool.Rent()
         let numberOfBytesRead = 
             try
@@ -221,7 +221,7 @@ class NetworkServer =
                     let fragIndex = header.FragmentIndex
 
                     let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(identity))
-                    this.SendPacket(ackPacket)
+                    this.CheckedSendPacket(ackPacket)
 
                     packet.Stream.ResetPosition()
                     connection.Channels.GetDefragmenter(PacketKind.ReliableSequenced, channel).HandlePacket(packet.Stream,
@@ -321,14 +321,14 @@ class NetworkServer =
                         packet.Identity <- identity
                         let acks = connection.Channels.GetAck(kind, channel)
                         acks.MarkAck(packet)
-                        this.SendPacket(packet)
+                        this.CheckedSendPacket(packet)
                         i <- i + 1
                 else
                     let mutable i = 0
                     while (i < packets.Length)
                         let packet = packets[i]
                         packet.Identity <- identity
-                        this.SendPacket(packet)
+                        this.CheckedSendPacket(packet)
                         i <- i + 1
 
     Send(bytes: ReadOnlySpan<byte>, channel: byte, identity: INetworkIdentity): () =
@@ -364,7 +364,7 @@ class NetworkServer =
                                 let acks = pair.Value
                                 acks.Heartbeat(deltaTime,
                                     packet ->
-                                        this.SendPacket(packet),
+                                        this.CheckedSendPacket(packet),
                                     identity ->
                                         let _ = this.identitiesToDisconnect.Add(identity)
                                 )
@@ -385,7 +385,7 @@ class NetworkServer =
         let maxPacketsToRead = 1000
         let mutable packetCount = 0
         while (packetCount < maxPacketsToRead)
-            let (packet, numberOfBytesRead) = this.ReceivePacket()
+            let (packet, numberOfBytesRead) = this.CheckedReceivePacket()
             if (numberOfBytesRead == 0)
                 packetCount <- maxPacketsToRead
             else

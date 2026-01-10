@@ -27,8 +27,6 @@ class NetworkIdentityComparer =
 interface INetworkTransport =
     inherits IDisposable
 
-    LocalIdentity: INetworkIdentity get
-
 interface INetworkServerTransport =
     inherits INetworkTransport
 
@@ -38,11 +36,15 @@ interface INetworkServerTransport =
     SendTo(buffer: ReadOnlySpan<byte>, identity: INetworkIdentity): int32
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity)
 
+    LocalIdentity: INetworkIdentity get
+
 interface INetworkClientTransport =
     inherits INetworkTransport
 
     Send(buffer: ReadOnlySpan<byte>): int32
     Receive(buffer: Span<byte>): int32
+
+    RemoteIdentity: INetworkIdentity get
 
 private module Helpers =
 
@@ -184,11 +186,11 @@ class UdpClientTransport =
 
     field socket: Socket
     field port: int32
-    field serverIdentity: UdpIdentity
-    field serverEndPoint: IPEndPoint
+    field remoteIdentity: UdpIdentity
+    field remoteEndPoint: IPEndPoint
 
-    private new(socket: Socket, port: int32, serverIdentity: UdpIdentity, ipEndPoint: IPEndPoint) =
-        this { socket = socket; port = port; serverIdentity = serverIdentity; serverEndPoint = ipEndPoint }
+    private new(socket: Socket, port: int32, remoteIdentity: UdpIdentity, remoteEndPoint: IPEndPoint) =
+        this { socket = socket; port = port; remoteIdentity = remoteIdentity; remoteEndPoint = remoteEndPoint }
 
     static Connect(ipOrHostName: string, port: int32): UdpClientTransport =
         let ipEndPoint = System.Net.IPEndPoint(System.Net.IPAddress.Parse(ipOrHostName), port)
@@ -200,9 +202,9 @@ class UdpClientTransport =
         UdpClientTransport(socket, port, serverIdentity, ipEndPoint)
 
     Send(buffer: ReadOnlySpan<byte>): int32 =
-        let identity = this.serverIdentity
-        if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
-            let identity: UdpIdentity = Unsafe.Cast(identity)
+        let remoteIdentity = this.remoteIdentity
+        if (DotNet.IsSubtypeOf<UdpIdentity>(remoteIdentity))
+            let identity: UdpIdentity = Unsafe.Cast(remoteIdentity)
             this.socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
         else
             fail("invalid identity")
@@ -211,14 +213,14 @@ class UdpClientTransport =
         if (this.socket.Available == 0)
             0
         else
-            let mutable endPoint = this.serverEndPoint: EndPoint
+            let mutable endPoint = this.remoteEndPoint: EndPoint
             let numberOfBytesRead = this.socket.ReceiveFrom(buffer, SocketFlags.None, &endPoint)
-            if (endPoint.Equals(this.serverEndPoint))
+            if (endPoint.Equals(this.remoteEndPoint))
                 numberOfBytesRead
             else
                 0
 
-    LocalIdentity: INetworkIdentity get() = this.serverIdentity
+    RemoteIdentity: INetworkIdentity get() = this.remoteIdentity
 
     Dispose(): () =
         this.socket.Dispose()

@@ -64,16 +64,16 @@ internal class ServerConnection =
                 /* onConnectionFailed */
                 (netClient, reason) ->
                     this.Reset()
-                    publisher.ConnectionFailed(netClient.LocalIdentity, reason.ToString())
+                    publisher.ConnectionFailed(netClient.RemoteIdentity, reason.ToString())
                     ,
                 /* onConnected */
                 netClient ->
-                    publisher.Connected(netClient.LocalIdentity)
+                    publisher.Connected(netClient.RemoteIdentity)
                     ,
                 /* onDisconnected */
                 (netClient, reason) ->
                     this.Reset()
-                    publisher.Disconnected(netClient.LocalIdentity, reason.ToString())
+                    publisher.Disconnected(netClient.RemoteIdentity, reason.ToString())
                     ,              
                 /* onMessageReceived */
                 (netClient, bstream, channel) ->
