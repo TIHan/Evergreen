@@ -48,6 +48,12 @@ newtype SteamNetworkClient =
     GetConnection(): SteamNetworkClientConnection =
         SteamNetworkClientConnection(this.connection)
 
+newtype SteamImageHandle =
+    internal field handle: int32
+
+    static op_Equality(a: SteamImageHandle, b: SteamImageHandle): bool =
+        a.handle == b.handle
+
 Initialize(): () =
     let origDir = Environment.CurrentDirectory
     let markerTy = DotNet.TypeOf<Marker>
@@ -78,17 +84,6 @@ DestroyNetworkServer(server: SteamNetworkServer): () =
     if (egSteamNetworking_CloseListenSocket(server.socket) == 0)
         fail("Failed to close Steam listen socket.")
 
-// CreateNetworkClient(address: string, port: int32): SteamNetworkClient =
-//     let mutable addressHandle = fixedCopyUTF8(address)
-    
-//     let connection = egSteamNetworking_ConnectIP(Unsafe.AsPointer(addressHandle.AddrOfPinnedObject()), uint16(port))
-//     if (egSteamNetworking_IsConnectionInvalid(connection) != 0)
-//         addressHandle.Free()
-//         fail("Failed to create Steam connection.")
-
-//     addressHandle.Free()
-//     SteamNetworkClient(connection)
-
 CreateNetworkClient(steamID: uint64, port: int32): SteamNetworkClient =    
     let connection = egSteamNetworking_ConnectP2P(steamID, uint16(port))
     if (egSteamNetworking_IsConnectionInvalid(connection) != 0)
@@ -113,6 +108,30 @@ SetRichPresence(key: string, value: string): bool =
 
 ClearRichPresence(): () =
     egSteamFriends_ClearRichPresence()
+
+GetLargeFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
+    let mutable handle = 0
+    let status = egSteamFriends_GetLargeFriendAvatar(steamID, &&handle)
+    if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
+        outImageOut <- SteamImageHandle(handle)
+        true
+    else
+        false
+
+GetImageSize(imageHandle: SteamImageHandle): (width: int32, height: int32) =
+    let mutable width = 0
+    let mutable height = 0
+    let success = egSteam_GetImageSize(imageHandle.handle, &&width, &&height)
+    if (success == 0)
+        fail("Failed to get Steam image size.")
+
+    (width, height)
+
+GetImageRGBA(imageHandle: SteamImageHandle, mutable buffer: Span<byte>): () =
+    let bufferPtr = &&buffer.GetPinnableReference()
+    let success = egSteam_GetImageRGBA(imageHandle.handle, buffer.Length, Unsafe.AsPointer(bufferPtr))
+    if (success == 0)
+        fail("Failed to get Steam image data.")
 
 private ActivateGameOverlay(dialog: string): () =
     let mutable dialogHandle = fixedCopyUTF8(dialog)

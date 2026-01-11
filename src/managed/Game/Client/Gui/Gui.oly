@@ -122,7 +122,7 @@ class GuiEnv =
 
             NavigationStack = Stack()
 
-            Title = CreateTitle(images.GetAndSetReference("Freedoom/titlepic/freedm_title.png", 0)[0])
+            Title = CreateTitle(images.GetAndSetReference("steam_avatar", 0)[0])//CreateTitle(images.GetAndSetReference("Freedoom/titlepic/freedm_title.png", 0)[0])
             MainMenu = CreateMainMenu(mainMenuModel, clientEventPublisher)
             MultiplayerMenu = CreateMultiplayerMenu(multiplayerMenuModel, clientEventPublisher)
             SettingsMenu = CreateSettingsMenu(settingsMenuModel, clientEventPublisher)

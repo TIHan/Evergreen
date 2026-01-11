@@ -9,6 +9,7 @@ open Evergreen.Graphics
 open Evergreen.Graphics.Rendering
 open Evergreen.Graphics.Asset.Backend.Interop
 open Evergreen.Graphics.Shader.Backend.Interop
+open Evergreen.Steam
 
 open Game.Shared
 open static Game.Shared.World
@@ -282,6 +283,19 @@ class Resources =
                     )
 
                 Unsafe.AsImmutable(images)
+        )
+        imageManager.Register("steam_avatar",   
+            (_) ->
+                let mutable handle = default
+                if (!Steam.GetLargeFriendAvatar(Steam.GetSteamID(), &handle))
+                    fail("Failed to get Steam avatar.")
+                    
+                let (width, height) = Steam.GetImageSize(handle)
+                let buffer = zeroArray(width * height * 4)
+                Steam.GetImageRGBA(handle, Span(buffer))
+            
+                let image = GpuImage("steam_avatar", GpuFilterKind.Linear, width, height, ReadOnlyMemory(buffer))
+                return [image]
         )
     
         shaderManager.RegisterFiles(".vert", "Shaders", fs, (filePath, _) -> RenderingHelpers.CompileShader(filePath))
