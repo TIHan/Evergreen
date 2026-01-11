@@ -69,6 +69,7 @@ class GuiEnv =
     NavigationStack: Stack<WindowView> get
 
     Title: WindowView get
+    GamePlatformAvatar: WindowView get
 
     MainMenu: WindowView get
     MainMenuModel: MainMenuViewModel get
@@ -122,7 +123,8 @@ class GuiEnv =
 
             NavigationStack = Stack()
 
-            Title = CreateTitle(images.GetAndSetReference("steam_avatar", 0)[0])//CreateTitle(images.GetAndSetReference("Freedoom/titlepic/freedm_title.png", 0)[0])
+            Title = CreateTitle(images.GetAndSetReference("Freedoom/titlepic/freedm_title.png", 0)[0])
+            GamePlatformAvatar = CreateGamePlatformAvatar(images.GetAndSetReference("game_platform_avatar_medium", 0)[0])
             MainMenu = CreateMainMenu(mainMenuModel, clientEventPublisher)
             MultiplayerMenu = CreateMultiplayerMenu(multiplayerMenuModel, clientEventPublisher)
             SettingsMenu = CreateSettingsMenu(settingsMenuModel, clientEventPublisher)
@@ -312,6 +314,7 @@ module Gui =
         if (currentUI.IsVisible)
             if (currMenuState == GuiMenuState.Main)
                 uiWindows.Add(guiEnv.Title)
+                uiWindows.Add(guiEnv.GamePlatformAvatar)
                 uiWindows.Add(currentUI)
                 uiWindows.Add(guiEnv.HashCodes)
             else

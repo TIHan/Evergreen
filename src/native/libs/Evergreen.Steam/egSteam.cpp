@@ -10,6 +10,15 @@
 
 #define MAX_CONNECTIONS 256
 
+enum DisconnectReason
+{
+	ClientDisconnect = 1000 + 1,
+	ServerClosed = 1000 + 2,
+	ServerReject = 1000 + 3,
+	ServerFull = 1000 + 4,
+	ClientKicked = 1000 + 5,
+};
+
 class EgSteamNetworking_ListenSocket_Internal {
 private:
 	std::queue<int> connectionQueue;
@@ -50,7 +59,7 @@ public:
 		{
 			if (this->connectionCount >= MAX_CONNECTIONS)
 			{
-				SteamNetworkingSockets()->CloseConnection(pCallback->m_hConn, EgDisconnectReason::ServerFull, nullptr, false);
+				SteamNetworkingSockets()->CloseConnection(pCallback->m_hConn, DisconnectReason::ServerFull, nullptr, false);
 				return;
 			}
 
@@ -58,7 +67,7 @@ public:
 			{
 				if (!SteamNetworkingSockets()->SetConnectionPollGroup(pCallback->m_hConn, this->pollGroup))
 				{
-					SteamNetworkingSockets()->CloseConnection(pCallback->m_hConn, EgDisconnectReason::ServerReject, nullptr, false);
+					SteamNetworkingSockets()->CloseConnection(pCallback->m_hConn, DisconnectReason::ServerReject, nullptr, false);
 					return;
 				}
 				auto connectionIndex = this->GetNewConnectionIndex();
@@ -67,7 +76,7 @@ public:
 			}
 			else
 			{
-				SteamNetworkingSockets()->CloseConnection(pCallback->m_hConn, EgDisconnectReason::ServerReject, nullptr, false);
+				SteamNetworkingSockets()->CloseConnection(pCallback->m_hConn, DisconnectReason::ServerReject, nullptr, false);
 			}
 			break;
 		}
@@ -194,18 +203,14 @@ extern "C" {
 		SteamNetworkingSockets()->RunCallbacks();
 	}
 
-	EG_EXPORT unsigned long long egSteamNetworking_GetSteamID()
+	EG_EXPORT unsigned long long egSteamUser_GetSteamID()
 	{
-		SteamNetworkingIdentity identity = {};
-		auto success = SteamNetworkingSockets()->GetIdentity(&identity);
-
-		return identity.GetSteamID64();
+		return SteamUser()->GetSteamID().ConvertToUint64();
 	}
 
-	EG_EXPORT bool egSteamNetworking_IsSteamIDInvalid(unsigned long long egSteamID)
+	EG_EXPORT bool egSteamUser_IsInvalidSteamID(unsigned long long steamID)
 	{
-		auto steamID = *(CSteamID*)&egSteamID;
-		return !steamID.IsValid();
+		return (*(CSteamID*)&steamID).IsValid();
 	}
 
 	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketIP(unsigned short port)
@@ -286,7 +291,7 @@ extern "C" {
 		return result;
 	}
 
-	EG_EXPORT bool egSteamNetworking_IsListenSocketInvalid(EgSteamNetworking_ListenSocket egSocket)
+	EG_EXPORT bool egSteamNetworking_IsInvalidListenSocket(EgSteamNetworking_ListenSocket egSocket)
 	{
 		if (!egSocket.internal)
 			return true;
@@ -340,10 +345,10 @@ extern "C" {
 			g_currentListenSocket->RemoveConnectionIndex(connectionIndex);
 		}
 
-		return SteamNetworkingSockets()->CloseConnection(connection, EgDisconnectReason::ClientKicked, nullptr, false);
+		return SteamNetworkingSockets()->CloseConnection(connection, DisconnectReason::ClientKicked, nullptr, false);
 	}
 
-	EG_EXPORT bool egSteamNetworking_IsConnectionInvalid(EgSteamNetworking_Connection egConnection)
+	EG_EXPORT bool egSteamNetworking_IsInvalidConnection(EgSteamNetworking_Connection egConnection)
 	{
 		return GetHSteamNetConnection(egConnection) == k_HSteamNetConnection_Invalid;
 	}
@@ -438,11 +443,6 @@ extern "C" {
 		SteamFriends()->ActivateGameOverlayInviteDialogConnectString(connectString);
 	}
 
-	EG_EXPORT void egSteamFriends_InviteUserToGame(unsigned long long steamIDFriend, const char* connectString)
-	{
-		SteamFriends()->InviteUserToGame(steamIDFriend, connectString);
-	}
-
 	EG_EXPORT int egSteamFriends_GetFriendCount()
 	{
 		return SteamFriends()->GetFriendCount(k_EFriendFlagImmediate);
@@ -492,7 +492,39 @@ extern "C" {
 			*pOutImageHandle = imageHandle;
 			return EgSteamFriends_AvatarLoadStatus::Loaded;
 		}
-		else if (imageHandle == 0)
+		else if (imageHandle == -1)
+		{
+			return EgSteamFriends_AvatarLoadStatus::Loading;
+		}
+		return EgSteamFriends_AvatarLoadStatus::Missing;
+	}
+
+	EG_EXPORT EgSteamFriends_AvatarLoadStatus egSteamFriends_GetMediumFriendAvatar(unsigned long long steamIDFriend, int* pOutImageHandle)
+	{
+		auto imageHandle = SteamFriends()->GetMediumFriendAvatar(steamIDFriend);
+
+		if (imageHandle > 0)
+		{
+			*pOutImageHandle = imageHandle;
+			return EgSteamFriends_AvatarLoadStatus::Loaded;
+		}
+		else if (imageHandle == -1)
+		{
+			return EgSteamFriends_AvatarLoadStatus::Loading;
+		}
+		return EgSteamFriends_AvatarLoadStatus::Missing;
+	}
+
+	EG_EXPORT EgSteamFriends_AvatarLoadStatus egSteamFriends_GetSmallFriendAvatar(unsigned long long steamIDFriend, int* pOutImageHandle)
+	{
+		auto imageHandle = SteamFriends()->GetSmallFriendAvatar(steamIDFriend);
+
+		if (imageHandle > 0)
+		{
+			*pOutImageHandle = imageHandle;
+			return EgSteamFriends_AvatarLoadStatus::Loaded;
+		}
+		else if (imageHandle == -1)
 		{
 			return EgSteamFriends_AvatarLoadStatus::Loading;
 		}
@@ -521,6 +553,12 @@ extern "C" {
 			return false;
 
 		return SteamUtils()->GetImageRGBA(imageHandle, pDestinationBuffer, destinationSize);
+	}
+
+	// TODO
+	EG_EXPORT unsigned long long egSteamMatchmaking_CreateLobby(EgLobbyType lobbyType, int maxMembers)
+	{
+		return SteamMatchmaking()->CreateLobby((ELobbyType)lobbyType, maxMembers);
 	}
 
 }

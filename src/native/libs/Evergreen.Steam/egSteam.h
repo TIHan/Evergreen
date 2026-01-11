@@ -12,16 +12,7 @@ typedef struct {
 	EgSteam_InitializeFlags flags;
 } EgSteam_InitializeOptions;
 
-enum EgDisconnectReason
-{
-	ClientDisconnect	= 1000 + 1,
-	ServerClosed		= 1000 + 2,
-	ServerReject		= 1000 + 3,
-	ServerFull			= 1000 + 4,
-	ClientKicked		= 1000 + 5,
-};
-
-enum EgSteamFriends_AvatarLoadStatus
+enum class EgSteamFriends_AvatarLoadStatus
 {
 	Missing = 0,
 	Loading = 1,
@@ -29,22 +20,7 @@ enum EgSteamFriends_AvatarLoadStatus
 };
 
 // Same as steamworks 'EPersonaState'
-//-----------------------------------------------------------------------------
-// Purpose: list of states a friend can be in
-//-----------------------------------------------------------------------------
-//enum EPersonaState
-//{
-//	k_EPersonaStateOffline = 0,			// friend is not currently logged on
-//	k_EPersonaStateOnline = 1,			// friend is logged on
-//	k_EPersonaStateBusy = 2,			// user is on, but busy
-//	k_EPersonaStateAway = 3,			// auto-away feature
-//	k_EPersonaStateSnooze = 4,			// auto-away for a long time
-//	k_EPersonaStateLookingToTrade = 5,	// Online, trading
-//	k_EPersonaStateLookingToPlay = 6,	// Online, wanting to play
-//	k_EPersonaStateInvisible = 7,		// Online, but appears offline to friends.  This status is never published to clients.
-//	k_EPersonaStateMax,
-//};
-enum EgSteamFriends_PersonaState
+enum class EgSteamFriends_PersonaState
 {
 	Offline = 0,	    // friend is not currently logged on
 	Online = 1,			// friend is logged on
@@ -55,6 +31,19 @@ enum EgSteamFriends_PersonaState
 	LookingToPlay = 6,	// Online, wanting to play
 	Invisible = 7,		// Online, but appears offline to friends.  This status is never published to clients.
 	Max,
+};
+
+// Same as steamworks 'ELobbyType'
+enum class EgLobbyType
+{
+	Private = 0,		// only way to join the lobby is to invite to someone else
+	FriendsOnly = 1,	// shows for friends or invitees, but not in public lobby list, allows those who join to invite their own friends
+	Public = 2,			// visible for friends and in lobby list
+	Invisible = 3,		// returned by search, but not visible to other friends 
+	//    useful if you want a user in two lobbies, for example matching groups together
+	//	  a user can be in only one regular lobby, and up to two invisible lobbies
+	PrivateUnique = 4,	// private, unique and does not delete when empty - only one of these may exist per unique keypair set
+	// can only create from webapi
 };
 
 typedef struct {
@@ -73,18 +62,18 @@ extern "C" {
 
 	EG_EXPORT void egSteamNetworking_RunCallbacks();
 
-	EG_EXPORT unsigned long long egSteamNetworking_GetSteamID();
-	EG_EXPORT bool egSteamNetworking_IsSteamIDInvalid(unsigned long long steamID);
+	EG_EXPORT unsigned long long egSteamUser_GetSteamID();
+	EG_EXPORT bool egSteamUser_IsInvalidSteamID(unsigned long long egSteamID);
 
 	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketIP(unsigned short port);
 	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketP2P(unsigned short port);
 	EG_EXPORT bool egSteamNetworking_CloseListenSocket(EgSteamNetworking_ListenSocket egSocket);
-	EG_EXPORT bool egSteamNetworking_IsListenSocketInvalid(EgSteamNetworking_ListenSocket egSocket);
+	EG_EXPORT bool egSteamNetworking_IsInvalidListenSocket(EgSteamNetworking_ListenSocket egSocket);
 
 	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_ConnectIP(const char* address, unsigned short port);
 	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_ConnectP2P(unsigned long long steamID, unsigned short port);
 	EG_EXPORT bool egSteamNetworking_CloseConnection(EgSteamNetworking_Connection egConnection);
-	EG_EXPORT bool egSteamNetworking_IsConnectionInvalid(EgSteamNetworking_Connection egConnection);
+	EG_EXPORT bool egSteamNetworking_IsInvalidConnection(EgSteamNetworking_Connection egConnection);
 
 	EG_EXPORT bool egSteamNetworking_SendMessage(EgSteamNetworking_Connection egConnection, int size, unsigned char* pData);
 	EG_EXPORT int egSteamNetworking_GetConnectionCount(EgSteamNetworking_ListenSocket egSocket);
@@ -96,7 +85,6 @@ extern "C" {
 	EG_EXPORT void egSteamFriends_ActivateGameOverlayToUser(const char* dialog, unsigned long long steamID);
 	EG_EXPORT void egSteamFriends_ActivateGameOverlayInviteDialog(unsigned long long steamIDLobby);
 	EG_EXPORT void egSteamFriends_ActivateGameOverlayInviteDialogConnectString(const char* connectString);
-	EG_EXPORT void egSteamFriends_InviteUserToGame(unsigned long long steamIDFriend, const char* connectString);
 	EG_EXPORT int egSteamFriends_GetFriendCount();
 	EG_EXPORT unsigned long long egSteamFriends_GetFriendByIndex(int friendIndex);
 	EG_EXPORT const char* egSteamFriends_GetPersonaName();
@@ -107,6 +95,8 @@ extern "C" {
 	EG_EXPORT const char* egSteamFriends_GetFriendRichPresence(unsigned long long steamFriendID, const char* key);
 
 	EG_EXPORT EgSteamFriends_AvatarLoadStatus egSteamFriends_GetLargeFriendAvatar(unsigned long long steamIDFriend, int* pOutImageHandle);
+	EG_EXPORT EgSteamFriends_AvatarLoadStatus egSteamFriends_GetMediumFriendAvatar(unsigned long long steamIDFriend, int* pOutImageHandle);
+	EG_EXPORT EgSteamFriends_AvatarLoadStatus egSteamFriends_GetSmallFriendAvatar(unsigned long long steamIDFriend, int* pOutImageHandle);
 	EG_EXPORT bool egSteam_GetImageSize(int imageHandle, int* pOutWidth, int* pOutHeight);
 	EG_EXPORT bool egSteam_GetImageRGBA(int imageHandle, int destinationSize, unsigned char* pDestinationBuffer);
 }

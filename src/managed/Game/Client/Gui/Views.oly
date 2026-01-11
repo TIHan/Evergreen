@@ -417,10 +417,21 @@ CreateTitle(logo: IGpuImage): WindowView =
         view.GpuImage <- logo
         view
     )
+    view
 
-    let style = Style()
-    style.Font <- Some(DefaultFontExtraLarge)
-    view.Style <- Some(style)
+CreateGamePlatformAvatar(logo: IGpuImage): WindowView =
+    let view = WindowView()
+    view.ScreenHorizontalAlignment <- HorizontalAlignment.Right
+    view.IsBackgroundVisible <- false
+    view.Kind <- WindowKind.Overlay
+    view.Title <- "Visible"
+    view.Children.Add(
+        let view = ImageView()
+        view.IsScaling <- true
+        view.Size <- Vector2(float32(logo.Width), float32(logo.Height))
+        view.GpuImage <- logo
+        view
+    )
     view
 
 CreateMainMenu(vm: MainMenuViewModel, publisher: ClientEventPublisher): WindowView =

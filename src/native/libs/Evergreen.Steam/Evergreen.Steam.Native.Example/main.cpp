@@ -11,7 +11,7 @@
 void test_listen_socket_ip_creation(bool clientInitiatesDisconnect)
 {
     auto server = egSteamNetworking_CreateListenSocketIP(TEST_PORT);
-    auto isInvalid = egSteamNetworking_IsListenSocketInvalid(server);
+    auto isInvalid = egSteamNetworking_IsInvalidListenSocket(server);
     assert(!isInvalid);
 
     for (auto i = 0; i < 1000; i++)
@@ -23,7 +23,7 @@ void test_listen_socket_ip_creation(bool clientInitiatesDisconnect)
 
     auto client = egSteamNetworking_ConnectIP("127.0.0.1", TEST_PORT);
 
-    auto isInvalidConnection = egSteamNetworking_IsConnectionInvalid(client);
+    auto isInvalidConnection = egSteamNetworking_IsInvalidConnection(client);
     assert(!isInvalidConnection);
 
     for (auto i = 0; i < 1000; i++)
@@ -95,7 +95,7 @@ void test_listen_socket_ip_creation(bool clientInitiatesDisconnect)
 void test_listen_socket_p2p_creation(bool clientInitiatesDisconnect)
 {
     auto server = egSteamNetworking_CreateListenSocketP2P(TEST_PORT);
-    auto isInvalid = egSteamNetworking_IsListenSocketInvalid(server);
+    auto isInvalid = egSteamNetworking_IsInvalidListenSocket(server);
     assert(!isInvalid);
 
     for (auto i = 0; i < 1000; i++)
@@ -105,9 +105,9 @@ void test_listen_socket_p2p_creation(bool clientInitiatesDisconnect)
         Sleep(1);
     }
 
-    auto client = egSteamNetworking_ConnectP2P(egSteamNetworking_GetSteamID(), TEST_PORT);
+    auto client = egSteamNetworking_ConnectP2P(egSteamUser_GetSteamID(), TEST_PORT);
 
-    auto isInvalidConnection = egSteamNetworking_IsConnectionInvalid(client);
+    auto isInvalidConnection = egSteamNetworking_IsInvalidConnection(client);
     assert(!isInvalidConnection);
 
     for (auto i = 0; i < 1000; i++)
@@ -183,8 +183,8 @@ int main()
 
     assert(egSteam_Initialize(options));
 
-    auto steamID = egSteamNetworking_GetSteamID();
-    assert(!egSteamNetworking_IsSteamIDInvalid(steamID));
+    auto steamID = egSteamUser_GetSteamID();
+    assert(!egSteamUser_IsInvalidSteamID(steamID));
 
     printf("Steam ID: %lld\n\n", steamID);
 

@@ -75,7 +75,7 @@ RunCallbacks(): () =
 
 CreateNetworkServer(port: int32): SteamNetworkServer =
     let socket = egSteamNetworking_CreateListenSocketP2P(uint16(port))
-    if (egSteamNetworking_IsListenSocketInvalid(socket) != 0)
+    if (egSteamNetworking_IsInvalidListenSocket(socket) != 0)
         fail("Failed to create Steam listen socket.")
 
     SteamNetworkServer(socket)
@@ -86,7 +86,7 @@ DestroyNetworkServer(server: SteamNetworkServer): () =
 
 CreateNetworkClient(steamID: uint64, port: int32): SteamNetworkClient =    
     let connection = egSteamNetworking_ConnectP2P(steamID, uint16(port))
-    if (egSteamNetworking_IsConnectionInvalid(connection) != 0)
+    if (egSteamNetworking_IsInvalidConnection(connection) != 0)
         fail("Failed to create Steam connection.")
 
     SteamNetworkClient(connection)
@@ -96,7 +96,7 @@ DestroyNetworkClient(client: SteamNetworkClient): () =
         fail("Failed to close Steam connection.")
 
 GetSteamID(): uint64 =
-    egSteamNetworking_GetSteamID()
+    egSteamUser_GetSteamID()
 
 SetRichPresence(key: string, value: string): bool =
     let mutable keyHandle = fixedCopyUTF8(key)
@@ -112,6 +112,24 @@ ClearRichPresence(): () =
 GetLargeFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
     let mutable handle = 0
     let status = egSteamFriends_GetLargeFriendAvatar(steamID, &&handle)
+    if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
+        outImageOut <- SteamImageHandle(handle)
+        true
+    else
+        false
+        
+GetMediumFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
+    let mutable handle = 0
+    let status = egSteamFriends_GetMediumFriendAvatar(steamID, &&handle)
+    if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
+        outImageOut <- SteamImageHandle(handle)
+        true
+    else
+        false
+
+GetSmallFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
+    let mutable handle = 0
+    let status = egSteamFriends_GetSmallFriendAvatar(steamID, &&handle)
     if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
         outImageOut <- SteamImageHandle(handle)
         true

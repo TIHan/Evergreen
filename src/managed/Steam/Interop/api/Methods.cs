@@ -19,11 +19,11 @@ public static unsafe partial class Methods
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("unsigned long long")]
-    public static extern ulong egSteamNetworking_GetSteamID();
+    public static extern ulong egSteamUser_GetSteamID();
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("bool")]
-    public static extern byte egSteamNetworking_IsSteamIDInvalid([NativeTypeName("unsigned long long")] ulong steamID);
+    public static extern byte egSteamUser_IsInvalidSteamID([NativeTypeName("unsigned long long")] ulong egSteamID);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketIP([NativeTypeName("unsigned short")] ushort port);
@@ -37,7 +37,7 @@ public static unsafe partial class Methods
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("bool")]
-    public static extern byte egSteamNetworking_IsListenSocketInvalid(EgSteamNetworking_ListenSocket egSocket);
+    public static extern byte egSteamNetworking_IsInvalidListenSocket(EgSteamNetworking_ListenSocket egSocket);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern EgSteamNetworking_Connection egSteamNetworking_ConnectIP([NativeTypeName("const char *")] sbyte* address, [NativeTypeName("unsigned short")] ushort port);
@@ -51,7 +51,7 @@ public static unsafe partial class Methods
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("bool")]
-    public static extern byte egSteamNetworking_IsConnectionInvalid(EgSteamNetworking_Connection egConnection);
+    public static extern byte egSteamNetworking_IsInvalidConnection(EgSteamNetworking_Connection egConnection);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("bool")]
@@ -80,9 +80,6 @@ public static unsafe partial class Methods
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern void egSteamFriends_ActivateGameOverlayInviteDialogConnectString([NativeTypeName("const char *")] sbyte* connectString);
-
-    [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-    public static extern void egSteamFriends_InviteUserToGame([NativeTypeName("unsigned long long")] ulong steamIDFriend, [NativeTypeName("const char *")] sbyte* connectString);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern int egSteamFriends_GetFriendCount();
@@ -115,6 +112,12 @@ public static unsafe partial class Methods
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern EgSteamFriends_AvatarLoadStatus egSteamFriends_GetLargeFriendAvatar([NativeTypeName("unsigned long long")] ulong steamIDFriend, int* pOutImageHandle);
+
+    [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    public static extern EgSteamFriends_AvatarLoadStatus egSteamFriends_GetMediumFriendAvatar([NativeTypeName("unsigned long long")] ulong steamIDFriend, int* pOutImageHandle);
+
+    [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    public static extern EgSteamFriends_AvatarLoadStatus egSteamFriends_GetSmallFriendAvatar([NativeTypeName("unsigned long long")] ulong steamIDFriend, int* pOutImageHandle);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("bool")]
