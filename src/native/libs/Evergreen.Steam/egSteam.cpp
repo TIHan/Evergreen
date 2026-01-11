@@ -6,6 +6,7 @@
 
 #include <queue>
 #include <assert.h>
+#include <iostream>
 
 #define MAX_CONNECTIONS 256
 
@@ -132,7 +133,29 @@ void DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char* pMsg)
 	printf("%s\n", pMsg);
 }
 
+class SteamAvatarLoader
+{
+public:
+	// Constructor, initializes the callback handler
+	SteamAvatarLoader() : m_AvatarImageLoaded(this, &SteamAvatarLoader::OnAvatarImageLoaded) {}
+
+	void RegisterCallbacks()
+	{
+		SteamAPI_RegisterCallback((CCallbackBase*)&this->m_AvatarImageLoaded, 1);
+	}
+
+private:
+	// The callback function definition
+	// The macro automatically hooks up the function to the Steamworks system.
+	STEAM_CALLBACK(SteamAvatarLoader, OnAvatarImageLoaded, AvatarImageLoaded_t, m_AvatarImageLoaded);
+};
+void SteamAvatarLoader::OnAvatarImageLoaded(AvatarImageLoaded_t* pCallback)
+{
+}
+
 extern "C" {
+
+	SteamAvatarLoader* g_avatarLoader = nullptr;
 
 	EG_EXPORT bool egSteam_Initialize(EgSteam_InitializeOptions& options)
 	{
@@ -149,11 +172,15 @@ extern "C" {
 			SteamNetworkingUtils()->SetDebugOutputFunction(ESteamNetworkingSocketsDebugOutputType::k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput);
 		}
 
+	//	g_avatarLoader = new SteamAvatarLoader();
+
 		return true;
 	}
 
 	EG_EXPORT void egSteam_Shutdown()
 	{
+//		delete g_avatarLoader;
+	//	g_avatarLoader = nullptr;
 		SteamAPI_Shutdown();
 	}
 
@@ -167,7 +194,21 @@ extern "C" {
 		SteamNetworkingSockets()->RunCallbacks();
 	}
 
-	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketIP(EgSteamNetworking_CreateListenSocketOptions& options)
+	EG_EXPORT unsigned long long egSteamNetworking_GetSteamID()
+	{
+		SteamNetworkingIdentity identity = {};
+		auto success = SteamNetworkingSockets()->GetIdentity(&identity);
+
+		return identity.GetSteamID64();
+	}
+
+	EG_EXPORT bool egSteamNetworking_IsSteamIDInvalid(unsigned long long egSteamID)
+	{
+		auto steamID = *(CSteamID*)&egSteamID;
+		return !steamID.IsValid();
+	}
+
+	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketIP(unsigned short port)
 	{
 		if (g_currentListenSocket)
 		{
@@ -176,7 +217,7 @@ extern "C" {
 
 		SteamNetworkingIPAddr addr = {};
 		addr.Clear();
-		addr.m_port = options.port;
+		addr.m_port = port;
 
 		auto egInternalSocket = new EgSteamNetworking_ListenSocket_Internal();
 
@@ -197,7 +238,7 @@ extern "C" {
 		return egSocket;
 	}
 
-	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketP2P(EgSteamNetworking_CreateListenSocketOptions& options)
+	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketP2P(unsigned short port)
 	{
 		if (g_currentListenSocket)
 		{
@@ -213,7 +254,7 @@ extern "C" {
 		opts[0] = opt0;
 
 		egInternalSocket->pollGroup = SteamNetworkingSockets()->CreatePollGroup();
-		egInternalSocket->socket = SteamNetworkingSockets()->CreateListenSocketP2P(options.port, 1, opts);
+		egInternalSocket->socket = SteamNetworkingSockets()->CreateListenSocketP2P(port, 1, opts);
 
 		EgSteamNetworking_ListenSocket egSocket = {};
 		egSocket.internal = egInternalSocket;
@@ -252,14 +293,14 @@ extern "C" {
 		return GetHSteamListenSocket(egSocket) == k_HSteamListenSocket_Invalid;
 	}
 
-	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_ConnectIP(EgSteamNetworking_ConnectOptions& options)
+	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_ConnectIP(const char* address, unsigned short port)
 	{
 		SteamNetworkingIPAddr addr = {};
-		if (!SteamNetworkingUtils()->SteamNetworkingIPAddr_ParseString(&addr, options.address))
+		if (!SteamNetworkingUtils()->SteamNetworkingIPAddr_ParseString(&addr, address))
 		{
 			return {};
 		}
-		addr.m_port = options.port;
+		addr.m_port = port;
 
 		SteamNetworkingConfigValue_t opt0 = {};
 		opt0.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, OnClientNetConnectionStatusChanged);
@@ -272,15 +313,8 @@ extern "C" {
 		return egConnection;
 	}
 
-	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_ConnectP2P(EgSteamNetworking_ConnectOptions& options)
+	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_ConnectP2P(unsigned long long steamID, unsigned short port)
 	{
-		SteamNetworkingIPAddr addr = {};
-		if (!SteamNetworkingUtils()->SteamNetworkingIPAddr_ParseString(&addr, options.address))
-		{
-			return {};
-		}
-		addr.m_port = options.port;
-
 		SteamNetworkingConfigValue_t opt0 = {};
 		opt0.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, OnClientNetConnectionStatusChanged);
 		SteamNetworkingConfigValue_t opts[1] = {};
@@ -288,10 +322,10 @@ extern "C" {
 
 		SteamNetworkingIdentity identity = {};
 		identity.Clear();
-		identity.SetIPAddr(addr);
+		identity.SetSteamID64(steamID);
 
 		EgSteamNetworking_Connection egConnection = {};
-		egConnection.internal = SteamNetworkingSockets()->ConnectP2P(identity, options.port, 1, opts);
+		egConnection.internal = SteamNetworkingSockets()->ConnectP2P(identity, port, 1, opts);
 
 		return egConnection;
 	}
@@ -382,6 +416,111 @@ extern "C" {
 		msg->Release();
 
 		return bytesRead;
+	}
+
+	EG_EXPORT void egSteamFriends_ActivateGameOverlay(const char* dialog)
+	{
+		SteamFriends()->ActivateGameOverlay(dialog);
+	}
+
+	EG_EXPORT void egSteamFriends_ActivateGameOverlayToUser(const char* dialog, unsigned long long steamID)
+	{
+		SteamFriends()->ActivateGameOverlayToUser(dialog, steamID);
+	}
+
+	EG_EXPORT void egSteamFriends_ActivateGameOverlayInviteDialog(unsigned long long steamIDLobby)
+	{
+		SteamFriends()->ActivateGameOverlayInviteDialog(steamIDLobby);
+	}
+
+	EG_EXPORT void egSteamFriends_ActivateGameOverlayInviteDialogConnectString(const char* connectString)
+	{
+		SteamFriends()->ActivateGameOverlayInviteDialogConnectString(connectString);
+	}
+
+	EG_EXPORT void egSteamFriends_InviteUserToGame(unsigned long long steamIDFriend, const char* connectString)
+	{
+		SteamFriends()->InviteUserToGame(steamIDFriend, connectString);
+	}
+
+	EG_EXPORT int egSteamFriends_GetFriendCount()
+	{
+		return SteamFriends()->GetFriendCount(k_EFriendFlagImmediate);
+	}
+
+	EG_EXPORT unsigned long long egSteamFriends_GetFriendByIndex(int friendIndex)
+	{
+		return SteamFriends()->GetFriendByIndex(friendIndex, k_EFriendFlagImmediate).ConvertToUint64();
+	}
+
+	EG_EXPORT const char* egSteamFriends_GetPersonaName()
+	{
+		return SteamFriends()->GetPersonaName();
+	}
+
+	EG_EXPORT const char* egSteamFriends_GetFriendPersonaName(unsigned long long steamFriendID)
+	{
+		return SteamFriends()->GetFriendPersonaName(steamFriendID);
+	}
+
+	EG_EXPORT EgSteamFriends_PersonaState egSteamFriends_GetFriendPersonaState(unsigned long long steamFriendID)
+	{
+		return (EgSteamFriends_PersonaState)SteamFriends()->GetFriendPersonaState(steamFriendID);
+	}
+
+	EG_EXPORT bool egSteamFriends_SetRichPresence(const char* key, const char* value)
+	{
+		return SteamFriends()->SetRichPresence(key, value);
+	}
+
+	EG_EXPORT void egSteamFriends_ClearRichPresence()
+	{
+		return SteamFriends()->ClearRichPresence();
+	}
+
+	EG_EXPORT const char* egSteamFriends_GetFriendRichPresence(unsigned long long steamFriendID, const char* key)
+	{
+		return SteamFriends()->GetFriendRichPresence(steamFriendID, key);
+	}
+
+	EG_EXPORT EgSteamFriends_AvatarLoadStatus egSteamFriends_GetLargeFriendAvatar(unsigned long long steamIDFriend, int* pOutImageHandle)
+	{
+		auto imageHandle = SteamFriends()->GetLargeFriendAvatar(steamIDFriend);
+
+		if (imageHandle > 0)
+		{
+			*pOutImageHandle = imageHandle;
+			return EgSteamFriends_AvatarLoadStatus::Loaded;
+		}
+		else if (imageHandle == 0)
+		{
+			return EgSteamFriends_AvatarLoadStatus::Loading;
+		}
+		return EgSteamFriends_AvatarLoadStatus::Missing;
+	}
+
+	EG_EXPORT bool egSteam_GetImageSize(int imageHandle, int* pOutWidth, int* pOutHeight)
+	{
+		if (imageHandle <= 0)
+			return false;
+
+		uint32 width, height;
+		if (SteamUtils()->GetImageSize(imageHandle, &width, &height))
+		{
+			*pOutWidth = (int)width;
+			*pOutHeight = (int)height;
+			return true;
+		}
+
+		return false;
+	}
+
+	EG_EXPORT bool egSteam_GetImageRGBA(int imageHandle, int destinationSize, unsigned char* pDestinationBuffer)
+	{
+		if (imageHandle <= 0)
+			return false;
+
+		return SteamUtils()->GetImageRGBA(imageHandle, pDestinationBuffer, destinationSize);
 	}
 
 }

@@ -125,6 +125,8 @@ class CommandProcessor =
 
             this.AddDef(ActionCommand("noclip", () -> game.SendUserCommand(UserCommand.ToggleNoclip)))
             this.AddDef(ActionCommand("editor", () -> game.SendUserCommand(UserCommand.ToggleEditor)))
+            this.AddDef(ActionCommand("show_friends", () -> game.ShowFriendsOverlay()))
+            this.AddDef(ActionCommand("invite", () -> game.ShowInviteDialog()))
         | _ =>
             ()
 

@@ -415,13 +415,13 @@ class SteamClientTransport =
         if (this.client.IsSome)
             fail("Client already connected")
 
-        let ip =
+        let steamID =
             if (ipOrHostName == "localhost")
-                "127.0.0.1"
+                Steam.GetSteamID()
             else
-                ipOrHostName
+                uint64.Parse(ipOrHostName)
 
-        let client = Steam.CreateNetworkClient(ip, port)
+        let client = Steam.CreateNetworkClient(steamID, port)
         this.client <- SomeStruct(client)
 
     Disconnect(): () =

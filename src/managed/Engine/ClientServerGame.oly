@@ -20,6 +20,7 @@ open static Game.Client.ViewModels
 open static Game.Client.RenderState
 
 open Game.Graphics
+open Evergreen.Steam
 
 class ClientServerGameEnv =
 
@@ -268,6 +269,8 @@ module ClientServerGameHelpers =
                     LogClient("Scene Closed: " + path)
                     let musicPlayback = genv.SoundManager.Get("Music/Freedoom/d_e3m9.ogg").StopAndPlay(csgenv.MusicPlayback, guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true)
                     csgenv.MusicPlayback <- musicPlayback
+                    game.ClearPresence()
+                    game.SetPresenceAtMainMenu()
     
                 | ClientEvent.SceneBegan(sceneName) =>
                     if (!csgenv.IsConnected)
@@ -282,6 +285,9 @@ module ClientServerGameHelpers =
                     LogClient("Scene Began: " + sceneName)
                     let musicPlayback = genv.SoundManager.Get("Music/Freedoom/d_e1m6.ogg").StopAndPlay(csgenv.MusicPlayback, guiEnv.SettingsMenuModel.MusicVolume.Value, 1, 0, true)
                     csgenv.MusicPlayback <- musicPlayback
+                    game.ClearPresence()
+                    game.SetPresenceInGame()
+                    game.SetConnectPresence()
     
                 | ClientEvent.MenuButtonHovered =>
                     let _ = csgenv.ButtonHoverSound.Play(0.25, 1, 0, false)
@@ -592,6 +598,32 @@ class ClientServerGame =
     /// Main-thread only
     TryGuiNavigateToSettingsMenu(): bool =
         Gui.TryNavigateToSettingsMenu(this.GuiEnv)
+
+    /// Main-thread only
+    ShowFriendsOverlay(): () =
+        Steam.ShowFriendsOverlay()
+
+    /// Main-thread only
+    ShowInviteDialog(): () =
+        Steam.ShowInviteDialog()
+
+    /// Main-thread only
+    SetConnectPresence(): () =
+        let _ = Steam.SetRichPresence("connect", "project_oly_evergreen")
+
+    /// Main-thread only
+    SetPresenceAtMainMenu(): () =
+        let _ = Steam.SetRichPresence("steam_display", "#Status_AtMainMenu")
+        let _ = Steam.SetRichPresence("gamestatus", "#Status_AtMainMenu")
+
+    /// Main-thread only
+    SetPresenceInGame(): () =
+        let _ = Steam.SetRichPresence("steam_display", "#Status_InGame")
+        let _ = Steam.SetRichPresence("gamestatus", "#Status_InGame")
+
+    /// Main-thread only
+    ClearPresence(): () =
+        Steam.ClearRichPresence()
 
     /// Main-thread only
     Dispose(): () =

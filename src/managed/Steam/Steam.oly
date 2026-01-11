@@ -54,7 +54,7 @@ Initialize(): () =
     Environment.CurrentDirectory <- Path.GetDirectoryName(markerTy.Assembly.Location)
 
     let mutable options = default: EgSteam_InitializeOptions
-    options.flags <- EgSteam_InitializeFlags.DebugOutputEnabled
+    options.flags <- EgSteam_InitializeFlags.DebugOutputEnabled | EgSteam_InitializeFlags.InitializeRelayNetworkAccess
     if (egSteam_Initialize(&&options) == 0)
         fail("Failed to initialize Steamworks API.")
 
@@ -65,15 +65,10 @@ Shutdown(): () =
 
 RunCallbacks(): () =
     egSteam_RunCallbacks()
-
-RunNetworkCallbacks(): () =
     egSteamNetworking_RunCallbacks()
 
 CreateNetworkServer(port: int32): SteamNetworkServer =
-    let mutable options = default: EgSteamNetworking_CreateListenSocketOptions
-    options.port <- uint16(port)
-    
-    let socket = egSteamNetworking_CreateListenSocketIP(&&options)
+    let socket = egSteamNetworking_CreateListenSocketP2P(uint16(port))
     if (egSteamNetworking_IsListenSocketInvalid(socket) != 0)
         fail("Failed to create Steam listen socket.")
 
@@ -83,21 +78,49 @@ DestroyNetworkServer(server: SteamNetworkServer): () =
     if (egSteamNetworking_CloseListenSocket(server.socket) == 0)
         fail("Failed to close Steam listen socket.")
 
-CreateNetworkClient(address: string, port: int32): SteamNetworkClient =
-    let mutable addressHandle = fixedCopyUTF8(address)
-
-    let mutable options = default: EgSteamNetworking_ConnectOptions
-    options.address <- Unsafe.AsPointer(addressHandle.AddrOfPinnedObject())
-    options.port <- uint16(port)
+// CreateNetworkClient(address: string, port: int32): SteamNetworkClient =
+//     let mutable addressHandle = fixedCopyUTF8(address)
     
-    let connection = egSteamNetworking_ConnectIP(&&options)
+//     let connection = egSteamNetworking_ConnectIP(Unsafe.AsPointer(addressHandle.AddrOfPinnedObject()), uint16(port))
+//     if (egSteamNetworking_IsConnectionInvalid(connection) != 0)
+//         addressHandle.Free()
+//         fail("Failed to create Steam connection.")
+
+//     addressHandle.Free()
+//     SteamNetworkClient(connection)
+
+CreateNetworkClient(steamID: uint64, port: int32): SteamNetworkClient =    
+    let connection = egSteamNetworking_ConnectP2P(steamID, uint16(port))
     if (egSteamNetworking_IsConnectionInvalid(connection) != 0)
-        addressHandle.Free()
         fail("Failed to create Steam connection.")
 
-    addressHandle.Free()
     SteamNetworkClient(connection)
 
 DestroyNetworkClient(client: SteamNetworkClient): () =
     if (egSteamNetworking_CloseConnection(client.connection) == 0)
         fail("Failed to close Steam connection.")
+
+GetSteamID(): uint64 =
+    egSteamNetworking_GetSteamID()
+
+SetRichPresence(key: string, value: string): bool =
+    let mutable keyHandle = fixedCopyUTF8(key)
+    let mutable valueHandle = fixedCopyUTF8(value)
+    let result = egSteamFriends_SetRichPresence(Unsafe.AsPointer(keyHandle.AddrOfPinnedObject()), Unsafe.AsPointer(valueHandle.AddrOfPinnedObject()))
+    keyHandle.Free()
+    valueHandle.Free()
+    result != 0
+
+ClearRichPresence(): () =
+    egSteamFriends_ClearRichPresence()
+
+private ActivateGameOverlay(dialog: string): () =
+    let mutable dialogHandle = fixedCopyUTF8(dialog)
+    egSteamFriends_ActivateGameOverlay(Unsafe.AsPointer(dialogHandle.AddrOfPinnedObject()))
+    dialogHandle.Free()
+
+ShowFriendsOverlay(): () =
+    ActivateGameOverlay("friends")
+
+ShowInviteDialog(): () =
+    egSteamFriends_ActivateGameOverlayInviteDialog(GetSteamID())

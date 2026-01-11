@@ -10,6 +10,7 @@ open Evergreen.Window
 open Evergreen.Database
 open Evergreen.Graphics.Rendering
 open Evergreen.Graphics.Rendering.UI
+open Evergreen.Steam
 
 open Game.Client
 open static Game.AssetManager

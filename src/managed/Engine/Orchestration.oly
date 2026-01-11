@@ -99,6 +99,10 @@ module Orchestration =
 
         let mutable isServerStarted = false
 
+        // by default, at main menu - could change in the future
+        game.ClearPresence()
+        game.SetPresenceAtMainMenu()
+
         GameLoop.StartWithBackground(
             /* update */
             glenv ->
@@ -129,7 +133,6 @@ module Orchestration =
                 Game.AssetManager.AssetManager.Flush()
 
                 Steam.RunCallbacks()
-                Steam.RunNetworkCallbacks()
 
                 game.FixedUpdateGui(glenv.Time, logicFrame, logicFrametime)
                 game.Sync(glenv.Time)
