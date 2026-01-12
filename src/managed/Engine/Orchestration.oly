@@ -165,10 +165,9 @@ module Orchestration =
                     let settingsVm = guiEnv.SettingsMenuModel
                     let diagsVm = guiEnv.DiagnosticsModel
 
-                    game.RenderUpdateGui(glenv.Time, genv.ConsoleWriter.GetStringBuilder(), uiWindows)
-
                     if (Gui.CanShowDiagnostics(guiEnv))
                         uiWindows.Add(guiEnv.Diagnostics)
+                        guiEnv.Diagnostics.BringToFront()
 
                         if (refreshProcessTask.IsCompleted)
                             memoryUsage <- currentProcess.WorkingSet64
@@ -187,6 +186,8 @@ module Orchestration =
                                         let _ = currentProcess.WorkingSet64
                                         processorUsages <- Machine.GetProcessorUsages()
                                 )
+
+                    game.RenderUpdateGui(glenv.Time, genv.ConsoleWriter.GetStringBuilder(), uiWindows)
 
                     renv.SetBackgroundAlpha(csgenv.BackgroundTransition.Current)
                     if (guiEnv.CurrentMenuState != GuiMenuState.Loading)          
