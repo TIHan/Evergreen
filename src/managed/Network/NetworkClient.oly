@@ -297,7 +297,7 @@ class NetworkClient =
                 LogClientError("Bad packet kind: " + packet.Kind.ToString())
                 this.DisconnectIfPossible(ClientDisconnectReason.MalformedPacketOrException)
 
-    Connect(ipOrHostName: string, port: int32, connectionKey: string): () =
+    Connect(serverIdentity: string, port: int32, connectionKey: string): () =
         if (this.connectionStatus != ClientConnectionStatus.Disconnected)
             fail("Client already connected or awaiting connection.")
 
@@ -307,7 +307,8 @@ class NetworkClient =
             this.connectionKey <- connectionKey
             this.port <- port
             this.timeSinceHeartbeat <- 0
-            this.transport.Connect(ipOrHostName, port)
+            if (!this.transport.Connect(serverIdentity, port))
+                fail("Failed to connect to server.")
             this.connectionStatus <- ClientConnectionStatus.Connecting
             this.SendConnectionRequested()
             this.onConnectionRequested(this)

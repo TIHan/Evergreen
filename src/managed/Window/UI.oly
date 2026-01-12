@@ -1344,6 +1344,11 @@ module UI =
                             )
                     )
 
+        if (view.Size.X == 0.0f)
+            view.Size <- vec2(float32(view.GpuImage.Width), view.Size.Y)
+        if (view.Size.Y == 0.0f)
+            view.Size <- vec2(view.Size.X, float32(view.GpuImage.Height))
+
         let size =
             if (view.IsScaling)
                 view.Size * ImGui.GetScaleFactor(context.ImGuiContext)

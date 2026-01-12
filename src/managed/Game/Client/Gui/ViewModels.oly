@@ -128,3 +128,7 @@ class MessageDialogViewModel =
     Title: Var<string> get = Var("")
     Text: Var<string> get = Var("")
     
+class GamePlatformViewModel =
+
+    Name: Var<string> get = Var("")
+    AvatarImage: Var<Option<IGpuImage>> get = Var(None)

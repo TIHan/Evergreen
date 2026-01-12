@@ -54,6 +54,24 @@ newtype SteamImageHandle =
     static op_Equality(a: SteamImageHandle, b: SteamImageHandle): bool =
         a.handle == b.handle
 
+newtype SteamId =
+    internal field id: uint64
+
+    IsInvalid: bool get() = egSteamUser_IsInvalidSteamID(this.id) != 0
+
+    static op_Equality(a: SteamId, b: SteamId): bool =
+        a.id == b.id
+
+    static Parse(idString: string): SteamId =
+        SteamId(uint64.Parse(idString))
+
+    static TryParse(idString: string, outIdOut: outref<SteamId>): bool =
+        let mutable id = 0: uint64
+        let success = UInt64.TryParse(idString, &id)
+        if (success)
+            outIdOut <- SteamId(id)
+        success
+
 Initialize(): () =
     let origDir = Environment.CurrentDirectory
     let markerTy = DotNet.TypeOf<Marker>
@@ -84,8 +102,8 @@ DestroyNetworkServer(server: SteamNetworkServer): () =
     if (egSteamNetworking_CloseListenSocket(server.socket) == 0)
         fail("Failed to close Steam listen socket.")
 
-CreateNetworkClient(steamID: uint64, port: int32): SteamNetworkClient =    
-    let connection = egSteamNetworking_ConnectP2P(steamID, uint16(port))
+CreateNetworkClient(steamId: SteamId, port: int32): SteamNetworkClient =    
+    let connection = egSteamNetworking_ConnectP2P(steamId.id, uint16(port))
     if (egSteamNetworking_IsInvalidConnection(connection) != 0)
         fail("Failed to create Steam connection.")
 
@@ -95,8 +113,16 @@ DestroyNetworkClient(client: SteamNetworkClient): () =
     if (egSteamNetworking_CloseConnection(client.connection) == 0)
         fail("Failed to close Steam connection.")
 
-GetSteamID(): uint64 =
-    egSteamUser_GetSteamID()
+GetSteamId(): SteamId =
+    SteamId(egSteamUser_GetSteamID())
+
+GetPersonaName(): string =
+    let namePtr = egSteamFriends_GetPersonaName()
+    System.Runtime.InteropServices.Marshal.PtrToStringUTF8(nint(namePtr))
+
+GetPersonaName(steamId: SteamId): string =
+    let namePtr = egSteamFriends_GetFriendPersonaName(steamId.id)
+    System.Runtime.InteropServices.Marshal.PtrToStringUTF8(nint(namePtr))
 
 SetRichPresence(key: string, value: string): bool =
     let mutable keyHandle = fixedCopyUTF8(key)
@@ -109,27 +135,27 @@ SetRichPresence(key: string, value: string): bool =
 ClearRichPresence(): () =
     egSteamFriends_ClearRichPresence()
 
-GetLargeFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
+GetLargeFriendAvatar(steamId: SteamId, outImageOut: outref<SteamImageHandle>): bool =
     let mutable handle = 0
-    let status = egSteamFriends_GetLargeFriendAvatar(steamID, &&handle)
+    let status = egSteamFriends_GetLargeFriendAvatar(steamId.id, &&handle)
     if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
         outImageOut <- SteamImageHandle(handle)
         true
     else
         false
         
-GetMediumFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
+GetMediumFriendAvatar(steamId: SteamId, outImageOut: outref<SteamImageHandle>): bool =
     let mutable handle = 0
-    let status = egSteamFriends_GetMediumFriendAvatar(steamID, &&handle)
+    let status = egSteamFriends_GetMediumFriendAvatar(steamId.id, &&handle)
     if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
         outImageOut <- SteamImageHandle(handle)
         true
     else
         false
 
-GetSmallFriendAvatar(steamID: uint64, outImageOut: outref<SteamImageHandle>): bool =
+GetSmallFriendAvatar(steamId: SteamId, outImageOut: outref<SteamImageHandle>): bool =
     let mutable handle = 0
-    let status = egSteamFriends_GetSmallFriendAvatar(steamID, &&handle)
+    let status = egSteamFriends_GetSmallFriendAvatar(steamId.id, &&handle)
     if (status == EgSteamFriends_AvatarLoadStatus.Loaded)
         outImageOut <- SteamImageHandle(handle)
         true
@@ -160,4 +186,4 @@ ShowFriendsOverlay(): () =
     ActivateGameOverlay("friends")
 
 ShowInviteDialog(): () =
-    egSteamFriends_ActivateGameOverlayInviteDialog(GetSteamID())
+    egSteamFriends_ActivateGameOverlayInviteDialog(GetSteamId().id)

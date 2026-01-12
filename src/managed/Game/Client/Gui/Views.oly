@@ -149,6 +149,41 @@ CreateHashCodesOverlay(engineHash: string): WindowView =
 
     window
 
+CreateGamePlatformOverlay(vm: GamePlatformViewModel): WindowView =
+    let window = WindowView()
+
+    window.IsBackgroundVisible <- false
+    window.Kind <- WindowKind.Overlay
+    window.ScreenHorizontalAlignment <- HorizontalAlignment.Right
+    window.ScreenVerticalAlignment <- VerticalAlignment.Top
+
+    window.Children.Add(
+        let stackPanelView = StackPanelView()
+
+        stackPanelView.IsHorizontal <- true
+
+        stackPanelView.Children.Add(
+            let style = Style()
+            style.Font <- Some(DefaultFont)
+
+            let nameView = TextView()
+            nameView.Style <- Some(style)
+
+            Binding.Text(nameView, vm.Name)
+            nameView
+        )
+
+        stackPanelView.Children.Add(
+            let avatarImageView = ImageView()
+            Binding.Image(avatarImageView, vm.AvatarImage)
+            avatarImageView
+        )
+
+        stackPanelView
+    )
+
+    window
+
 CreateMultiplayerMenu(vm: MultiplayerMenuViewModel, publisher: ClientEventPublisher): WindowView =
     let window = WindowView()
     window.Title <- "Multiplayer"

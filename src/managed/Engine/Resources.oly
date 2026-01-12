@@ -287,7 +287,7 @@ class Resources =
         imageManager.Register("game_platform_avatar_large",   
             (_) ->
                 let mutable handle = default
-                if (!Steam.GetLargeFriendAvatar(Steam.GetSteamID(), &handle))
+                if (!Steam.GetLargeFriendAvatar(Steam.GetSteamId(), &handle))
                     fail("Failed to get Steam avatar.")
 
                 let (width, height) = Steam.GetImageSize(handle)
@@ -300,7 +300,7 @@ class Resources =
         imageManager.Register("game_platform_avatar_medium",   
             (_) ->
                 let mutable handle = default
-                if (!Steam.GetMediumFriendAvatar(Steam.GetSteamID(), &handle))
+                if (!Steam.GetMediumFriendAvatar(Steam.GetSteamId(), &handle))
                     fail("Failed to get Steam avatar.")
 
                 let (width, height) = Steam.GetImageSize(handle)
@@ -313,7 +313,7 @@ class Resources =
         imageManager.Register("game_platform_avatar_small",   
             (_) ->
                 let mutable handle = default
-                if (!Steam.GetSmallFriendAvatar(Steam.GetSteamID(), &handle))
+                if (!Steam.GetSmallFriendAvatar(Steam.GetSteamId(), &handle))
                     fail("Failed to get Steam avatar.")
 
                 let (width, height) = Steam.GetImageSize(handle)

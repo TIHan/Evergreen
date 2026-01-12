@@ -210,7 +210,7 @@ extern "C" {
 
 	EG_EXPORT bool egSteamUser_IsInvalidSteamID(unsigned long long steamID)
 	{
-		return (*(CSteamID*)&steamID).IsValid();
+		return !(*(CSteamID*)&steamID).IsValid();
 	}
 
 	EG_EXPORT EgSteamNetworking_ListenSocket egSteamNetworking_CreateListenSocketIP(unsigned short port)

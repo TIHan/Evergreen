@@ -801,8 +801,9 @@ class Var<T> =
         set(value) =
             lock(this.lockObj,
                 () ->
-                    this.value <- value
-                    ForEach(this.subscribers, observer -> observer.OnNext(value))
+                    if (!object.Equals(this.value, value))             
+                        this.value <- value
+                        ForEach(this.subscribers, observer -> observer.OnNext(value))
             )
 
     new(value: T) = this { value = value; subscribers = List(); lockObj = Object() }

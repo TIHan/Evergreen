@@ -41,7 +41,7 @@ interface INetworkServerTransport =
 interface INetworkClientTransport =
     inherits INetworkTransport
 
-    Connect(ipOrHostName: string, port: int32): ()
+    Connect(serverIdentity: string, port: int32): bool
     Disconnect(): ()
 
     Send(buffer: ReadOnlySpan<byte>): bool
@@ -208,16 +208,16 @@ class UdpClientTransport =
         | Some(info) => info
         | _ => fail("Client not connected")
 
-    Connect(ipOrHostName: string, port: int32): () =
+    Connect(serverIdentity: string, port: int32): bool =
         this.CheckDisposed()
         if (this.info.IsSome)
             fail("Client already connected")
 
         let ip =
-            if (ipOrHostName == "localhost")
+            if (serverIdentity == "localhost")
                 "::1"
             else
-                ipOrHostName
+                serverIdentity
 
         let ipEndPoint = System.Net.IPEndPoint(System.Net.IPAddress.Parse(ip), port)
         let serverIdentity = UdpIdentity(ipEndPoint)
@@ -226,6 +226,7 @@ class UdpClientTransport =
         socket.Blocking <- false
         socket.ReceiveBufferSize <- Int32.MaxValue
         this.info <- Some(UdpClientInfo(socket, port, serverIdentity, ipEndPoint))
+        true
 
     Disconnect(): () =
         this.CheckDisposed()
@@ -410,19 +411,26 @@ class SteamClientTransport =
         | SomeStruct(client) => client
         | _ => fail("Client not connected")
 
-    Connect(ipOrHostName: string, port: int32): () =
+    Connect(serverIdentity: string, port: int32): bool =
         this.CheckDisposed()
         if (this.client.IsSome)
             fail("Client already connected")
 
-        let steamID =
-            if (ipOrHostName == "localhost")
-                Steam.GetSteamID()
+        let steamId =
+            if (serverIdentity == "localhost")
+                Steam.GetSteamId()
             else
-                uint64.Parse(ipOrHostName)
+                let mutable steamId = default
+                match (Steam.SteamId.TryParse(serverIdentity, &steamId))
+                | true => steamId
+                | _ => Steam.SteamId(0)
 
-        let client = Steam.CreateNetworkClient(steamID, port)
-        this.client <- SomeStruct(client)
+        if (steamId.IsInvalid)
+            false
+        else    
+            let client = Steam.CreateNetworkClient(steamId, port)
+            this.client <- SomeStruct(client)
+            true
 
     Disconnect(): () =
         this.CheckDisposed()

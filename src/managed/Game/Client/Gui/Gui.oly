@@ -10,7 +10,6 @@ open Evergreen.Window
 open Evergreen.Database
 open Evergreen.Graphics.Rendering
 open Evergreen.Graphics.Rendering.UI
-open Evergreen.Steam
 
 open Game.Client
 open static Game.AssetManager
@@ -69,7 +68,8 @@ class GuiEnv =
     NavigationStack: Stack<WindowView> get
 
     Title: WindowView get
-    GamePlatformAvatar: WindowView get
+    GamePlatform: WindowView get
+    GamePlatformViewModel: GamePlatformViewModel get
 
     MainMenu: WindowView get
     MainMenuModel: MainMenuViewModel get
@@ -111,6 +111,7 @@ class GuiEnv =
             frames: AssetManager<GpuFrame>, 
             clientEventPublisher: ClientEventPublisher) =
         let mainMenuModel = MainMenuViewModel()
+        let gamePlatformModel = GamePlatformViewModel()
         let multiplayerMenuModel = MultiplayerMenuViewModel()
         let settingsMenuModel = SettingsMenuViewModel()
         let diagnosticsModel = DiagnosticsViewModel()
@@ -124,7 +125,7 @@ class GuiEnv =
             NavigationStack = Stack()
 
             Title = CreateTitle(images.GetAndSetReference("Freedoom/titlepic/freedm_title.png", 0)[0])
-            GamePlatformAvatar = CreateGamePlatformAvatar(images.GetAndSetReference("game_platform_avatar_medium", 0)[0])
+            GamePlatform = CreateGamePlatformOverlay(gamePlatformModel)
             MainMenu = CreateMainMenu(mainMenuModel, clientEventPublisher)
             MultiplayerMenu = CreateMultiplayerMenu(multiplayerMenuModel, clientEventPublisher)
             SettingsMenu = CreateSettingsMenu(settingsMenuModel, clientEventPublisher)
@@ -136,6 +137,7 @@ class GuiEnv =
             HashCodes = CreateHashCodesOverlay(engineHash)
 
             MainMenuModel = mainMenuModel
+            GamePlatformViewModel = gamePlatformModel
             MultiplayerMenuModel = multiplayerMenuModel
             SettingsMenuModel = settingsMenuModel
             DiagnosticsModel = diagnosticsModel
@@ -178,6 +180,9 @@ module Gui =
         diagsVm.VRamText.Value <- gpu.GetVRamCapacityInGB().ToString("F2") + " GB"
         diagsVm.CpuDeviceName.Value <- Machine.GetProcessorName() + " @ " + Machine.GetProcessorMaxClockSpeedInGHz().ToString("F2") + "GHz"
         diagsVm.RamText.Value <- Machine.GetRamCapacityInGB().ToString("F2") + " GB"
+
+        guiEnv.GamePlatformViewModel.AvatarImage.Value <- Some(images.GetAndSetReference("game_platform_avatar_medium", 0)[0])
+        guiEnv.GamePlatformViewModel.Name.Value <- Evergreen.Steam.Steam.GetPersonaName()
 
     UpdateDiagnostics(guiEnv: GuiEnv, deltaTime: float32, logicFrame: int32, logicFrametime: float32, serverBandwidth: uint64, clientInputLatency: int64, clientPing: int64): () =
         if (guiEnv.SettingsMenuModel.ShowDiagnostics.Value)
@@ -314,7 +319,7 @@ module Gui =
         if (currentUI.IsVisible)
             if (currMenuState == GuiMenuState.Main)
                 uiWindows.Add(guiEnv.Title)
-                uiWindows.Add(guiEnv.GamePlatformAvatar)
+                uiWindows.Add(guiEnv.GamePlatform)
                 uiWindows.Add(currentUI)
                 uiWindows.Add(guiEnv.HashCodes)
             else
