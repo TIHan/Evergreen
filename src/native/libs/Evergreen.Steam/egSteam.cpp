@@ -423,6 +423,21 @@ extern "C" {
 		return bytesRead;
 	}
 
+	EG_EXPORT bool egSteamNetworking_GetSteamIDFromConnection(EgSteamNetworking_Connection egConnection, unsigned long long* pOutSteamID)
+	{
+		auto connection = GetHSteamNetConnection(egConnection);
+
+		SteamNetConnectionInfo_t info;
+		auto result = SteamNetworkingSockets()->GetConnectionInfo(connection, &info);
+
+		auto identity = info.m_identityRemote;
+		auto steamID = identity.GetSteamID();
+		if (steamID.IsValid())
+			*pOutSteamID = steamID.ConvertToUint64();
+
+		return result;
+	}
+
 	EG_EXPORT void egSteamFriends_ActivateGameOverlay(const char* dialog)
 	{
 		SteamFriends()->ActivateGameOverlay(dialog);

@@ -4,6 +4,8 @@ open System
 open System.IO
 open System.Collections.Generic
 open Evergreen.Steam.Interop
+open Evergreen.Utilities
+
 open static Evergreen.Steam.Interop.Methods
 
 private module Marker
@@ -115,6 +117,14 @@ DestroyNetworkClient(client: SteamNetworkClient): () =
 
 GetSteamId(): SteamId =
     SteamId(egSteamUser_GetSteamID())
+
+GetSteamIdFromConnection(connection: SteamNetworkClientConnection): OptionStruct<SteamId> =
+    let mutable steamId = 0: uint64
+    let result = egSteamNetworking_GetSteamIDFromConnection(connection.connection, &&steamId)
+    if (result != 0)
+        SomeStruct(SteamId(steamId))
+    else
+        NoneStruct
 
 GetPersonaName(): string =
     let namePtr = egSteamFriends_GetPersonaName()

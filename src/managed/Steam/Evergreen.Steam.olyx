@@ -4,8 +4,8 @@
 #load "*.oly"
 
 #reference "Interop/Evergreen.Steam.Interop.csproj"
-
 #reference "Steamworks.NET.dll"
+#reference "../Utilities/Evergreen.Utilities.olyx"
 
 namespace Evergreen.SteamOld
 

@@ -80,6 +80,7 @@ extern "C" {
 	EG_EXPORT EgSteamNetworking_Connection egSteamNetworking_GetConnection(EgSteamNetworking_ListenSocket egSocket, int connectionIndex);
 	EG_EXPORT int egSteamNetworking_ReceiveMessageFromConnection(EgSteamNetworking_Connection egConnection, unsigned char* pBuffer);
 	EG_EXPORT int egSteamNetworking_ReceiveMessageFromListenSocket(EgSteamNetworking_ListenSocket egSocket, unsigned char* pBuffer, EgSteamNetworking_Connection* pOutEgConnection);
+	EG_EXPORT bool egSteamNetworking_GetSteamIDFromConnection(EgSteamNetworking_Connection egConnection, unsigned long long* pOutSteamID);
 
 	EG_EXPORT void egSteamFriends_ActivateGameOverlay(const char* dialog);
 	EG_EXPORT void egSteamFriends_ActivateGameOverlayToUser(const char* dialog, unsigned long long steamID);

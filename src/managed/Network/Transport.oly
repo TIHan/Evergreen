@@ -317,7 +317,12 @@ private class SteamConnectionIdentity =
         get() = 0
 
     AsString(): string = 
-        "SteamIdentity: TODO"
+        match (Steam.GetSteamIdFromConnection(this.connection))
+        | SomeStruct(steamId) =>
+            let name = Steam.GetPersonaName(steamId)
+            "Steam: " + name + " (" + steamId.ToString() + ")"
+        | _ =>
+            "Steam: UNKNOWN"
 
     overrides Equals(other: object): bool =
         if (DotNet.IsSubtypeOf<SteamConnectionIdentity>(other))

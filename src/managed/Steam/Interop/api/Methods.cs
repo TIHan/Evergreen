@@ -70,6 +70,10 @@ public static unsafe partial class Methods
     public static extern int egSteamNetworking_ReceiveMessageFromListenSocket(EgSteamNetworking_ListenSocket egSocket, [NativeTypeName("unsigned char *")] byte* pBuffer, EgSteamNetworking_Connection* pOutEgConnection);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egSteamNetworking_GetSteamIDFromConnection(EgSteamNetworking_Connection egConnection, [NativeTypeName("unsigned long long *")] ulong* pOutSteamID);
+
+    [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     public static extern void egSteamFriends_ActivateGameOverlay([NativeTypeName("const char *")] sbyte* dialog);
 
     [DllImport("Evergreen.Steam.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
