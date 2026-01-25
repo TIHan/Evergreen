@@ -540,10 +540,10 @@ module AssetHelpers =
                 let indices = zeroArray<uint32>(int32(egMesh.indexCount))
                 let texCoords = zeroArray<vec2>(int32(egMesh.vertexCount))
     
-                Span(Unsafe.Cast<void*>(egMesh.vertices), vertices.Length).CopyTo(Span(vertices))
-                Span(Unsafe.Cast<void*>(egMesh.normals), normals.Length).CopyTo(Span(normals))
-                Span(Unsafe.Cast<void*>(egMesh.indices), indices.Length).CopyTo(Span(indices))
-                Span(Unsafe.Cast<void*>(egMesh.texCoords), texCoords.Length).CopyTo(Span(texCoords))
+                Span(Unsafe.AsPointer<_, void>(egMesh.vertices), vertices.Length).CopyTo(Span(vertices))
+                Span(Unsafe.AsPointer<_, void>(egMesh.normals), normals.Length).CopyTo(Span(normals))
+                Span(Unsafe.AsPointer<_, void>(egMesh.indices), indices.Length).CopyTo(Span(indices))
+                Span(Unsafe.AsPointer<_, void>(egMesh.texCoords), texCoords.Length).CopyTo(Span(texCoords))
     
                 let index = int32(egMesh.materialIndex) - 1
                 if (index < 0)
@@ -563,7 +563,7 @@ module AssetHelpers =
         let callbackMeshPtr = Marshal.GetFunctionPointerForDelegate(meshCallbacks.MeshCallbackDelegate)
     
         let mutable filePathHandle = fixedCopyUTF8(filePath)
-        if (!egAssetReadMeshes(Unsafe.AsPointer(filePathHandle.AddrOfPinnedObject()), Unsafe.Cast(callbackMeshPtr)))
+        if (!egAssetReadMeshes(Unsafe.AsPointer(filePathHandle.AddrOfPinnedObject()), Unsafe.AsFunctionPointer(callbackMeshPtr)))
             fail("Failed to read mesh.")
         filePathHandle.Free()
     
