@@ -532,7 +532,7 @@ class ByteStream =
                 throw InvalidOperationException("ByteStream is not resizeable.")
 
             let newBuffer = zeroArray<byte>(buffer.Length * 2)
-            System.Array.Copy(Unsafe.Cast(buffer), Unsafe.Cast(newBuffer), buffer.Length)
+            System.Array.Copy(DotNet.AsArray(buffer), DotNet.AsArray(newBuffer), buffer.Length)
             this.buffer <- newBuffer
             this.Write(value)
         else
@@ -553,7 +553,7 @@ class ByteStream =
                 throw InvalidOperationException("ByteStream is not resizeable.")
 
             let newBuffer = zeroArray<byte>(buffer.Length * 2)
-            System.Array.Copy(Unsafe.Cast(buffer), Unsafe.Cast(newBuffer), buffer.Length)
+            System.Array.Copy(DotNet.AsArray(buffer), DotNet.AsArray(newBuffer), buffer.Length)
             this.buffer <- newBuffer
             this.Write(value)
         else
@@ -1203,7 +1203,7 @@ module Machine =
         Unsafe.AsImmutable(
             System.Linq.Enumerable.ToArray(
                 System.Linq.Enumerable.OrderBy(
-                    System.Linq.Enumerable.Select(xs, x -> ProcessorUsage(Unsafe.Cast<string>(x["Name"]), Unsafe.Cast<object>(x["PercentProcessorTime"]))),
+                    System.Linq.Enumerable.Select(xs, x -> ProcessorUsage(Unsafe.As(x["Name"]), Unsafe.As(x["PercentProcessorTime"]))),
                     x -> 
                         if (x.Name.Contains("Total"))
                             Int32.MaxValue
@@ -1218,7 +1218,7 @@ module Machine =
         let xs = System.Linq.Enumerable.Cast<ManagementBaseObject>(ManagementObjectSearcher("SELECT Name FROM Win32_Processor").Get())
         let result =
             System.Linq.Enumerable.FirstOrDefault(
-                System.Linq.Enumerable.Select(xs, x -> Unsafe.Cast<string>(x["Name"]))
+                System.Linq.Enumerable.Select(xs, x -> Unsafe.As(x["Name"]))
             )
         if (String.IsNullOrWhiteSpace(result))
             string.Empty
@@ -1436,7 +1436,7 @@ extension Utf8JsonReaderExtensions =
                     fail("Expected 'String' token")
 
                 let valueObj = Enum.Parse(DotNet.TypeOf<T>, reader.ReadString())
-                Unsafe.Cast<T>(valueObj) // TODO-language-bug: Should we use just Cast and not Unsafe.Cast? we need an upcast. Is Cast a downcast or upcast? Or both?
+                Unsafe.AsEnum(valueObj)
         )
 
     mutable ReadPropertyOfEnumOrDefault<T>(expectedName: string, defaultValue: T): T where T: Enum =

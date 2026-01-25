@@ -540,10 +540,10 @@ module AssetHelpers =
                 let indices = zeroArray<uint32>(int32(egMesh.indexCount))
                 let texCoords = zeroArray<vec2>(int32(egMesh.vertexCount))
     
-                Span(Unsafe.AsPointer<_, void>(egMesh.vertices), vertices.Length).CopyTo(Span(vertices))
-                Span(Unsafe.AsPointer<_, void>(egMesh.normals), normals.Length).CopyTo(Span(normals))
-                Span(Unsafe.AsPointer<_, void>(egMesh.indices), indices.Length).CopyTo(Span(indices))
-                Span(Unsafe.AsPointer<_, void>(egMesh.texCoords), texCoords.Length).CopyTo(Span(texCoords))
+                Span(Unsafe.AsPointer(egMesh.vertices), vertices.Length).CopyTo(Span(vertices))
+                Span(Unsafe.AsPointer(egMesh.normals), normals.Length).CopyTo(Span(normals))
+                Span(Unsafe.AsPointer(egMesh.indices), indices.Length).CopyTo(Span(indices))
+                Span(Unsafe.AsPointer(egMesh.texCoords), texCoords.Length).CopyTo(Span(texCoords))
     
                 let index = int32(egMesh.materialIndex) - 1
                 if (index < 0)

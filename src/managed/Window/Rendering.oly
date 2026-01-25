@@ -1345,13 +1345,13 @@ abstract class GpuShader =
             base(GpuShaderKind.Compute) { ComputeCode = computeCode }
 
     internal pattern Vertex(gpuShader: GpuShader): Vertex when (gpuShader.Kind == GpuShaderKind.Vertex) =>
-        Unsafe.Cast(gpuShader)
+        Unsafe.As(gpuShader)
 
     internal pattern VertexFragment(gpuShader: GpuShader): VertexFragment when (gpuShader.Kind == GpuShaderKind.VertexFragment) =>
-        Unsafe.Cast(gpuShader)
+        Unsafe.As(gpuShader)
 
     internal pattern Compute(gpuShader: GpuShader): Compute when (gpuShader.Kind == GpuShaderKind.Compute) =>
-        Unsafe.Cast(gpuShader)
+        Unsafe.As(gpuShader)
 
 class GpuPipeline =
     IsDirty: bool get, internal set
@@ -1491,7 +1491,7 @@ abstract class GpuCommand =
         InstanceCount: int32 get, set = 0
 
     internal pattern DrawIndexed(cmd: GpuCommand): (vertices: IGpuBuffer, indices: IGpuBuffer, indexCount: int32, instanceCount: int32) when (cmd.Tag == 0) =>
-        let cmd = Unsafe.Cast<DrawIndexed>(cmd)
+        let cmd = Unsafe.As<DrawIndexed, _>(cmd)
         (cmd.Vertices, cmd.Indices, cmd.IndexCount, cmd.InstanceCount)
 
     internal static DrawIndexed(vertices: IGpuBuffer, indices: IGpuBuffer, indexCount: int32, instanceCount: int32): GpuCommand =
@@ -1510,7 +1510,7 @@ abstract class GpuCommand =
         WindowViews: IEnumerable<WindowView> get, set = unchecked default
 
     internal pattern DrawUI(cmd: GpuCommand): (GpuPipelineUI, IEnumerable<WindowView>) when (cmd.Tag == 1) =>
-        let cmd = Unsafe.Cast<DrawUI>(cmd)
+        let cmd = Unsafe.As<DrawUI, _>(cmd)
         (cmd.PipelineUI, cmd.WindowViews)
 
     internal static DrawUI(gpuPipelineUI: GpuPipelineUI, windowViews: IEnumerable<WindowView>): GpuCommand =
@@ -1524,7 +1524,7 @@ abstract class GpuCommand =
         inherits GpuCommand
 
     internal pattern EndFrame(cmd: GpuCommand): () when (cmd.Tag == 2) =>
-        let cmd = Unsafe.Cast<EndFrame>(cmd)
+        let cmd = Unsafe.As<EndFrame, _>(cmd)
 
     internal static EndFrame(): GpuCommand =
         let cmd = EndFrame()
@@ -1542,7 +1542,7 @@ abstract class GpuCommand =
             }
 
     internal pattern BeginFrame(cmd: GpuCommand): IGpuFrame when (cmd.Tag == 3) =>
-        let cmd = Unsafe.Cast<BeginFrame>(cmd)
+        let cmd = Unsafe.As<BeginFrame, _>(cmd)
         cmd.Frame
 
     internal static BeginFrame(gpuFrame: IGpuFrame): GpuCommand =
@@ -1559,7 +1559,7 @@ abstract class GpuCommand =
         Pipeline: GpuPipeline get, set = unchecked default
 
     internal pattern BindPipeline(cmd: GpuCommand): GpuPipeline when (cmd.Tag == 4) =>
-        let cmd = Unsafe.Cast<BindPipeline>(cmd)
+        let cmd = Unsafe.As<BindPipeline, _>(cmd)
         cmd.Pipeline
 
     internal static BindPipeline(pipeline: GpuPipeline): GpuCommand =
@@ -1577,7 +1577,7 @@ abstract class GpuCommand =
         DescriptorSet: GpuDescriptorSet get, set = unchecked default
 
     internal pattern BindDescriptorSet(cmd: GpuCommand): (offset: int32, GpuDescriptorSet) when (cmd.Tag == 5) =>
-        let cmd = Unsafe.Cast<BindDescriptorSet>(cmd)
+        let cmd = Unsafe.As<BindDescriptorSet, _>(cmd)
         (cmd.Offset, cmd.DescriptorSet)
 
     internal static BindDescriptorSet(offset: int32, descriptorSet: GpuDescriptorSet): GpuCommand =
@@ -1672,7 +1672,7 @@ abstract class GpuCommand =
         inherits GpuCommand
 
     internal pattern BeginSwapChainFrame(cmd: GpuCommand): () when (cmd.Tag == 7) =>
-        let cmd = Unsafe.Cast<BeginSwapChainFrame>(cmd)
+        let cmd = Unsafe.As<BeginSwapChainFrame, _>(cmd)
 
     internal static BeginSwapChainFrame(): GpuCommand =
         let cmd = BeginSwapChainFrame()
@@ -1689,7 +1689,7 @@ abstract class GpuCommand =
         GroupCountZ: int32 get, set = 0
 
     internal pattern Dispatch(cmd: GpuCommand): (groupCountX: int32, groupCountY: int32, groupCountZ: int32) when (cmd.Tag == 8) =>
-        let cmd = Unsafe.Cast<Dispatch>(cmd)
+        let cmd = Unsafe.As<Dispatch, _>(cmd)
         (cmd.GroupCountX, cmd.GroupCountY, cmd.GroupCountZ)
 
     internal static Dispatch(groupCountX: int32, groupCountY: int32, groupCountZ: int32): GpuCommand =
@@ -1717,7 +1717,7 @@ abstract class GpuCommand =
         Stride: uint32 get, set = 0
 
     internal pattern DrawIndexedIndirectVulkan(cmd: GpuCommand): (vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32) when (cmd.Tag == 9) =>
-        let cmd = Unsafe.Cast<DrawIndexedIndirectVulkan>(cmd)
+        let cmd = Unsafe.As<DrawIndexedIndirectVulkan, _>(cmd)
         (cmd.Vertices, cmd.Indices, cmd.Buffer, cmd.Offset, cmd.DrawCount, cmd.Stride)
 
     internal static DrawIndexedIndirectVulkan(vertices: IGpuBuffer, indices: IGpuBuffer, buffer: GpuBuffer<VkDrawIndexedIndirectCommand>, offset: uint64, drawCount: uint32, stride: uint32): GpuCommand =
@@ -1740,7 +1740,7 @@ abstract class GpuCommand =
         Kind: GpuPipelineBarrierKind get, set = default
 
     internal pattern PipelineBarrier(cmd: GpuCommand): GpuPipelineBarrierKind when (cmd.Tag == 10) =>
-        let cmd = Unsafe.Cast<PipelineBarrier>(cmd)
+        let cmd = Unsafe.As<PipelineBarrier, _>(cmd)
         cmd.Kind
 
     internal static PipelineBarrier(kind: GpuPipelineBarrierKind): GpuCommand =
@@ -1894,7 +1894,7 @@ class Gpu =
 
                 match (gpuResource.ResourceKind)
                 | GpuResourceKind.Buffer =>
-                    let gpuBuffer = Unsafe.Cast<IGpuBuffer>(gpuResource)
+                    let gpuBuffer = Unsafe.As<IGpuBuffer, _>(gpuResource)
                     gpuBuffer.Upload(this, frameIndex)
 
                     let buffer = gpuBuffer.Buffers[frameIndex]
@@ -1911,7 +1911,7 @@ class Gpu =
                     Vk.UpdateDescriptorSet(this.vk, uint32(i), descriptorSets[frameIndex], buffer.Buffer, offset, size, descriptorType)
 
                 | GpuResourceKind.Image =>
-                    let image = Unsafe.Cast<IGpuImage>(gpuResource)
+                    let image = Unsafe.As<IGpuImage, _>(gpuResource)
                     this.Upload(image, /* isAsync */false)
 
                     if (offset != -1)
@@ -1932,7 +1932,7 @@ class Gpu =
                     if (i != (gpuDescriptorSetLayoutBindings.Length - 1))
                         throw InvalidOperationException("Resource array must be the last binding in the set")
                         
-                    let array = Unsafe.Cast<GpuInputArray>(gpuResource)
+                    let array = Unsafe.As<GpuInputArray, _>(gpuResource)
                     this.Upload(array)
 
                     let lastBinding = gpuDescriptorSetLayoutBindings[i]
@@ -1944,7 +1944,7 @@ class Gpu =
                         | GpuResourceKind.Image =>
                             // TODO: We could just do a simple 'map' to get all of this information.
                             //       Because this array could be large.
-                            let images = initArray(array.Count, i -> Unsafe.Cast<IGpuImage>(array.Inputs[i]))
+                            let images = initArray(array.Count, i -> Unsafe.As<IGpuImage, _>(array.Inputs[i]))
 
                             let vkImageViews = map(images, x -> x.GetVkImageView(frameIndex))
                             let vkImageLayouts = map(images, x -> x.GetVkImageLayout())
@@ -2065,15 +2065,15 @@ class Gpu =
         match (gpuImage.ImageKind)
         | GpuImageKind.Image =>
             if (isAsync)
-                this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Async)
+                this.Upload(Unsafe.As(gpuImage), VulkanQueueKind.Async)
             else
-                this.Upload(Unsafe.Cast<GpuImage>(gpuImage), VulkanQueueKind.Standard)
+                this.Upload(Unsafe.As(gpuImage), VulkanQueueKind.Standard)
         | GpuImageKind.Frame =>
             if (isAsync) throw NotImplementedException()
-            this.Upload(Unsafe.Cast<GpuFrameImage>(gpuImage).Frame)
+            this.Upload(Unsafe.As<GpuFrameImage, _>(gpuImage).Frame)
         | GpuImageKind.FrameView =>
             if (isAsync) throw NotImplementedException()
-            this.Upload(Unsafe.Cast<GpuFrameImageView>(gpuImage).Frame)
+            this.Upload(Unsafe.As<GpuFrameImageView, _>(gpuImage).Frame)
         | _ =>
             fail("invalid image kind")
 
@@ -2114,9 +2114,9 @@ class Gpu =
     private Upload(gpuFrame: IGpuFrame): () =
         match (gpuFrame.Kind)
         | GpuFrameKind.Normal =>
-            this.Upload(Unsafe.Cast(gpuFrame): GpuFrame)
+            this.Upload(Unsafe.As(gpuFrame): GpuFrame)
         | GpuFrameKind.Layer =>
-            this.Upload((Unsafe.Cast(gpuFrame): GpuFrameLayer).Frame)
+            this.Upload((Unsafe.As(gpuFrame): GpuFrameLayer).Frame)
         | _ =>
             fail("Invalid gpu frame kind")
 
@@ -2335,7 +2335,7 @@ class Gpu =
                 For(resource.Count,
                     i ->
                         let resource = resource.Inputs[i]
-                        let image = Unsafe.Cast<IGpuImage>(resource)
+                        let image = Unsafe.As<IGpuImage, _>(resource)
                         this.Upload(image, /* isAsync */false)
                 )
 
@@ -2595,11 +2595,11 @@ class Gpu =
 
         match (gpuImage.ImageKind)
         | GpuImageKind.Image =>
-            this.Free(Unsafe.Cast<GpuImage>(gpuImage))
+            this.Free(Unsafe.As<GpuImage, _>(gpuImage))
         | GpuImageKind.Frame =>
-            this.Free(Unsafe.Cast<GpuFrameImage>(gpuImage).Frame)
+            this.Free(Unsafe.As<GpuFrameImage, _>(gpuImage).Frame)
         | GpuImageKind.FrameView =>
-            this.Free(Unsafe.Cast<GpuFrameImageView>(gpuImage).Frame)
+            this.Free(Unsafe.As<GpuFrameImageView, _>(gpuImage).Frame)
         | _ =>
             fail("invalid image kind")
 
@@ -2827,19 +2827,19 @@ class Gpu =
                             resource ->
                                 match (resource.ResourceKind)
                                 | GpuResourceKind.Buffer =>
-                                    Unsafe.Cast<IGpuBuffer>(resource).Upload(this, frameIndex)
+                                    Unsafe.As<IGpuBuffer, _>(resource).Upload(this, frameIndex)
                                 | GpuResourceKind.Image =>
-                                    let image = Unsafe.Cast<IGpuImage>(resource)
+                                    let image = Unsafe.As<IGpuImage, _>(resource)
                                     match (image.ImageKind)
                                     | GpuImageKind.Image =>
-                                        this.Upload(Unsafe.Cast<GpuImage>(resource), /* isAsync */false)
+                                        this.Upload(Unsafe.As<GpuImage, _>(resource), /* isAsync */false)
                                     | GpuImageKind.Frame =>
-                                        let frameInput = Unsafe.Cast<GpuFrameImage>(resource)
+                                        let frameInput = Unsafe.As<GpuFrameImage, _>(resource)
                                         this.Upload(frameInput, /* isAsync */false)
                                     | _ =>
                                         fail("Invalid image")
                                 | GpuResourceKind.Array =>
-                                    let array = Unsafe.Cast<GpuInputArray>(resource)
+                                    let array = Unsafe.As<GpuInputArray, _>(resource)
                                     this.Upload(array)
                                 | _ =>
                                     fail("Invalid global input")

@@ -50,7 +50,7 @@ AddFont(context: ImGuiContext, filePath: string, pixelSize: float32): EgImFont =
     let mutable fontDataHandle = fixed(fontData)
 
     let ranges = egImGui_GetGlyphRangesAll()
-    let font = egImGuiAddFont(context.Context, Unsafe.Cast(fontDataHandle.AddrOfPinnedObject()), fontDataSize, pixelSize, ranges)
+    let font = egImGuiAddFont(context.Context, Unsafe.AsPointer(fontDataHandle.AddrOfPinnedObject()), fontDataSize, pixelSize, ranges)
 
     fontDataHandle.Free()
     font
@@ -150,21 +150,21 @@ GetMainViewportSize(context: ImGuiContext): Vector2 =
 
 Begin(context: ImGuiContext, isOpen: byref<bool>, hideCloseButton: bool, mutable title: ReadOnlySpan<byte>, flags: ImGuiWindowFlags): bool =
     let titlePtr = &&title.GetPinnableReference()
-    egImGuiBegin(context.Context, &&isOpen, if (hideCloseButton) (1: byte) else 0, Unsafe.Cast(titlePtr), flags)
+    egImGuiBegin(context.Context, &&isOpen, if (hideCloseButton) (1: byte) else 0, Unsafe.AsPointer(titlePtr), flags)
 
 End(context: ImGuiContext): () =
     egImGuiEnd(context.Context)
 
 BeginPopupModal(context: ImGuiContext, isOpen: byref<bool>, hideCloseButton: bool, mutable title: ReadOnlySpan<byte>, flags: ImGuiWindowFlags): bool =
     let titlePtr = &&title.GetPinnableReference()
-    egImGui_BeginPopupModal(context.Context, &&isOpen, if (hideCloseButton) (1: byte) else 0, Unsafe.Cast(titlePtr), flags)
+    egImGui_BeginPopupModal(context.Context, &&isOpen, if (hideCloseButton) (1: byte) else 0, Unsafe.AsPointer(titlePtr), flags)
 
 EndPopup(context: ImGuiContext): () =
     egImGui_EndPopup(context.Context)
 
 OpenPopup(context: ImGuiContext, mutable id: ReadOnlySpan<byte>): () =
     let idPtr = &&id.GetPinnableReference()
-    egImGui_OpenPopup(context.Context, Unsafe.Cast(idPtr))
+    egImGui_OpenPopup(context.Context, Unsafe.AsPointer(idPtr))
 
 BeginDisabled(context: ImGuiContext, isDisabled: bool): () =
     egImGuiBeginDisabled(context.Context, if (isDisabled) (1: byte) else 0)
@@ -224,7 +224,7 @@ LabelText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable text
     let labelPtr = &&label.GetPinnableReference()
     let textPtr = &&text.GetPinnableReference()
 
-    egImGuiLabelText(context.Context, Unsafe.Cast(labelPtr), Unsafe.Cast(textPtr))
+    egImGuiLabelText(context.Context, Unsafe.AsPointer(labelPtr), Unsafe.AsPointer(textPtr))
 
 #[blittable]
 #[UnmanagedCallersOnly() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]
@@ -233,7 +233,7 @@ private InputTextCallbackNop(x: EgImGui_InputTextCallbackData*): int32 =
 
 InputText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buffer: Span<byte>, flags: EgImGuiInputTextFlags, callback: ImGuiInputTextCallback): bool =
     let labelPtr = &&label.GetPinnableReference()
-    let bufferPtr = Unsafe.AsPointer(&&buffer.GetPinnableReference())
+    let bufferPtr: int8* = Unsafe.AsPointer(&&buffer.GetPinnableReference())
     let callbackPtr = Marshal.GetFunctionPointerForDelegate(callback.CallbackDelegate)
 
     egImGuiInputText(
@@ -247,7 +247,7 @@ InputText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buff
 
 InputTextReadOnly(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buffer: ReadOnlySpan<byte>): bool =
     let labelPtr = &&label.GetPinnableReference()
-    let bufferPtr = Unsafe.AsPointer(&&buffer.GetPinnableReference())
+    let bufferPtr: int8* = Unsafe.AsPointer(&&buffer.GetPinnableReference())
 
     egImGuiInputText(context.Context, Unsafe.AsPointer(labelPtr), bufferPtr, nuint(buffer.Length), EgImGuiInputTextFlags.ReadOnly, Unsafe.Cast(&&InputTextCallbackNop))
 
@@ -302,7 +302,7 @@ EndTabBar(context: ImGuiContext): () =
 BeginTabItem(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, isOpen: byref<bool>): bool =
     let labelPtr = &&label.GetPinnableReference()
 
-    egImGuiBeginTabItem(context.Context, Unsafe.AsPointer(labelPtr), Unsafe.Cast(&&isOpen))
+    egImGuiBeginTabItem(context.Context, Unsafe.AsPointer(labelPtr), Unsafe.AsPointer(&&isOpen))
 
 EndTabItem(context: ImGuiContext): () =
     egImGuiEndTabItem(context.Context)

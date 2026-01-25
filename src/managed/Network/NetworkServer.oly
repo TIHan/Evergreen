@@ -107,7 +107,7 @@ class NetworkServer =
     Disconnect(identity: INetworkIdentity, reason: ClientDisconnectReason): () =
         let mutable connection = unchecked default
         if (this.connections.TryRemove(identity, &connection))
-            let packet = Packet.CreateDisconnect(Unsafe.Cast(identity))
+            let packet = Packet.CreateDisconnect(identity)
             // TODO: Should we send this multiple times?
             try
                 this.SendPacket(packet)
@@ -225,7 +225,7 @@ class NetworkServer =
                     let seqId = header.SequenceId
                     let fragIndex = header.FragmentIndex
 
-                    let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(identity))
+                    let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, identity)
                     this.SendPacket(ackPacket)
 
                     packet.Stream.ResetPosition()
@@ -317,7 +317,7 @@ class NetworkServer =
         if (this.connections.TryGetValue(identity, &connection))
             let packetFactory = connection.PacketFactory
             if (packetFactory !== null)
-                let packets = packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(identity))
+                let packets = packetFactory.CreatePackets(kind, channel, bytes, identity)
 
                 if (kind == PacketKind.ReliableSequenced)
                     let mutable i = 0

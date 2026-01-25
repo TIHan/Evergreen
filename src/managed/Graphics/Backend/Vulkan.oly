@@ -1651,10 +1651,10 @@ module Vk =
         // descriptorIndexingFeatures.descriptorBindingVariableDescriptorCount <- VkBool32.TRUE
         // descriptorIndexingFeatures.descriptorBindingPartiallyBound <- VkBool32.TRUE
 
-        deviceFeatures.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan11)
-        deviceFeaturesVulkan11.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan12)
-        deviceFeaturesVulkan12.pNext <- Unsafe.Cast(&&deviceFeaturesVulkan13)
-        //deviceFeaturesVulkan13.pNext <- Unsafe.Cast(&&descriptorIndexingFeatures)
+        deviceFeatures.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan11) // TODO-language-bug: '      deviceFeatures.pNext <- Unsafe.(&&deviceFeaturesVulkan11)' crashes compiler
+        deviceFeaturesVulkan11.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan12)
+        deviceFeaturesVulkan12.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan13)
+        //deviceFeaturesVulkan13.pNext <- Unsafe.AsPointer(&&descriptorIndexingFeatures)
 
         let mutable createInfo = default: VkDeviceCreateInfo
         createInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
@@ -1666,7 +1666,7 @@ module Vk =
         createInfo.queueCreateInfoCount <- uint32(queueCreateInfos.Length)
         createInfo.pQueueCreateInfos <- Unsafe.AsPointer(queueCreateInfosHandle.AddrOfPinnedObject())
        // createInfo.pEnabledFeatures <- &&deviceFeatures
-        createInfo.pNext <- Unsafe.Cast(&&deviceFeatures)
+        createInfo.pNext <- Unsafe.AsPointer(&&deviceFeatures)
 
         let validationLayersHandle = fixedCopyUTF8(validationLayers)
         if (enableValidationLayers)
@@ -2461,7 +2461,7 @@ module Vk =
         layoutInfo.sType <- VkStructureType.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO
         layoutInfo.bindingCount <- uint32(layoutBindings.Length)
         layoutInfo.pBindings <- Unsafe.AsPointer(layoutBindingsHandle.AddrOfPinnedObject())
-        layoutInfo.pNext <- Unsafe.Cast(&&setLayoutBindingFlagsCreateInfo)
+        layoutInfo.pNext <- Unsafe.AsPointer(&&setLayoutBindingFlagsCreateInfo)
 
         let mutable descriptorSetLayout = default: VkDescriptorSetLayout
         if (vkCreateDescriptorSetLayout(device, &&layoutInfo, nullptr, &&descriptorSetLayout) != VkResult.VK_SUCCESS)

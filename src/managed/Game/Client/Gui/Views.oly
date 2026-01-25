@@ -816,7 +816,7 @@ CreateConsole(vm: ConsoleViewModel, publisher: ClientEventPublisher): WindowView
             linePool.Push(createLine())
     )
     let pushLines(lines: List<View>) =
-        ForEach(lines, x -> linePool.Push(Unsafe.Cast(x)))
+        ForEach(lines, x -> linePool.Push(Unsafe.As(x)))
 
     let textInputView = TextInputView(256)
     textInputView.WillUpdateOnReturn <- true

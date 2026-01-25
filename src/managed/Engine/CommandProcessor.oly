@@ -32,7 +32,7 @@ class ActionCommand =
     new(name: string, action: () -> ()) = base(0, name) { Action = action }
 
     pattern Pattern(cmd: Command): (() -> ()) when (cmd.Tag == 0) =>
-        let cmd = Unsafe.Cast<ActionCommand>(cmd)
+        let cmd = Unsafe.As<ActionCommand, _>(cmd)
         cmd.Action
 
 module ActionCommand<P1> =
@@ -44,8 +44,8 @@ module ActionCommand<P1> =
         Action: P1 -> () get
         new(name: string, par1Name: string, action: P1 -> ()) = base(1, name) { Parameter1Name = par1Name; Parameter1Type = DotNet.TypeOf<P1>; Action = action }
 
-    pattern Pattern(cmd: Command): (string, Type, P1 -> ()) when (cmd.Tag == 1 && Unsafe.Cast<Impl>(cmd).Parameter1Type == DotNet.TypeOf<P1>) =>
-        let cmd = Unsafe.Cast<Impl>(cmd)
+    pattern Pattern(cmd: Command): (string, Type, P1 -> ()) when (cmd.Tag == 1 && Unsafe.As<Impl, _>(cmd).Parameter1Type == DotNet.TypeOf<P1>) =>
+        let cmd = Unsafe.As<Impl, _>(cmd)
         (cmd.Parameter1Name, cmd.Parameter1Type, cmd.Action)
 
 module FieldCommand<T> =
@@ -57,8 +57,8 @@ module FieldCommand<T> =
         Setter: T -> () get
         new(name: string, getter: () -> T, setter: T -> ()) = base(10000, name) { FieldType = DotNet.TypeOf<T>; Getter = getter; Setter = setter }
 
-    pattern Pattern(cmd: Command): (Type, getter: () -> T, setter: T -> ()) when (cmd.Tag == 10000 && Unsafe.Cast<Impl>(cmd).FieldType == DotNet.TypeOf<T>) =>
-        let cmd = Unsafe.Cast<Impl>(cmd)
+    pattern Pattern(cmd: Command): (Type, getter: () -> T, setter: T -> ()) when (cmd.Tag == 10000 && Unsafe.As<Impl, _>(cmd).FieldType == DotNet.TypeOf<T>) =>
+        let cmd = Unsafe.As<Impl, _>(cmd)
         (cmd.FieldType, cmd.Getter, cmd.Setter)
 
 class CommandProcessor =

@@ -141,20 +141,20 @@ class NetworkClient =
     private SendConnectionRequested(): () =
         let transport = this.transport
 
-        let packet = Packet.CreateConnectionRequested(this.connectionKey, Unsafe.Cast(transport.RemoteIdentity))
+        let packet = Packet.CreateConnectionRequested(this.connectionKey, transport.RemoteIdentity)
         this.SendPacket(packet)
 
     private TrySendHeartbeat(): () =
         if (this.IsConnected || this.IsConnecting)
             let transport = this.transport
 
-            let packet = Packet.CreateHeartbeat(Unsafe.Cast(transport.RemoteIdentity))
+            let packet = Packet.CreateHeartbeat(transport.RemoteIdentity)
             this.SendPacket(packet)
 
     private SendDisconnect(): () =
         let transport = this.transport
 
-        let packet = Packet.CreateDisconnect(Unsafe.Cast(transport.RemoteIdentity))
+        let packet = Packet.CreateDisconnect(transport.RemoteIdentity)
         this.SendPacket(packet)
 
     private SendCore(mutable bytes: ReadOnlySpan<byte>, channel: byte, kind: PacketKind): () =
@@ -163,7 +163,7 @@ class NetworkClient =
         if (bytes.Length > NetworkPacket.MaxDataSize)
             fail("Message too large to send.")
 
-        let packets = this.packetFactory.CreatePackets(kind, channel, bytes, Unsafe.Cast(transport.RemoteIdentity))
+        let packets = this.packetFactory.CreatePackets(kind, channel, bytes, transport.RemoteIdentity)
         if (packets.Length > 1)
             fail("Too many packets to send.")
 
@@ -250,7 +250,7 @@ class NetworkClient =
                 let seqId = header.SequenceId
                 let fragIndex = header.FragmentIndex
 
-                let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, Unsafe.Cast(transport.RemoteIdentity))
+                let ackPacket = Packet.CreateReliableSequencedAck(seqId, fragIndex, channel, transport.RemoteIdentity)
                 this.SendPacket(ackPacket)
 
                 packet.Stream.ResetPosition()

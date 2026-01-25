@@ -61,7 +61,7 @@ class DisplayMode =
     overrides GetHashCode(): int32 = this.Width + this.Height + int32(this.RefreshRate)
 
     overrides Equals(o: object): bool =
-        let displayMode = Unsafe.Cast<DisplayMode>(o)
+        let displayMode = Unsafe.As<DisplayMode, _>(o)
         this.Width == displayMode.Width && this.Height == displayMode.Height && this.RefreshRate == displayMode.RefreshRate
 
 interface IWindow =

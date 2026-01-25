@@ -86,7 +86,7 @@ private class UdpIdentity =
     Port: int32 
         get() = 
             if (DotNet.IsSubtypeOf<IPEndPoint>(this.endPoint))
-                let endPoint: IPEndPoint = Unsafe.Cast(this.endPoint)
+                let endPoint: IPEndPoint = Unsafe.As(this.endPoint)
                 endPoint.Port
             else
                 0
@@ -95,10 +95,10 @@ private class UdpIdentity =
 
     overrides Equals(other: object): bool =
         if (DotNet.IsSubtypeOf<UdpIdentity>(other))
-            let other: UdpIdentity = Unsafe.Cast(other)
+            let other: UdpIdentity = Unsafe.As(other)
             if (DotNet.IsSubtypeOf<IPEndPoint>(this.endPoint) && DotNet.IsSubtypeOf<IPEndPoint>(other.endPoint))
-                let x: IPEndPoint = Unsafe.Cast(this.endPoint)
-                let y: IPEndPoint = Unsafe.Cast(other.endPoint)
+                let x: IPEndPoint = Unsafe.As(this.endPoint)
+                let y: IPEndPoint = Unsafe.As(other.endPoint)
                 let result = x.Equals(y)
                 result
             else
@@ -153,7 +153,7 @@ class UdpServerTransport =
         this.CheckDisposed()
         let socket = this.CheckSocket()
         if (DotNet.IsSubtypeOf<UdpIdentity>(identity))
-            let identity: UdpIdentity = Unsafe.Cast(identity)
+            let identity: UdpIdentity = Unsafe.As(identity)
             let bytesSent = socket.SendTo(buffer, SocketFlags.None, identity.endPoint)
             bytesSent == buffer.Length
         else
@@ -167,7 +167,7 @@ class UdpServerTransport =
         else
             let port =
                 if (DotNet.IsSubtypeOf<IPEndPoint>(socket.LocalEndPoint))
-                    let endPoint: IPEndPoint = Unsafe.Cast(socket.LocalEndPoint)
+                    let endPoint: IPEndPoint = Unsafe.As(socket.LocalEndPoint)
                     endPoint.Port
                 else
                     fail("invalid end point")
@@ -298,7 +298,7 @@ private class SteamServerIdentity =
 
     overrides Equals(other: object): bool =
         if (DotNet.IsSubtypeOf<SteamServerIdentity>(other))
-            let other: SteamServerIdentity = Unsafe.Cast(other)
+            let other: SteamServerIdentity = Unsafe.As(other)
             this.port == other.port
         else
             false
@@ -326,7 +326,7 @@ private class SteamConnectionIdentity =
 
     overrides Equals(other: object): bool =
         if (DotNet.IsSubtypeOf<SteamConnectionIdentity>(other))
-            let other: SteamConnectionIdentity = Unsafe.Cast(other)
+            let other: SteamConnectionIdentity = Unsafe.As(other)
             this.connection == other.connection
         else
             false
@@ -375,7 +375,7 @@ class SteamServerTransport =
         this.CheckDisposed()
         let server = this.CheckServer()
         if (DotNet.IsSubtypeOf<SteamConnectionIdentity>(identity))
-            let identity: SteamConnectionIdentity = Unsafe.Cast(identity)
+            let identity: SteamConnectionIdentity = Unsafe.As(identity)
             server.SendMessage(buffer, identity.connection)
             true
         else

@@ -212,8 +212,8 @@ abstract class PhysicsSystem =
 
         let shouldCollide =
             (layer1: byte, layer2: byte) ->
-                let layer1: PhysicsLayer = Unsafe.Cast(layer1)
-                let layer2: PhysicsLayer = Unsafe.Cast(layer2)
+                let layer1: PhysicsLayer = Unsafe.AsEnum(layer1)
+                let layer2: PhysicsLayer = Unsafe.AsEnum(layer2)
 
                 match (layer1)
                 | PhysicsLayer.Character =>

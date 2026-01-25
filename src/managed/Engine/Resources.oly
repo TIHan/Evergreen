@@ -41,7 +41,7 @@ abstract class ShaderName =
         VertexFragmentShaderName(vertexName, fragmentName)
 
     pattern VertexFragmentShaderName(shaderName: ShaderName): (vertexName: string, fragmentName: string) when (shaderName.Tag == 0) =>
-        let x = Unsafe.Cast<VertexFragmentShaderName>(shaderName)
+        let x = Unsafe.As<VertexFragmentShaderName, _>(shaderName)
         (x.VertexName, x.FragmentName)
 
     private class ComputeShaderName =
@@ -58,7 +58,7 @@ abstract class ShaderName =
         ComputeShaderName(computeName)
 
     pattern ComputeShaderName(shaderName: ShaderName): string when (shaderName.Tag == 1) =>
-        let x = Unsafe.Cast<ComputeShaderName>(shaderName)
+        let x = Unsafe.As<ComputeShaderName, _>(shaderName)
         x.ComputeName
 
 private module Helpers =

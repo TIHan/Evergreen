@@ -197,7 +197,7 @@ void main()
         gpu.Free(indexBuffer)
 
         if (DotNet.TypeOf<T> == DotNet.TypeOf<int32> && !isCompute)
-            Unsafe.Cast(map(imageData, x -> int32(x)))
+            Unsafe.As(map(imageData, x -> int32(x)))
         else if (isCompute)
             result
         else

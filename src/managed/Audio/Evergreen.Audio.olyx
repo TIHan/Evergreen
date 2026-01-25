@@ -123,7 +123,7 @@ internal class SoundToSampleProvider =
     Read(buffer: mutable float32[], offset: int32, count: int32): int32 =
         let availableSamples = int64(this.floatData.Length) - this.Position
         let samplesToCopy = Math.Min(availableSamples, int64(count))
-        System.Array.Copy(Unsafe.Cast(this.floatData), this.Position, Unsafe.Cast(buffer), int64(offset), samplesToCopy)
+        System.Array.Copy(DotNet.AsArray(this.floatData), this.Position, DotNet.AsArray(buffer), int64(offset), samplesToCopy)
         this.Position <- this.Position + samplesToCopy
 
         let volume = this.Volume

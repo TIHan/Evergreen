@@ -128,55 +128,55 @@ abstract class View =
         this.WillFocus <- true
 
     pattern Window(view: View): WindowView when (view.Tag == ViewTag.Window) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Button(view: View): ButtonView when (view.Tag == ViewTag.Button) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern TextInput(view: View): TextInputView when (view.Tag == ViewTag.TextInput) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Label(view: View): LabelView when (view.Tag == ViewTag.Label) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Image(view: View): ImageView when (view.Tag == ViewTag.Image) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Checkbox(view: View): CheckboxView when (view.Tag == ViewTag.Checkbox) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern ComboBox(view: View): ComboBoxView when (view.Tag == ViewTag.ComboBox) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern LinePlot(view: View): LinePlotView when (view.Tag == ViewTag.LinePlot) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern TabBar(view: View): TabBarView when (view.Tag == ViewTag.TabBar) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern TabItem(view: View): TabItemView when (view.Tag == ViewTag.TabItem) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Text(view: View): TextView when (view.Tag == ViewTag.Text) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Grid(view: View): GridView when (view.Tag == ViewTag.Grid) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern StackPanel(view: View): StackPanelView when (view.Tag == ViewTag.StackPanel) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern IntInput(view: View): IntInputView when (view.Tag == ViewTag.IntInput) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern SliderFloat(view: View): SliderFloatView when (view.Tag == ViewTag.SliderFloat) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Scrollbar(view: View): ScrollbarView when (view.Tag == ViewTag.Scrollbar) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
     pattern Dummy(view: View): DummyView when (view.Tag == ViewTag.Dummy) =>
-        Unsafe.Cast(view)
+        Unsafe.As(view)
 
 abstract class AbstractLabelView =
     inherits View
@@ -426,7 +426,7 @@ class TextInputView =
                         let str = this.History[pos]
                         if (str !== unchecked default)
                             this.HistoryPosition <- pos
-                            let span = Span<byte>(Unsafe.Cast(x.Buf), x.BufSize)
+                            let span = Span<byte>(Unsafe.AsPointer(x.Buf), x.BufSize)
                             let mutable bytes = Span(UTF8Encoding.UTF8.GetBytes(str))
                             bytes.CopyTo(span)
                             x.BufTextLen <- bytes.Length
@@ -436,7 +436,7 @@ class TextInputView =
                         0
                     else if (x.EventFlag == ImGuiInputTextFlags.CallbackCompletion)
                         let size = Math.Min(x.BufTextLen, this.Buffer.Length)
-                        let mutable span = Span<byte>(Unsafe.Cast(x.Buf), size)
+                        let mutable span = Span<byte>(Unsafe.AsPointer(x.Buf), size)
                         let mutable spanBuffer = Span(this.Buffer, 0, size)
                         span.CopyTo(spanBuffer)
                         let completionText = UTF8Encoding.UTF8.GetString(Span<_>.op_Implicit(spanBuffer))
@@ -610,7 +610,7 @@ class ComboBoxView =
                         let byteCount = System.Text.Encoding.UTF8.GetBytes(str, 0, str.Length, buffer, 0)
                         let ptr = Marshal.AllocHGlobal(byteCount + 1)
                         let mutable span = Span<byte>(buffer, 0, byteCount)
-                        let mutable outputSpan = Span<byte>(Unsafe.Cast<void*>(ptr), byteCount + 1)
+                        let mutable outputSpan = Span<byte>(Unsafe.AsPointer(ptr), byteCount + 1)
                         span.CopyTo(outputSpan)
                         (outputSpan[outputSpan.Length - 1]) <- 0
                         Unsafe.AsPointer(ptr)
@@ -894,7 +894,7 @@ module UI =
             ()
 
         if (canMake)
-            ImGui.PushId(context.ImGuiContext, Unsafe.Cast(view.Id))
+            ImGui.PushId(context.ImGuiContext, view.Id)
             ImGui.BeginDisabled(context.ImGuiContext, !view.IsEnabled)
 
             if (hasParent && view.WillFocus)

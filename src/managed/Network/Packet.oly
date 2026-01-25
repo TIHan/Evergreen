@@ -69,7 +69,7 @@ internal class Packet =
         get() = this.HeaderSize + this.DataSize
 
     Kind: PacketKind 
-        get() = Unsafe.Cast(this.Buffer[0])
+        get() = Unsafe.AsEnum(this.Buffer[0])
 
     Channel: byte
         get() = 

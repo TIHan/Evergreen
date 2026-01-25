@@ -131,7 +131,7 @@ internal class ConnectedClient =
         this.SceneState <- ClientSceneState.Loading
         this.Ping <- 0
         this.SpeedOffset <- 0
-        Array.Clear(Unsafe.Cast(this.DeltaSnapshotTimeStamps))
+        Array.Clear(DotNet.AsArray(this.DeltaSnapshotTimeStamps))
         this.AwaitingFullSnapshot.Reset()
         ForEach(this.DeltaSnapshots,
             snapshot ->

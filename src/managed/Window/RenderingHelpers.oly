@@ -42,7 +42,7 @@ module RenderingHelpers =
             throw System.Exception(String(binary))
     
         let mutable bytesHandle = fixed(glslSourceText)
-        let result = egShaderCompile(kind, Unsafe.Cast(bytesHandle.AddrOfPinnedObject()), uint32(glslSourceText.Length), Unsafe.Cast(&&callback), Unsafe.Cast(&&callbackError))
+        let result = egShaderCompile(kind, Unsafe.AsPointer(bytesHandle.AddrOfPinnedObject()), uint32(glslSourceText.Length), Unsafe.Cast(&&callback), Unsafe.Cast(&&callbackError))
         bytesHandle.Free()
     
         initArray(shaderBytes.Length, i -> shaderBytes[i])
@@ -76,12 +76,12 @@ module RenderingHelpers =
         let mutable fileBytesHandle = fixed(fileBytes)
         try
             let mutable image = default: EgAssetImage
-            if (!egAssetReadImage(Unsafe.Cast(fileBytesHandle.AddrOfPinnedObject()), fileBytes.Length, &&image))
+            if (!egAssetReadImage(Unsafe.AsPointer(fileBytesHandle.AddrOfPinnedObject()), fileBytes.Length, &&image))
                 fail("Unable to read image.")
 
             let length = image.width * image.height * image.desiredChannels
             let mutable bytes = zeroArray<byte>(length)
-            Span(Unsafe.Cast<void*>(image.rawData), length).CopyTo(Span(bytes))
+            Span(Unsafe.AsPointer(image.rawData), length).CopyTo(Span(bytes))
             egAssetFreeImage(image)
             GpuImage(filePath, GpuFilterKind.Nearest, image.width, image.height, ReadOnlyMemory(bytes))      
         finally
