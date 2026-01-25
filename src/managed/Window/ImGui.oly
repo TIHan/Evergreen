@@ -20,7 +20,7 @@ private CheckIntializeVulkan(result: VkResult): () =
         fail("Failed to intialize ImGui.")
 
 CreateContext(window: WindowVulkan, app: Evergreen.Graphics.Backend.Vulkan.VulkanApplication, minImageCount: uint32, imageCount: uint32, renderPass: VkRenderPass): ImGuiContext =
-    let ctx = egImGuiCreateContextVulkan(window.Internal, app.Instance, app.PhysicalDevice, app.Device, app.GraphicsQueueFamilyIndex, app.GraphicsQueue, minImageCount, imageCount, renderPass, Unsafe.Cast(&&CheckIntializeVulkan))
+    let ctx = egImGuiCreateContextVulkan(window.Internal, app.Instance, app.PhysicalDevice, app.Device, app.GraphicsQueueFamilyIndex, app.GraphicsQueue, minImageCount, imageCount, renderPass, Unsafe.BitCast(&&CheckIntializeVulkan))
     let context = ImGuiContext(app, ctx, window.HWND)
     SetCurrentContext(context)
     context
@@ -242,14 +242,14 @@ InputText(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buff
         bufferPtr, 
         nuint(buffer.Length), 
         flags, 
-        Unsafe.Cast(callbackPtr)
+        Unsafe.BitCast(callbackPtr)
     )
 
 InputTextReadOnly(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, mutable buffer: ReadOnlySpan<byte>): bool =
     let labelPtr = &&label.GetPinnableReference()
     let bufferPtr: int8* = Unsafe.AsPointer(&&buffer.GetPinnableReference())
 
-    egImGuiInputText(context.Context, Unsafe.AsPointer(labelPtr), bufferPtr, nuint(buffer.Length), EgImGuiInputTextFlags.ReadOnly, Unsafe.Cast(&&InputTextCallbackNop))
+    egImGuiInputText(context.Context, Unsafe.AsPointer(labelPtr), bufferPtr, nuint(buffer.Length), EgImGuiInputTextFlags.ReadOnly, Unsafe.BitCast(&&InputTextCallbackNop))
 
 InputInt(context: ImGuiContext, mutable label: ReadOnlySpan<byte>, value: byref<int32>): bool =
     let labelPtr = &&label.GetPinnableReference()

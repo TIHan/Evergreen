@@ -1429,7 +1429,7 @@ extension Utf8JsonReaderExtensions =
                 reader.ReadFloat32()
         )
 
-    mutable ReadPropertyOfEnum<T>(expectedName: string): T where T: Enum =
+    mutable ReadPropertyOfEnum<T>(expectedName: string): T where T: blittable, Enum =
         this.ReadPropertyOf<T>(expectedName,
             reader ->
                 if (reader.TokenType != JsonTokenType.String)
@@ -1439,7 +1439,7 @@ extension Utf8JsonReaderExtensions =
                 Unsafe.AsEnum(valueObj)
         )
 
-    mutable ReadPropertyOfEnumOrDefault<T>(expectedName: string, defaultValue: T): T where T: Enum =
+    mutable ReadPropertyOfEnumOrDefault<T>(expectedName: string, defaultValue: T): T where T: blittable, Enum =
         if (this.IsNextReadProperty(expectedName))
             this.ReadPropertyOfEnum<T>(expectedName)
         else

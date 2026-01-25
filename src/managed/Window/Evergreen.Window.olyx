@@ -248,14 +248,14 @@ class WindowVulkan =
         egWindowPumpEvents(
             this.window,
             true,
-            Unsafe.Cast(&&callback1),
-            Unsafe.Cast(&&callback2),
-            Unsafe.Cast(&&callbackMouseButtonEvent),
-            Unsafe.Cast(&&callbackMouseWheelEvent),
-            Unsafe.Cast(&&callbackGamepadAxisMotionEvent),
-            Unsafe.Cast(&&callbackGamepadButtonEvent),
-            Unsafe.Cast(&&callbackGamepadEvent),
-            Unsafe.Cast(&&callbackQuit)
+            Unsafe.BitCast(&&callback1),
+            Unsafe.BitCast(&&callback2),
+            Unsafe.BitCast(&&callbackMouseButtonEvent),
+            Unsafe.BitCast(&&callbackMouseWheelEvent),
+            Unsafe.BitCast(&&callbackGamepadAxisMotionEvent),
+            Unsafe.BitCast(&&callbackGamepadButtonEvent),
+            Unsafe.BitCast(&&callbackGamepadEvent),
+            Unsafe.BitCast(&&callbackQuit)
         )
         
         let didMinimize = !isMinimized && this.IsMinimized
@@ -303,7 +303,7 @@ class WindowVulkan =
         static let callbackDisplayMode(egDisplayMode: EgWindowDisplayMode) =
             displayModes.Add(DisplayMode(egDisplayMode.width, egDisplayMode.height, egDisplayMode.refreshRate))
 
-        egWindowGetDisplayModes(this.window, Unsafe.Cast(&&callbackDisplayMode))
+        egWindowGetDisplayModes(this.window, Unsafe.BitCast(&&callbackDisplayMode))
         
         let result = Unsafe.AsImmutable(displayModes.ToArray())
         displayModes.Clear()
