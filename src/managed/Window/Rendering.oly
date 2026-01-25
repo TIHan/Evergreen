@@ -2142,7 +2142,7 @@ class Gpu =
         if (gpuFrame.IsDirty || mustUpload)
             gpuFrame.IsDirty <- false
 
-            let renderPass = Vk.CreateRenderPass(this.vk, this.swapChain.ImageFormat, this.swapChain.DepthImageFormat, Unsafe.BitCast(gpuFrameOptions.RenderPassFlags))
+            let renderPass = Vk.CreateRenderPass(this.vk, this.swapChain.ImageFormat, this.swapChain.DepthImageFormat, Unsafe.UnmanagedCast(gpuFrameOptions.RenderPassFlags))
 
             let width = 
                 match (gpuFrameOptions.SizeMode)
@@ -2930,7 +2930,7 @@ class Gpu =
                                     currentFramebuffer <- gpuFrame.VkFramebuffers[frameIndex]
                                     currentExtent <- gpuFrame.VkExtent
 
-                                    commandBuffer.BeginRenderPass(currentRenderPass, currentFramebuffer, currentExtent, Unsafe.BitCast(currentFrame.RenderPassFlags))
+                                    commandBuffer.BeginRenderPass(currentRenderPass, currentFramebuffer, currentExtent, Unsafe.UnmanagedCast(currentFrame.RenderPassFlags))
 
                                 | GpuCommand.BindPipeline(gpuPipeline) =>
                                     let mutable gpuPipeline = gpuPipeline

@@ -167,7 +167,7 @@ class ClientPhysicsSystem =
                                  transform.Rotation,
                                  physInfo.LinearVelocity,
                                  physInfo.AngularVelocity,
-                                 Unsafe.BitCast(PhysicsLayer.Moving),
+                                 Unsafe.UnmanagedCast(PhysicsLayer.Moving),
                                  physInfo.IsActive)
         )
 

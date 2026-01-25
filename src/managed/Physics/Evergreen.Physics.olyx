@@ -713,7 +713,7 @@ class Physics =
         Physics(callbacks, 
             egJoltCreateInstance(
                 maxNumberOfLayers,
-                Unsafe.BitCast(callbackContactAddedPtr), 
-                Unsafe.BitCast(callbackContactPersistedPtr),
-                Unsafe.BitCast(callbackShouldCollidePtr)
+                Unsafe.UnmanagedCast(callbackContactAddedPtr), 
+                Unsafe.UnmanagedCast(callbackContactPersistedPtr),
+                Unsafe.UnmanagedCast(callbackShouldCollidePtr)
             ), characterIdLookup, virtualCharacterIdLookup)

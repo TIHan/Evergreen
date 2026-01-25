@@ -42,7 +42,7 @@ module RenderingHelpers =
             throw System.Exception(String(binary))
     
         let mutable bytesHandle = fixed(glslSourceText)
-        let result = egShaderCompile(kind, Unsafe.AsPointer(bytesHandle.AddrOfPinnedObject()), uint32(glslSourceText.Length), Unsafe.BitCast(&&callback), Unsafe.BitCast(&&callbackError))
+        let result = egShaderCompile(kind, Unsafe.AsPointer(bytesHandle.AddrOfPinnedObject()), uint32(glslSourceText.Length), Unsafe.UnmanagedCast(&&callback), Unsafe.UnmanagedCast(&&callbackError))
         bytesHandle.Free()
     
         initArray(shaderBytes.Length, i -> shaderBytes[i])

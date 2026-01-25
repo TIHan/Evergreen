@@ -89,7 +89,7 @@ module Logic =
 
         let motion = playerInputToMotion(&playerInput, &camera, physCharacter.Speed, motionKind)
 
-        physics.UpdateGroundVelocity(characterId, Unsafe.BitCast(layer)) // virtual only
+        physics.UpdateGroundVelocity(characterId, Unsafe.UnmanagedCast(layer)) // virtual only
         
         let mutable newVelocity = physics.GetLinearVelocity(characterId)
         if (layer == PhysicsLayer.CharacterVirtual)
@@ -108,7 +108,7 @@ module Logic =
             newVelocity <- motion
             physics.SetLinearVelocity(characterId, newVelocity)
 
-        physics.Update(characterId, Unsafe.BitCast(layer), deltaTime) // virtual only
+        physics.Update(characterId, Unsafe.UnmanagedCast(layer), deltaTime) // virtual only
         SyncPhysicsInfo(physics, characterId, &transform, &physCharacter)
 
     playerEditorTick(deltaTime: float32, playerInput: inref<CharacterInput>, transform: byref<Transform>, camera: byref<Camera>): () =
@@ -229,12 +229,12 @@ abstract class PhysicsSystem =
                 | _ =>
                     fail("invalid layer")
 
-        let physics = Physics.Create(Unsafe.BitCast(PhysicsLayer.MaxNumberOfLayers), contactAdded, contactPersisted, shouldCollide)
+        let physics = Physics.Create(Unsafe.UnmanagedCast(PhysicsLayer.MaxNumberOfLayers), contactAdded, contactPersisted, shouldCollide)
         
         db.HandleComponentCycle<DynamicObjectId, /**/ Transform, RigidBody, BoxCollider>(
             (entId, physObjId, transform, phys, _) ->                                  
                 physObjId <- physics.AddBox(transform.Scale, phys.Mass, entId.Encode(), uint32(entId.Index),
-                                transform.Position, transform.Rotation, phys.LinearVelocity, phys.AngularVelocity, 1, Unsafe.BitCast(PhysicsLayer.Moving), phys.IsActive
+                                transform.Position, transform.Rotation, phys.LinearVelocity, phys.AngularVelocity, 1, Unsafe.UnmanagedCast(PhysicsLayer.Moving), phys.IsActive
                                 )
 
                 Logic.SyncPhysicsInfo(physics, physObjId, &transform, &phys)
@@ -245,7 +245,7 @@ abstract class PhysicsSystem =
 
         db.HandleComponentCycle<StaticObjectId, /**/ Transform, StaticRigidBody, BoxCollider>(
             (entId, physObjId, transform, phys, _) ->
-                physObjId <- physics.AddStaticBox(transform.Scale, entId.Encode(), uint32(entId.Index), transform.Position, transform.Rotation, phys.IsSensor, Unsafe.BitCast(PhysicsLayer.NonMoving), true)
+                physObjId <- physics.AddStaticBox(transform.Scale, entId.Encode(), uint32(entId.Index), transform.Position, transform.Rotation, phys.IsSensor, Unsafe.UnmanagedCast(PhysicsLayer.NonMoving), true)
 
                 Logic.SyncPhysicsInfo(physics, physObjId, &transform, &phys),
             (entId, physObjId, _, _, _) ->
@@ -270,7 +270,7 @@ abstract class PhysicsSystem =
                             PhysicsMesh(vertices, indices)
                     )
 
-                physObjId <- physics.AddStaticCompoundMesh(meshes, entId.Encode(), uint32(entId.Index), transform.Position, transform.Rotation, Unsafe.BitCast(PhysicsLayer.NonMoving), true)                  
+                physObjId <- physics.AddStaticCompoundMesh(meshes, entId.Encode(), uint32(entId.Index), transform.Position, transform.Rotation, Unsafe.UnmanagedCast(PhysicsLayer.NonMoving), true)                  
 
                 Logic.SyncPhysicsInfo(physics, physObjId, &transform, &phys),
             (entId, physObjId, _, _, _) ->
@@ -279,7 +279,7 @@ abstract class PhysicsSystem =
 
         db.HandleComponentCycle<CharacterId, /**/ Character, Transform>(
             (entId, physId, phys, transform) ->
-                physId <- physics.AddCharacter(transform.Position, Unsafe.BitCast(PhysicsLayer.Character), entId.Encode())
+                physId <- physics.AddCharacter(transform.Position, Unsafe.UnmanagedCast(PhysicsLayer.Character), entId.Encode())
                 physics.SetLinearVelocity(physId, phys.LinearVelocity)
 
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &phys),
@@ -290,7 +290,7 @@ abstract class PhysicsSystem =
 
         db.HandleComponentCycle<VirtualCharacterId, /**/ VirtualCharacter, Transform>(
             (mutable entId, physId, phys, transform) ->
-                physId <- physics.AddVirtualCharacter(transform.Position, Unsafe.BitCast(PhysicsLayer.CharacterVirtual), entId.Encode())
+                physId <- physics.AddVirtualCharacter(transform.Position, Unsafe.UnmanagedCast(PhysicsLayer.CharacterVirtual), entId.Encode())
                 physics.SetLinearVelocity(physId, phys.LinearVelocity)
 
                 Logic.SyncPhysicsInfo(physics, physId, &transform, &phys)
@@ -441,7 +441,7 @@ abstract class PhysicsSystem =
                                                 transform.Rotation,
                                                 body.LinearVelocity,
                                                 body.AngularVelocity,
-                                                Unsafe.BitCast(PhysicsLayer.Moving),
+                                                Unsafe.UnmanagedCast(PhysicsLayer.Moving),
                                                 body.IsActive
                                             )                                           
                                     )
