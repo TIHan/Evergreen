@@ -52,9 +52,11 @@ module Shader =
 
     public field mutable r: Rendering = unchecked default
 
-    Run<T>(shaderKind: string, input: mutable T[], spvBytes: mutable byte[]): mutable T[] where T: unmanaged =
-        if (input.Length == 0)
-            fail("Input is empty")
+    Run<T, TResult>(shaderKind: string, length: int32, input: mutable T[], spvBytes: mutable byte[]): mutable TResult[] where T: unmanaged where TResult: unmanaged =
+        if (length <= 0)
+            fail("Length is invalid")
+
+        let output = zeroArray<TResult>(length)
 
         let isCompute =
             match (shaderKind)
@@ -113,6 +115,11 @@ void main()
                             GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
                         ]
                     )
+                    GpuDescriptorSetLayout(
+                        [
+                            GpuDescriptorSetLayoutBinding(GpuDescriptorKind.Storage, GpuDescriptorSetLayoutBindingFlags.None, GpuStageFlags.Compute)
+                        ]
+                    )
                 ]
             | _ =>
                 fail("Invalid shader kind")
@@ -158,7 +165,8 @@ void main()
     
         let quadIndices = [ 0: uint32; 1; 2;    3; 2; 1 ]
 
-        let buffer = GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, input.Length, i -> input[i])
+        let inputBuffer = GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, length, i -> input[i])
+        let outputBuffer = GpuBuffer.Initialize(GpuBufferKind.Storage, GpuMemoryKind.Shared, length, i -> output[i])
         let vertexBuffer = GpuBuffer.Initialize(GpuBufferKind.Vertex, GpuMemoryKind.Shared, quadVertices.Length, i -> quadVertices[i])
         let indexBuffer = GpuBuffer.Initialize(GpuBufferKind.Index, GpuMemoryKind.Shared, quadIndices.Length, i -> quadIndices[i])
 
@@ -167,7 +175,8 @@ void main()
         match (shaderKind)
         | "compute" =>
             cmds.BindPipeline(testPipeline)
-            cmds.BindDescriptorSet(0, buffer.GetComputeDescriptorSet())
+            cmds.BindDescriptorSet(0, inputBuffer.GetComputeDescriptorSet())
+            cmds.BindDescriptorSet(1, outputBuffer.GetComputeDescriptorSet())
             cmds.Dispatch(input.Length, 1, 1)
             cmds.BeginSwapChainFrame()
             cmds.EndFrame()
@@ -182,21 +191,22 @@ void main()
         gpu.Wait()
 
         if (isCompute)
-            gpu.Download(buffer)
+            gpu.Download(outputBuffer)
 
         let width = int32(r.Window.Size.X)
         let height = int32(r.Window.Size.Y)
         let imageData = gpu.DownloadSwapChainImageData(width, height)
 
-        let result = buffer.Array
+        let result = outputBuffer.Array
 
         gpu.Free(testPipeline)
         gpu.Free(shader)
-        gpu.Free(buffer)
+        gpu.Free(inputBuffer)
+        gpu.Free(outputBuffer)
         gpu.Free(vertexBuffer)
         gpu.Free(indexBuffer)
 
-        if (DotNet.TypeOf<T> == DotNet.TypeOf<int32> && !isCompute)
+        if (DotNet.TypeOf<TResult> == DotNet.TypeOf<int32> && !isCompute)
             Unsafe.As(map(imageData, x -> int32(x)))
         else if (isCompute)
             result
@@ -207,12 +217,28 @@ void main()
 class Input =
 
     ShaderKind: string get, set = ""
-    DataKind: string get, set = ""
+    InputDataKind: string get, set = ""
+    OutputDataKind: string get, set = ""
 
 #[export]
 class Input<T> =
 
-    Data: mutable T[] get, set = mutable []
+    InputData: mutable T[] get, set = mutable []
+
+module Helpers =
+
+    RunShader<T>(shaderKind: string, length: int32, input: mutable T[], spvBytes: mutable byte[], options: JsonSerializerOptions, outputDataKind: string): string where T: unmanaged =
+        match (outputDataKind)
+        | "float" => JsonSerializer.Serialize(Shader.Run<T, float32>(shaderKind, length, input, spvBytes), options)
+        | "int" => JsonSerializer.Serialize(Shader.Run<T, int32>(shaderKind, length, input, spvBytes), options)
+        | "vec2" => JsonSerializer.Serialize(Shader.Run<T, Vector2>(shaderKind, length, input, spvBytes), options)
+        | "vec3" => JsonSerializer.Serialize(Shader.Run<T, Vector3>(shaderKind, length, input, spvBytes), options)
+        | "vec4" => JsonSerializer.Serialize(Shader.Run<T, Vector4>(shaderKind, length, input, spvBytes), options)
+        | "mat4" => JsonSerializer.Serialize(Shader.Run<T, Matrix4x4>(shaderKind, length, input, spvBytes), options)
+        | "TestData" => JsonSerializer.Serialize(Shader.Run<T, TestData>(shaderKind, length, input, spvBytes), options)
+        | "TestData2" => JsonSerializer.Serialize(Shader.Run<T, TestData2>(shaderKind, length, input, spvBytes), options)
+        | "TestData3" => JsonSerializer.Serialize(Shader.Run<T, TestData3>(shaderKind, length, input, spvBytes), options)
+        | _ => fail("Invalid output data kind: " + outputDataKind)
 
 #[export]
 class ShaderCommand =
@@ -234,36 +260,42 @@ class ShaderCommand =
             let input = JsonSerializer.Deserialize<Input>(settings.Input, options)
             let path = settings.ShaderFile
             let shaderKind = input.ShaderKind
-            match (input.DataKind)
-            | "float" =>
-                let input = JsonSerializer.Deserialize<Input<float32>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "int" =>
-                let input = JsonSerializer.Deserialize<Input<int32>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "vec2" =>
-                let input = JsonSerializer.Deserialize<Input<Vector2>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "vec3" =>
-                let input = JsonSerializer.Deserialize<Input<Vector3>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "vec4" =>
-                let input = JsonSerializer.Deserialize<Input<Vector4>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "mat4" =>
-                let input = JsonSerializer.Deserialize<Input<Matrix4x4>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "TestData" =>
-                let input = JsonSerializer.Deserialize<Input<TestData>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "TestData2" =>
-                let input = JsonSerializer.Deserialize<Input<TestData2>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | "TestData3" =>
-                let input = JsonSerializer.Deserialize<Input<TestData3>>(settings.Input, options)
-                printLine(JsonSerializer.Serialize(Shader.Run(shaderKind, input.Data, File.ReadAllBytes(path)), options))
-            | _ =>
-                fail("Invalid data kind: " + input.DataKind)
+            let inputDataKind = input.InputDataKind
+            let outputDataKind = input.OutputDataKind
+
+            let output = 
+                match (inputDataKind)
+                | "float" => 
+                    let input = JsonSerializer.Deserialize<Input<float32>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "int" =>
+                    let input = JsonSerializer.Deserialize<Input<int32>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "vec2" =>
+                    let input = JsonSerializer.Deserialize<Input<Vector2>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "vec3" =>
+                    let input = JsonSerializer.Deserialize<Input<Vector3>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "vec4" =>
+                    let input = JsonSerializer.Deserialize<Input<Vector4>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "mat4" =>
+                    let input = JsonSerializer.Deserialize<Input<Matrix4x4>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "TestData" =>
+                    let input = JsonSerializer.Deserialize<Input<TestData>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "TestData2" =>
+                    let input = JsonSerializer.Deserialize<Input<TestData2>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | "TestData3" =>
+                    let input = JsonSerializer.Deserialize<Input<TestData3>>(settings.Input, options)
+                    Helpers.RunShader(shaderKind, input.InputData.Length, input.InputData, File.ReadAllBytes(path), options, outputDataKind)
+                | _ => fail("Invalid input data kind: " + inputDataKind)
+
+            printLine(output)
+
         catch (ex: Exception) =>
             printLine("Error: " + ex.ToString().Replace("\n", "").Replace("\r", ""))
 
