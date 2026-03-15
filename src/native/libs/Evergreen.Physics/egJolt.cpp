@@ -879,8 +879,9 @@ extern "C" {
 		}
 
 		auto jShape = (JPH::Shape*)shape.internal;
+		auto success = jShape->GetRefCount() == 1;
 		jShape->Release();
-		return true;
+		return success;
 	}
 
 	EG_EXPORT bool egJoltCreateStaticBody(EgJoltInstance instance, EgJoltShape shape, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
