@@ -61,6 +61,20 @@ typedef struct {
 
 typedef struct {
 	void* internal;
+} EgJoltShape;
+
+typedef struct {
+	EgJoltVector3 scale;
+	float density;
+} EgJoltBoxShapeSettings;
+
+typedef struct {
+	float radius;
+	float density;
+} EgJoltSphereShapeSettings;
+
+typedef struct {
+	void* internal;
 } EgJoltCharacterVirtual;
 
 typedef struct {
@@ -140,6 +154,15 @@ extern "C" {
 	EG_EXPORT void egJoltUpdate(EgJoltInstance instance, float deltaTime, int collisionSteps);
 	EG_EXPORT void egJoltSetGravity(EgJoltInstance instance, EgJoltVector3 gravity);
 	EG_EXPORT void egJoltOptimizeBroadPhase(EgJoltInstance instance);
+
+	EG_EXPORT bool egJoltCreateBoxShape(EgJoltBoxShapeSettings settings, EgJoltShape* outShape);
+	EG_EXPORT bool egJoltCreateSphereShape(EgJoltSphereShapeSettings settings, EgJoltShape* outShape);
+	EG_EXPORT bool egJoltCreateMeshShape(EgJoltVector3* vertices, int vertexLength, unsigned int* indices, int indexLength, EgJoltShape* outShape);
+	EG_EXPORT bool egJoltCreateCompoundShape(EgJoltShape* shapes, int shapeCount, EgJoltShape* outShape);
+	EG_EXPORT bool egJoltDestroyShape(EgJoltShape shape);
+
+	EG_EXPORT bool egJoltCreateStaticBody(EgJoltInstance instance, EgJoltShape shape, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state);
+	EG_EXPORT bool egJoltCreateDynamicBody(EgJoltInstance instance, EgJoltShape shape, float mass, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state);
 
 	EG_EXPORT unsigned int egJoltGetCharacterBodyId(EgJoltInstance instance, EgJoltCharacter character);
 	EG_EXPORT bool egJoltAreBodiesColliding(EgJoltInstance instance, unsigned int bodyId1, unsigned int bodyId2);

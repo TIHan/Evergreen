@@ -38,6 +38,34 @@ public static unsafe partial class Methods
     public static extern void egJoltOptimizeBroadPhase(EgJoltInstance instance);
 
     [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltCreateBoxShape(EgJoltBoxShapeSettings settings, EgJoltShape* outShape);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltCreateSphereShape(EgJoltSphereShapeSettings settings, EgJoltShape* outShape);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltCreateMeshShape([NativeTypeName("EgJoltVector3 *")] System.Numerics.Vector3* vertices, int vertexLength, [NativeTypeName("unsigned int *")] uint* indices, int indexLength, EgJoltShape* outShape);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltCreateCompoundShape(EgJoltShape* shapes, int shapeCount, EgJoltShape* outShape);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltDestroyShape(EgJoltShape shape);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltCreateStaticBody(EgJoltInstance instance, EgJoltShape shape, [NativeTypeName("unsigned long long")] ulong userData, [NativeTypeName("unsigned int *")] uint* bodyId, EgJoltBodyState* state);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: NativeTypeName("bool")]
+    public static extern byte egJoltCreateDynamicBody(EgJoltInstance instance, EgJoltShape shape, float mass, [NativeTypeName("unsigned long long")] ulong userData, [NativeTypeName("unsigned int *")] uint* bodyId, EgJoltBodyState* state);
+
+    [DllImport("Evergreen.Physics.Native.dll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     [return: NativeTypeName("unsigned int")]
     public static extern uint egJoltGetCharacterBodyId(EgJoltInstance instance, EgJoltCharacter character);
 

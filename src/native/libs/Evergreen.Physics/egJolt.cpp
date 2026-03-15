@@ -395,6 +395,51 @@ inline unsigned int _egJoltAddBody(EgJoltInstance instance, EMotionType motionTy
 	return *(unsigned int*)(&body->GetID());
 }
 
+inline unsigned int _egJoltAddBody2(EgJoltInstance instance, EMotionType motionType, ObjectLayer layer, float mass, Shape* shape, unsigned long long userData, BodyID* bodyId, EgJoltBodyState* state)
+{
+	BodyInterface& bodyInterface = GetInternalInstance(instance)->physics_system->GetBodyInterfaceNoLock();
+
+	EActivation activation = {};
+	if (state->flags & EgJolt_BodyFlags_IsActive)
+	{
+		activation = EActivation::Activate;
+	}
+	else
+	{
+		activation = EActivation::DontActivate;
+	}
+
+	// Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
+	BodyCreationSettings bodySettings(shape, ConvertVector3(state->position), *(Quat*)&state->rotation, motionType, layer);
+	auto massProps = bodySettings.GetMassProperties();
+	massProps.mMass = mass;
+	bodySettings.mMassPropertiesOverride = massProps;
+	bodySettings.mMotionQuality = EMotionQuality::LinearCast;
+	bodySettings.mOverrideMassProperties = EOverrideMassProperties::CalculateInertia;
+	bodySettings.mIsSensor = state->flags & EgJolt_BodyFlags_IsSensor;
+	bodySettings.mLinearVelocity = ConvertVector3(state->linearVelocity);
+	bodySettings.mAngularVelocity = ConvertVector3(state->angularVelocity);
+	bodySettings.mAllowSleeping = true;
+	bodySettings.mGravityFactor = state->gravityFactor;
+	bodySettings.mEnhancedInternalEdgeRemoval = true;
+
+	Body* body; // Note that if we run out of bodies this can return nullptr
+	if (bodyId)
+	{
+		body = bodyInterface.CreateBodyWithID(*bodyId, bodySettings);
+	}
+	else
+	{
+		body = bodyInterface.CreateBody(bodySettings);
+	}
+
+	// Add it to the world
+	bodyInterface.AddBody(body->GetID(), activation);
+	bodyInterface.SetUserData(body->GetID(), userData);
+
+	return true;
+}
+
 inline unsigned int _egJoltAddBodyBox(EgJoltInstance instance, EgJoltVector3 scale, EMotionType motionType, ObjectLayer layer, float density, float mass, unsigned long long userData, BodyID* bodyId, EgJoltBodyState* state)
 {
 	BoxShapeSettings settings(Vec3(scale.x, scale.y, scale.z), 0);
@@ -714,6 +759,138 @@ extern "C" {
 	EG_EXPORT void egJoltOptimizeBroadPhase(EgJoltInstance instance)
 	{
 		GetInternalInstance(instance)->physics_system->OptimizeBroadPhase();
+	}
+
+	EG_EXPORT bool egJoltCreateBoxShape(EgJoltBoxShapeSettings settings, EgJoltShape* outShape)
+	{
+		BoxShapeSettings jSettings(Vec3(settings.scale.x, settings.scale.y, settings.scale.z), 0);
+		jSettings.mDensity = settings.density;
+
+		auto jResult = jSettings.Create();
+		if (!jResult.IsValid())
+		{
+			return false;
+		}
+
+		JPH::Ref<JPH::Shape> jShapeRef = jResult.Get();
+		auto jShape = jShapeRef.GetPtr();
+		jShape->AddRef();
+
+		EgJoltShape shape;
+		shape.internal = jShape;
+		*outShape = shape;
+		return true;
+	}
+
+	EG_EXPORT bool egJoltCreateSphereShape(EgJoltSphereShapeSettings settings, EgJoltShape* outShape)
+	{
+		SphereShapeSettings jSettings(settings.radius);
+		jSettings.mDensity = settings.density;
+
+		auto jResult = jSettings.Create();
+		if (!jResult.IsValid())
+		{
+			return false;
+		}
+
+		JPH::Ref<JPH::Shape> jShapeRef = jResult.Get();
+		auto jShape = jShapeRef.GetPtr();
+		jShape->AddRef();
+
+		EgJoltShape shape;
+		shape.internal = jShape;
+		*outShape = shape;
+		return true;
+	}
+
+	EG_EXPORT bool egJoltCreateMeshShape(EgJoltVector3* vertices, int vertexLength, unsigned int* indices, int indexLength, EgJoltShape* outShape)
+	{
+		auto vertexListCount = vertexLength;
+		auto vertexList = VertexList(vertexListCount);
+		auto indexListCount = indexLength / 3;
+		auto indexList = IndexedTriangleList(indexListCount);
+
+		for (int i = 0; i < vertexListCount; i++)
+		{
+			auto v = vertices[i];
+			vertexList[i] = Float3(v.x, v.y, v.z);
+		}
+
+		for (int i = 0; i < indexListCount; i++)
+		{
+			indexList[i] = IndexedTriangle(indices[i * 3], indices[i * 3 + 1], indices[i * 3 + 2]);
+		}
+
+		MeshShapeSettings jSettings(std::move(vertexList), std::move(indexList));
+
+		auto jResult = jSettings.Create();
+		if (!jResult.IsValid())
+		{
+			return false;
+		}
+
+		JPH::Ref<JPH::Shape> jShapeRef = jResult.Get();
+		auto jShape = jShapeRef.GetPtr();
+		jShape->AddRef();
+
+		EgJoltShape shape;
+		shape.internal = jShape;
+		*outShape = shape;
+		return true;
+	}
+
+	EG_EXPORT bool egJoltCreateCompoundShape(EgJoltShape* shapes, int shapeCount, EgJoltShape* outShape)
+	{
+		if (!shapes)
+			return false;
+
+		if (shapeCount <= 0)
+			return false;
+
+		Ref<StaticCompoundShapeSettings> jSettings = new StaticCompoundShapeSettings;
+
+		for (unsigned int k = 0; k < shapeCount; k++)
+		{
+			auto shape = shapes[k];
+			jSettings->AddShape(Vec3Arg::sZero(), QuatArg::sIdentity(), (JPH::Shape*)shape.internal);
+		}
+
+		auto jResult = jSettings->Create();
+		if (!jResult.IsValid())
+		{
+			return false;
+		}
+
+		JPH::Ref<JPH::Shape> jShapeRef = jResult.Get();
+		auto jShape = jShapeRef.GetPtr();
+		jShape->AddRef();
+
+		EgJoltShape shape;
+		shape.internal = jShape;
+		*outShape = shape;
+		return true;
+	}
+
+	EG_EXPORT bool egJoltDestroyShape(EgJoltShape shape)
+	{
+		if (!shape.internal)
+		{
+			return false;
+		}
+
+		auto jShape = (JPH::Shape*)shape.internal;
+		jShape->Release();
+		return true;
+	}
+
+	EG_EXPORT bool egJoltCreateStaticBody(EgJoltInstance instance, EgJoltShape shape, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
+	{
+		return _egJoltAddBody2(instance, JPH::EMotionType::Static, state->layer, 0, (Shape*)shape.internal, userData, (BodyID*)bodyId, state);
+	}
+
+	EG_EXPORT bool egJoltCreateDynamicBody(EgJoltInstance instance, EgJoltShape shape, float mass, unsigned long long userData, unsigned int* bodyId, EgJoltBodyState* state)
+	{
+		return _egJoltAddBody2(instance, JPH::EMotionType::Dynamic, state->layer, mass, (Shape*)shape.internal, userData, (BodyID*)bodyId, state);
 	}
 
 	EG_EXPORT unsigned int egJoltGetCharacterBodyId(EgJoltInstance instance, EgJoltCharacter character)

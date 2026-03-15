@@ -41,6 +41,9 @@ newtype CharacterId =
 
 newtype VirtualCharacterId =
     public field Value: uint32
+
+newtype PhysicsShape =
+    public field Value: EgJoltShape
     
 #[open]
 struct PhysicsObject =
@@ -72,9 +75,6 @@ struct PhysicsMesh =
 
 class Physics =
     implements IDisposable
-
-    static field InitCountLockObj: object = Object()
-    static field mutable InitCount: int32 = 0
 
     static IsNearZero(v: vec3): bool =
         egJolt_Vector3_IsNearZero(v) != 0
@@ -683,13 +683,6 @@ class Physics =
         this.VirtualCharacters.Clear()
         egJoltDestroyInstance(this.Instance)
 
-        lock(InitCountLockObj,
-            () ->
-                InitCount <- InitCount - 1
-                if (InitCount == 0)
-                    egJoltSharedDestroy()
-        )
-
     static Create(
             maxNumberOfLayers: byte,
             contactAdded: (bodyId1: uint32, userData1: uint64, point1: Vector3, bodyId2: uint32, userData2: uint64, point2: Vector3) -> (), 
@@ -703,13 +696,6 @@ class Physics =
         let callbackContactPersistedPtr = Marshal.GetFunctionPointerForDelegate(callbacks.ContactPersistedDelegate)
         let callbackShouldCollidePtr = Marshal.GetFunctionPointerForDelegate(callbacks.ShouldCollideDelegate)
 
-        lock(InitCountLockObj,
-            () ->
-                if (InitCount == 0)
-                    egJoltSharedInit()
-                InitCount <- InitCount + 1
-        )
-
         Physics(callbacks, 
             egJoltCreateInstance(
                 maxNumberOfLayers,
@@ -717,3 +703,30 @@ class Physics =
                 Unsafe.UnmanagedCast(callbackContactPersistedPtr),
                 Unsafe.UnmanagedCast(callbackShouldCollidePtr)
             ), characterIdLookup, virtualCharacterIdLookup)
+
+    // TODO-language-bug: This has a compiler bug as it should give a warning
+    // static CreateBoxShape(scale: vec3): Shape =
+    //     if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
+    //        fail("Invalid scale")
+
+    static Initialize(): () =
+        egJoltSharedInit()
+
+    static Shutdown(): () =
+        egJoltSharedDestroy()
+
+    static CreateBoxShape(scale: vec3): PhysicsShape =
+        if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
+           fail("Invalid scale")
+
+        let mutable settings = default: EgJoltBoxShapeSettings
+        settings.scale <- scale
+
+        let mutable joltShape = default: EgJoltShape
+        if (egJoltCreateBoxShape(settings, &&joltShape) == 0)
+            fail("Failed to create shape.")
+        PhysicsShape(joltShape)
+
+    static DestroyShape(physicsShape: PhysicsShape): () =
+        if (egJoltDestroyShape(physicsShape.Value) == 0)
+            fail("Failed to destroy shape.")

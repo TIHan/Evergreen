@@ -14,6 +14,7 @@ open System.IO
 open System.Runtime.Intrinsics
 open Game.Resources // Resources
 open Game.Shared // GameEnv
+open Evergreen.Physics // Physics
 open Evergreen.Graphics.Rendering // RenderingOptions/Rendering
 open static Game.Client.Rendering.Module // RenderEnv
 open Evergreen.Utilities
@@ -92,6 +93,7 @@ main(args: string[]): () =
         let (_, engineHash) = Hash.SHA256(file)
         file.Dispose()
 
+        Physics.Initialize()
         Steam.Initialize()
         
         let options = RenderingOptions()
@@ -125,3 +127,4 @@ main(args: string[]): () =
         Game.Orchestration.Run(genv, renv)
 
         Steam.Shutdown()
+        Physics.Shutdown()
