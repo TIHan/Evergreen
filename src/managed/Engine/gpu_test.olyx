@@ -303,6 +303,13 @@ class ShaderCommand =
 
 module Program = 
 
+    #[open]
+    extension IntDisposable =
+        inherits int32
+        implements IDisposable
+
+        Dispose(): () = ()
+
     main(args: string[]): () =
         let app = CommandApp(null)
         app.Configure(

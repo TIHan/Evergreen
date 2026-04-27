@@ -83,8 +83,8 @@ BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
 module Marker
 
 main(args: string[]): () =
-    // Evergreen.SteamOld.Steam.Initialize()
-    // Evergreen.SteamOld.SteamTests.`basic client server`()
+   // Evergreen.SteamOld.Steam.Initialize()
+   // Evergreen.SteamOld.SteamTests.`basic client server`()
     if (args.Length != 1)
         fail("Invalid arguments")
     else

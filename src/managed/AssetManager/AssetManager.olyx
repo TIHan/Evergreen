@@ -563,7 +563,10 @@ module AssetHelpers =
         let callbackMeshPtr = Marshal.GetFunctionPointerForDelegate(meshCallbacks.MeshCallbackDelegate)
     
         let mutable filePathHandle = fixedCopyUTF8(filePath)
-        if (!egAssetReadMeshes(Unsafe.AsPointer(filePathHandle.AddrOfPinnedObject()), Unsafe.AsFunctionPointer(callbackMeshPtr)))
+        // REVIEW: Instead of Unsafe.UnmanagedCast, we should be able to use a different kind of Unsafe.AsFunctionPointer that can do a 'static [CDecl]' rather than 'static blittable'.
+        //       However, that kind of Unsafe.AsFunctionPointer doesn't exist at the time of writing this comment.
+        //       Should it exist, or should we just simply rely on Unsafe.UnmanagedCast here?
+        if (!egAssetReadMeshes(Unsafe.AsPointer(filePathHandle.AddrOfPinnedObject()), Unsafe.UnmanagedCast(callbackMeshPtr)))
             fail("Failed to read mesh.")
         filePathHandle.Free()
     

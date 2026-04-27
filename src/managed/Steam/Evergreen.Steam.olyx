@@ -165,15 +165,11 @@ struct SteamServerConnection =
         SteamServerConnection(connection)
 
     SendMessage(mutable buffer: ReadOnlySpan<byte>): () =
-        // TODO-language-bug: We should get diagnostic error, but compiles and causes an internal compiler
-        // let bytes = bytes.GetPinnableReference()
-        // let mutable msgNum = default
-        // 'if (SteamNetworkingSockets.SendMessageToConnection(this.connection, &&bytes, 0, 0, &msgNum) != EResult.k_EResultOK)' causes an internal compiler error
-
         // TODO-language-bug: We should get diagnostic error, but compiles and causes an internal compiler of invalid cast
-        // let bytes = &bytes.GetPinnableReference()
+        // let bytes = &buffer.GetPinnableReference()
         // let mutable msgNum = default
-        // 'if (SteamNetworkingSockets.SendMessageToConnection(this.connection, nint(&&bytes), 0, 0, &msgNum) != EResult.k_EResultOK)' causes an internal compiler error
+        // if (SteamNetworkingSockets.SendMessageToConnection(this.connection, nint(&&bytes), 0, 0, &msgNum) != EResult.k_EResultOK)
+        //     throw SteamException("Failed to send message")
 
         let bufferPtr = &&buffer.GetPinnableReference()
         let mutable msgNum = default

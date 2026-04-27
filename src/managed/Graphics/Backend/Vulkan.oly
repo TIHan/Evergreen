@@ -1390,6 +1390,7 @@ module Vk =
 
     // ---------------------------------------------------------------------
 
+    // TODO-language-bug: Doing a 'static [cdecl]' will crash the language server.
     private alias PFN_vkCreateDebugUtilsMessengerEXT = static blittable (VkInstance, VkDebugUtilsMessengerCreateInfoEXT*, VkAllocationCallbacks*, VkDebugUtilsMessengerEXT*) -> VkResult
     private alias PFN_vkDestroyDebugUtilsMessengerEXT = static blittable (VkInstance, VkDebugUtilsMessengerEXT, VkAllocationCallbacks*) -> ()
 
