@@ -1390,7 +1390,6 @@ module Vk =
 
     // ---------------------------------------------------------------------
 
-    // TODO-language-bug: Doing a 'static [cdecl]' will crash the language server.
     private alias PFN_vkCreateDebugUtilsMessengerEXT = static blittable (VkInstance, VkDebugUtilsMessengerCreateInfoEXT*, VkAllocationCallbacks*, VkDebugUtilsMessengerEXT*) -> VkResult
     private alias PFN_vkDestroyDebugUtilsMessengerEXT = static blittable (VkInstance, VkDebugUtilsMessengerEXT, VkAllocationCallbacks*) -> ()
 
@@ -1652,7 +1651,7 @@ module Vk =
         // descriptorIndexingFeatures.descriptorBindingVariableDescriptorCount <- VkBool32.TRUE
         // descriptorIndexingFeatures.descriptorBindingPartiallyBound <- VkBool32.TRUE
 
-        deviceFeatures.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan11) // TODO-language-bug: '      deviceFeatures.pNext <- Unsafe.(&&deviceFeaturesVulkan11)' crashes compiler
+        deviceFeatures.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan11)
         deviceFeaturesVulkan11.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan12)
         deviceFeaturesVulkan12.pNext <- Unsafe.AsPointer(&&deviceFeaturesVulkan13)
         //deviceFeaturesVulkan13.pNext <- Unsafe.AsPointer(&&descriptorIndexingFeatures)
