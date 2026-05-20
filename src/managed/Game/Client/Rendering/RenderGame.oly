@@ -71,7 +71,7 @@ class RenderGame =
     SetCharacterInput(characterEntId: EntityId, newInput: inref<CharacterInput>): () =
         match (this.Scene)
         | Some(scene) =>
-            scene.SetCharacterInput(characterEntId, &newInput) // TODO-language-bug: ", newInput)" will show error in the wrong range.
+            scene.SetCharacterInput(characterEntId, &newInput)
         | _ =>
             ()
 

@@ -704,11 +704,6 @@ class Physics =
                 Unsafe.UnmanagedCast(callbackShouldCollidePtr)
             ), characterIdLookup, virtualCharacterIdLookup)
 
-    // TODO-language-bug: This has a compiler bug as it should give a warning
-    // static CreateBoxShape(scale: vec3): Shape =
-    //     if (scale.X < 0.1 || scale.Y < 0.1 || scale.Z < 0.1)
-    //        fail("Invalid scale")
-
     static Initialize(): () =
         egJoltSharedInit()
 

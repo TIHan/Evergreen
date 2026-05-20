@@ -45,7 +45,7 @@ module Logic =
         | _ =>
             movementCamera.SetYawPitch(playerInput.CameraYaw, 0)
 
-        let movementCameraTransform = movementCamera.GetTransform(vec3.Zero) // TODO-language-bug: should be able to see error for 'movementCamera.GetTransform(transform)' as no overload exists, inref might be causing the error range issue.
+        let movementCameraTransform = movementCamera.GetTransform(vec3.Zero)
     
         let forwardMovementFactor = clamp(0, 1, playerInput.ForwardMovementFactor)
         let backwardMovementFactor = clamp(0, 1, playerInput.BackwardMovementFactor)

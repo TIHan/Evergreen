@@ -140,7 +140,7 @@ class UdpServerTransport =
                 false
 
     StopHost(): bool =
-        this.CheckDisposed() // TODO-language-bug: 'this.CheckDisposed' as a partial call should show the correct diagnostic text range
+        this.CheckDisposed()
         match (this.socket)
         | Some(socket) =>
             socket.Dispose()
@@ -458,7 +458,7 @@ class SteamClientTransport =
         get() = 
             this.CheckDisposed()
             let client = this.CheckClient()
-            SteamConnectionIdentity(client.GetConnection()) // TODO-language-bug: 'SteamConnectionIdentity(client.GetConnection)' partial call should give error with correct text range.
+            SteamConnectionIdentity(client.GetConnection())
 
     Dispose(): () =
         let _ = this.Disconnect()

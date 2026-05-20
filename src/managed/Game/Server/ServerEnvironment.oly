@@ -156,7 +156,7 @@ internal module Server =
         match (tryGetWorld(senv))
         | Some(world) =>
             world.SetPlayerInput(playerId, input)
-            world.TryUpdatePlayer(time, playerId, &outTransform, &outCameraId) // TODO-language-bug: ', outCameraId)' should give a proper error range.
+            world.TryUpdatePlayer(time, playerId, &outTransform, &outCameraId)
         | _ =>
             false
 

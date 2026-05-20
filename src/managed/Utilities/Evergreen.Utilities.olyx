@@ -107,7 +107,7 @@ newtype ByteSequence =
         ByteSequence(this.Value + 1)
 
     IsNewerThan(n: ByteSequence): bool =
-        ByteSequence.SequenceGreaterThan(this.Value, n.Value) // TODO-language-bug: ByteSequence.SequenceGreaterThan(this, n.Value) does error, but with the wrong range
+        ByteSequence.SequenceGreaterThan(this.Value, n.Value)
 
     static Zero: ByteSequence get() = ByteSequence(0)
 

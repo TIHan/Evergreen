@@ -173,7 +173,7 @@ class Resources =
         )
 
         soundManager.RegisterFiles(".ogg", "Sounds", fs,
-            (path: string, _) -> // TODO-language-bug: Should not have to be explicit with annotation 'path: string'? Maybe? 
+            (path, _) ->
                 let category =
                     if (path.Contains("Music"))
                         1: byte

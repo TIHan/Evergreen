@@ -616,9 +616,8 @@ module Vk =
         if (graphicsFamilyIndex != transferFamilyIndex)
             fail("Device not supported.")
         let presentFamilyIndex = 
-            findIndex(queueFamilyProperties, 
-                // TODO-language-bug: should not have to do 'i: int32'. There is a bug with a scoped lambda.
-                (i: int32, x) ->
+            findIndex(queueFamilyProperties,
+                (i, x) ->
                     let mutable isPresentSupported = VkBool32.FALSE
                     if (vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, uint32(i), surface, &&isPresentSupported) != VkResult.VK_SUCCESS)
                         fail("Failed to get physical device surface support.")
