@@ -84,7 +84,7 @@ interface IComponent =
 
     static abstract DeserializeDeltaForNetwork(bstream: ByteStream, dst: Span<byte>): ()
 
-interface IComponent<N, T> where N: constant int32 where T: blittable, struct, ValueType, { new() } =
+interface IComponent<N, T> where N: constant int32 where T: blittable, struct, ValueType, { new() }, trait IComponent =
     inherits IComponent
 
     static overrides GetIndex(): int32 = N

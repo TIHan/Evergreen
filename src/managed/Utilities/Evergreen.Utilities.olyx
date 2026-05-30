@@ -1252,10 +1252,9 @@ module Machine =
 #[open]
 module Logging =
 
-    // TODO-language-bug: Instead of internal, it should be private.
-    internal WarningMarker: string get() = "[warning]"
-    internal ErrorMarker: string get() = "[error]"
-    internal CommandInfoMarker: string get() = "[command_info]"
+    private WarningMarker: string get() = "[warning]"
+    private ErrorMarker: string get() = "[error]"
+    private CommandInfoMarker: string get() = "[command_info]"
 
     Log<T>(o: T): () where T: { ToString(): string } =
         printLine(o)
