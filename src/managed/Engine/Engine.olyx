@@ -53,7 +53,7 @@ BenchmarkMap(resx: Resources, genv: GameEnv): Stream =
                 let meshRef = MeshReference(resx.RenderMeshes.FindId("cube.obj"))
                 
                 if (asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.Frame && asset.Data[0].ImageKind != Evergreen.Graphics.Rendering.GpuImageKind.FrameView)
-                    For(1, 
+                    For(1,
                         i -> 
                             let _ = db.Create(transform, material, meshRef)
                     )
