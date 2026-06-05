@@ -134,20 +134,6 @@ struct LightArrayShaderData =
     public field mutable Item8: LightShaderData = default
     public field mutable Count: int32 = 0
 
-    mutable get_Item(index: int32): byref<LightShaderData> =
-        match (index)
-        | 0 => &this.Item1
-        | 1 => &this.Item2
-        | 2 => &this.Item3
-        | 3 => &this.Item4
-        | 4 => &this.Item5
-        | 5 => &this.Item6
-        | 6 => &this.Item7
-        | 8 => &this.Item8
-        | _ =>
-            throw IndexOutOfRangeException()
-            &this.Item1
-
 class ShaderTextures =
 
     field lookup: Dictionary<IGpuImage, int32> = Dictionary()
@@ -240,7 +226,18 @@ class RenderLighting =
     GetShaderLightByIndex(index: int32): byref<LightShaderData> =
         let buffer = this.LightsBuffer
         buffer.NeedsUpdate <- true
-        &buffer.Array[0][index]
+        match (index)
+        | 0 => &buffer.Array[0].Item1
+        | 1 => &buffer.Array[0].Item2
+        | 2 => &buffer.Array[0].Item3
+        | 3 => &buffer.Array[0].Item4
+        | 4 => &buffer.Array[0].Item5
+        | 5 => &buffer.Array[0].Item6
+        | 6 => &buffer.Array[0].Item7
+        | 8 => &buffer.Array[0].Item8
+        | _ =>
+            throw IndexOutOfRangeException()
+            &buffer.Array[0].Item1
 
     GetShaderGlobalsComputeDescriptorSetByIndex(index: int32): GpuDescriptorSet =
         let buffer = this.GlobalsBuffers[index]
