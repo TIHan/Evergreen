@@ -513,7 +513,7 @@ struct RenderKey =
         }
 
     static Comparer: IEqualityComparer<RenderKey> get =
-        internal class Impl = // TODO: language-bug, should not be able or have to use 'internal' access modifier in local declaration
+        class Impl = 
             implements IEqualityComparer<RenderKey>
 
             GetHashCode(key: RenderKey): int32 = key.Material.ImageId.Value
