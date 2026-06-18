@@ -14,7 +14,7 @@ open Evergreen.Utilities
 open Evergreen.Graphics.Backend.Vulkan
 open Evergreen.Graphics.Rendering.UI
 
-private alias Unsafe = OlyPrelude.Unsafe
+private alias Unsafe = Oly.Prelude.Core.Unsafe
 
 alias VkDrawIndexedIndirectCommand = TerraFX.Interop.Vulkan.VkDrawIndexedIndirectCommand
 

@@ -128,3 +128,4 @@ main(args: string[]): () =
 
         Steam.Shutdown()
         Physics.Shutdown()
+        

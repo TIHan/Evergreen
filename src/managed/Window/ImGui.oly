@@ -11,7 +11,7 @@ open static TerraFX.Interop.Vulkan.Vulkan
 open Evergreen.Graphics.UI.Backend.ImGui.Interop
 open static Evergreen.Graphics.UI.Backend.ImGui.Interop.Methods
 
-private alias Unsafe = OlyPrelude.Unsafe
+private alias Unsafe = Oly.Prelude.Core.Unsafe
 
 #[blittable]
 #[UnmanagedCallersOnly() { CallConvs = [DotNet.TypeOf<CallConvCdecl>] }]

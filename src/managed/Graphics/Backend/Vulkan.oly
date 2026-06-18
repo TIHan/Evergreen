@@ -13,7 +13,7 @@ open static TerraFX.Interop.Vulkan.Vulkan
 open Evergreen.Utilities
 open static Evergreen.Graphics.Backend.Interop.VulkanMemoryAllocator
 
-private alias Unsafe = OlyPrelude.Unsafe
+private alias Unsafe = Oly.Prelude.Core.Unsafe
 
 alias VkExtent2D = TerraFX.Interop.Vulkan.VkExtent2D
 alias VkRect2D = TerraFX.Interop.Vulkan.VkRect2D

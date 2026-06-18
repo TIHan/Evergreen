@@ -21,7 +21,7 @@ open System.Runtime.Intrinsics
 open System.Collections.Generic
 open System.Collections.Concurrent
 
-private alias Unsafe = OlyPrelude.Unsafe
+private alias Unsafe = Oly.Prelude.Core.Unsafe
 
 class DoubleBuffer<T> =
     field mutable currentIndex: int32

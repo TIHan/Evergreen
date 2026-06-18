@@ -28,7 +28,7 @@ open Evergreen.Utilities
 open Evergreen.Physics.Backend.Jolt.Interop
 open static Evergreen.Physics.Backend.Jolt.Interop.Methods
 
-private alias Unsafe = OlyPrelude.Unsafe
+private alias Unsafe = Oly.Prelude.Core.Unsafe
 
 newtype StaticObjectId =
     public field Value: uint32
