@@ -384,7 +384,7 @@ class SteamServerTransport =
     ReceiveFrom(buffer: Span<byte>): (int32, INetworkIdentity) =
         this.CheckDisposed()
         let server = this.CheckServer()
-        let (connection, bytesRead) = server.ReceiveMessage(buffer) // TODO-language-bug: 'let (connection, bytesRead) = server.ReceiveMessage(buffer)' being the last expression should error.
+        let (connection, bytesRead) = server.ReceiveMessage(buffer)
         if (bytesRead > 0)
             let identity = SteamConnectionIdentity(connection)
             (bytesRead, identity)
