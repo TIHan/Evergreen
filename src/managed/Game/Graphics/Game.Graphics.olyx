@@ -854,6 +854,6 @@ class InstanceOutputs =
         gpu.Free(this.PlayerCameraComputeDescriptorSet)
         gpu.Free(this.PlayerCamera)
         gpu.Free(this.PlayerCameraDrawCommands)
-        ForEach(this.LightCamerasComputeDescriptorSets, x -> gpu.Free(x))
-        ForEach(this.LightCameras, gpu.Free<_>) // TODO-language-bug: Cannot do 'ForEach(this.ShadowMapCameras, gpu.Free)' because of an overload bug on 'gpu.Free'
-        ForEach(this.LightCamerasDrawCommands, x -> gpu.Free(x))
+        ForEach(this.LightCamerasComputeDescriptorSets, gpu.Free)
+        ForEach(this.LightCameras, gpu.Free)
+        ForEach(this.LightCamerasDrawCommands, gpu.Free)

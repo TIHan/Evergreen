@@ -18,8 +18,7 @@ private ConsoleFontSmall: Font get = Font(FontLocations.Consolas, 12)
 
 module Binding =
 
-    // TODO-language-bug: should not have to do 'mutable view'.
-    Title<T>(mutable view: T, obs: Var<string>): () where T: View, { Title: string get, set } =
+    Title<T>(view: T, obs: Var<string>): () where T: View, { Title: string get, set } =
         view.Title <- obs.Value
         obs.Add(value -> view.Title <- value)
 

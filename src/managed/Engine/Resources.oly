@@ -154,16 +154,15 @@ class Resources =
     RenderMeshes: AssetManager<RenderMeshGroup> get
     ShaderGlobals: AssetManager<GpuBuffer<GlobalShaderData>> get
 
-    new(r: Rendering) =        
+    new(r: Rendering) =     
         // Asset Management
         let fs = FileSystem()
 
         let maps = AssetManager<Stream>((_, fs) -> fs.Dispose())
         maps.RegisterFiles(".json", "Maps", fs, 
             (filePath, _) -> 
-                let result = File.OpenRead(filePath): Stream
-                result
-        ) // TODO-language-bug: Should not have to annotate ': Stream'.??? maybe??
+                File.OpenRead(filePath)
+        )
     
         let audio = Audio(int32(GameLoop.FixedUpdateDeltaTimeInMilliseconds * 2))
         let soundManager = AssetManager<Sound>((_, sound) -> ())
