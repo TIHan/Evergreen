@@ -123,7 +123,9 @@ main(args: string[]): () =
             (_) -> return BenchmarkMap(resx, genv)
         )
 
-       // Console.SetOut(genv.ConsoleWriter)
+#if DEBUG
+        Console.SetOut(genv.ConsoleWriter)
+#end
         Game.Orchestration.Run(genv, renv)
 
         Steam.Shutdown()
