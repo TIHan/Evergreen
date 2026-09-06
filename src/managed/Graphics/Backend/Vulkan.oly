@@ -1444,18 +1444,22 @@ module Vk =
         if ((messageSeverity & VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) == VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
             let callback = *pCallbackData
             let str = String(callback.pMessage)
-            throw VulkanValidationException(str)
-
-        let callback = *pCallbackData
-        let str = String(callback.pMessage)
-        if ((messageSeverity & VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) == VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-            if (str.Contains("UNASSIGNED-CoreValidation-Shader-OutputNotConsumed"))
-                throw VulkanValidationException(str)
-            else
+            if (str.Contains("Epic Games")) // Failing to load the epic games JSON file should not have been an error
                 LogWarning("Vulkan Validation Layer: " + str)
+                VkBool32.FALSE
+            else
+                throw VulkanValidationException(str)
         else
-            Log("Vulkan Validation Layer: " + str)
-        VkBool32.FALSE
+            let callback = *pCallbackData
+            let str = String(callback.pMessage)
+            if ((messageSeverity & VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) == VkDebugUtilsMessageSeverityFlagsEXT.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+                if (str.Contains("UNASSIGNED-CoreValidation-Shader-OutputNotConsumed"))
+                    throw VulkanValidationException(str)
+                else
+                    LogWarning("Vulkan Validation Layer: " + str)
+            else
+                Log("Vulkan Validation Layer: " + str)
+            VkBool32.FALSE
 
     private populateDebugMessengerCreateInfo(vulkanValidationFlags: VulkanValidationFlags, createInfo: byref<VkDebugUtilsMessengerCreateInfoEXT>): () =
 
